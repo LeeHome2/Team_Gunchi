@@ -1,0 +1,136 @@
+# System Architecture
+
+## 전체 시스템 구조
+
+```
+                User
+                 │
+                 ▼
+          Web Frontend
+             (React)
+                 │
+                 ▼
+           Cesium Viewer
+                 │
+                 ▼
+        3D Model Loader (glTF)
+                 │
+                 ▼
+              Backend
+            (FastAPI)
+                 │
+        ┌────────┴────────┐
+        ▼                 ▼
+   CAD Parser        Data Services
+   (ezdxf)          (GIS / 지적도)
+        │
+        ▼
+  Geometry Generator
+        │
+        ▼
+     Mesh Builder
+        │
+        ▼
+    glTF Exporter
+        │
+        ▼
+      Storage
+```
+
+---
+
+## Frontend
+
+### 주요 역할
+
+* 지도 렌더링
+* 3D 모델 시각화
+* 사용자 인터랙션
+
+### 구성
+
+```
+React
+│
+├─ Cesium Viewer
+├─ Model Loader
+├─ Shadow Controller
+└─ UI Controls
+```
+
+---
+
+## Backend
+
+### 주요 역할
+
+* CAD 도면 처리
+* 매스 생성
+* 모델 변환
+
+### 구성
+
+```
+FastAPI
+│
+├─ CAD Parser
+├─ Geometry Processor
+├─ Mesh Generator
+├─ glTF Exporter
+└─ Simulation Engine
+```
+
+---
+
+## Data Sources
+
+### GIS 데이터
+
+* 지도 타일
+* 지적도
+* 건물 데이터
+
+### CAD 데이터
+
+* DXF
+* DWG
+
+---
+
+## 주요 데이터 포맷
+
+| 데이터    | 포맷           |
+| ------ | ------------ |
+| CAD 도면 | DXF          |
+| 3D 모델  | GLTF / GLB   |
+| 지도 데이터 | Vector tiles |
+| 지적도    | GeoJSON      |
+
+---
+
+## 시스템 특징
+
+### 확장성
+
+* 도시 단위 확장 가능
+* 3D Tiles 지원
+
+### 모듈화
+
+* CAD 처리 독립
+* 시뮬레이션 독립
+
+---
+
+## 보안
+
+* 파일 업로드 검증
+* API 인증
+
+---
+
+## 성능 전략
+
+* 모델 캐싱
+* LOD 적용
+* 타일 기반 로딩

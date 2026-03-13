@@ -1,0 +1,159 @@
+# CAD → 3D Mass Generation Pipeline
+
+## 전체 파이프라인
+
+```
+CAD File
+(DXF / DWG)
+     │
+     ▼
+CAD Parsing
+(ezdxf)
+     │
+     ▼
+Layer Analysis
+     │
+     ▼
+Footprint Extraction
+     │
+     ▼
+Geometry Reconstruction
+     │
+     ▼
+3D Mass Generation
+     │
+     ▼
+Mesh Construction
+     │
+     ▼
+glTF Export
+     │
+     ▼
+Cesium Visualization
+```
+
+---
+
+## Step 1. CAD Parsing
+
+도면에서 다음 정보를 추출한다.
+
+* LINE
+* LWPOLYLINE
+* ARC
+* CIRCLE
+
+벽 레이어 분석
+
+---
+
+## Step 2. Footprint Extraction
+
+건물 외곽선을 추출한다.
+
+방법
+
+* polyline merge
+* topology reconstruction
+
+출력
+
+```
+polygon footprint
+```
+
+---
+
+## Step 3. Geometry Reconstruction
+
+footprint를 기반으로 건물 구조 생성
+
+예
+
+```
+footprint
+height
+floors
+```
+
+---
+
+## Step 4. Mass Generation
+
+2D footprint를 extrude하여 3D 생성
+
+```
+2D polygon
+     │
+     ▼
+extrude
+     │
+     ▼
+3D mass
+```
+
+---
+
+## Step 5. Mesh Generation
+
+mesh 생성
+
+```
+vertices
+faces
+normals
+```
+
+---
+
+## Step 6. glTF Export
+
+mesh를 glTF 형식으로 변환
+
+출력
+
+```
+building.glb
+```
+
+---
+
+## Step 7. Cesium Visualization
+
+Cesium에서 모델 로드
+
+```
+longitude
+latitude
+height
+```
+
+좌표에 배치
+
+---
+
+## Optional Step
+
+### AI 기반 분석
+
+가능한 기능
+
+* 층수 추정
+* 지붕 형태 예측
+* 건물 유형 분류
+
+---
+
+## Pipeline Summary
+
+```
+CAD → Parsing → Footprint → Mass → Mesh → glTF → Cesium
+```
+
+---
+
+## 향후 개선
+
+* 자동 층고 추정
+* BIM 연동
+* LOD2 모델 생성

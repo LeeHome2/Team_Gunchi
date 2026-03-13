@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Cesium 위젯 스타일 */
+@import 'cesium/Build/Cesium/Widgets/widgets.css';
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-rgb: 255, 255, 255;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+}
+
+/* Cesium 뷰어 컨테이너 */
+.cesium-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.cesium-viewer {
+  width: 100%;
+  height: 100%;
+}
+
+/* 컨트롤 패널 스타일 */
+.control-panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  max-width: 320px;
+}
+
+.sidebar {
+  width: 100%;
+  height: 100%;
+  background: white;
+  overflow-y: auto;
+}
+
+/* 버튼 스타일 */
+.btn-primary {
+  @apply bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors;
+}
+
+/* 인풋 스타일 */
+.input-field {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500;
+}
+
+/* 검토 결과 스타일 */
+.validation-ok {
+  @apply text-green-600 bg-green-50 px-2 py-1 rounded;
+}
+
+.validation-warning {
+  @apply text-yellow-600 bg-yellow-50 px-2 py-1 rounded;
+}
+
+.validation-error {
+  @apply text-red-600 bg-red-50 px-2 py-1 rounded;
+}
+
+/* 로딩 스피너 */
+.spinner {
+  @apply animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600;
+}
