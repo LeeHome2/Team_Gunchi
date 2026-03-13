@@ -283,6 +283,7 @@ http://localhost:3002
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_CESIUM_TOKEN=your_cesium_ion_token
 ```
+> Cesium 토큰 발급: https://cesium.com/ion/ (무료 계정 생성 후 Access Token 발급)
 
 ### Backend (.env) - 선택사항
 ```env
