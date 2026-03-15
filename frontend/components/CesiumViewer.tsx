@@ -44,19 +44,44 @@ export default function CesiumViewer() {
   const setSelectedModel = useProjectStore((state) => state.setSelectedModel)
   const setLoadedModelEntity = useProjectStore((state) => state.setLoadedModelEntity)
   const setWorkArea = useProjectStore((state) => state.setWorkArea)
+  const setAvailableModels = useProjectStore((state) => state.setAvailableModels)
+  const selectedBlockCount = useProjectStore((state) => state.selectedBlockCount)
+  const setSelectedBlockCount = useProjectStore((state) => state.setSelectedBlockCount)
+  const modelToLoad = useProjectStore((state) => state.modelToLoad)
+  const setModelToLoad = useProjectStore((state) => state.setModelToLoad)
+  const isLoadingModel = useProjectStore((state) => state.isLoadingModel)
+  const setIsLoadingModel = useProjectStore((state) => state.setIsLoadingModel)
+  const humanScaleModelLoaded = useProjectStore((state) => state.humanScaleModelLoaded)
+  const setHumanScaleModelLoaded = useProjectStore((state) => state.setHumanScaleModelLoaded)
 
-  // 영역 선택 모드
-  const [isSelectingArea, setIsSelectingArea] = useState(false)
+  // 지역 선택 모드 (지적도 데이터 로드)
+  const [isSelectingRegion, setIsSelectingRegion] = useState(false)
+
+  // 영역 선택 모드 (블록 선택) - 여러 블록 선택 지원
+  const [isSelectingBlock, setIsSelectingBlock] = useState(false)
+  const selectedBlockEntitiesRef = useRef<any[]>([]) // 여러 블록 선택 지원
 
   // 지적도 레이어
   const [showCadastral, setShowCadastral] = useState(false)
+  const [hasPolylinesLoaded, setHasPolylinesLoaded] = useState(false) // 폴리라인 로드 여부
   const cadastralLayerRef = useRef<any>(null)
+  const cadastralBoundaryEntitiesRef = useRef<any[]>([])
+  const cadastralFeaturesRef = useRef<any[]>([]) // GeoJSON features 저장
+  const selectedRegionRef = useRef<{ lon: number; lat: number } | null>(null) // 선택된 지역 좌표
 
   // OSM 건물 관련
   const osmTilesetRef = useRef<any>(null)
   const [hiddenBuildingIds, setHiddenBuildingIds] = useState<string[]>([])
   const [selectedBuilding, setSelectedBuilding] = useState<{ id: string; name: string } | null>(null)
   const [isBuildingSelectMode, setIsBuildingSelectMode] = useState(false)
+
+  // 샘플 모델 관련
+  const availableModels = useProjectStore((state) => state.availableModels)
+  const loadedSampleModelRef = useRef<any>(null)
+
+  // 휴먼 스케일 모델 관련
+  const humanModelRef = useRef<any>(null)
+  const humanModelTransformRef = useRef({ longitude: 0, latitude: 0 })
 
   // 뷰포트 리프레시 키
   const [refreshKey, setRefreshKey] = useState(0)
@@ -73,10 +98,134 @@ export default function CesiumViewer() {
   const modelDragStartRef = useRef<any>(null)
   const modelTransformRef = useRef(modelTransform)
 
-  // modelTransform이 변경될 때 ref 업데이트
+  // 휴먼 모델 드래그 상태
+  const isHumanDraggingRef = useRef(false)
+  const humanDragStartRef = useRef<any>(null)
+
+  // 모델이 선택 영역 내에 있는지 추적
+  const [isModelInBounds, setIsModelInBounds] = useState(true)
+
+  // 모델 바운딩 박스 크기 (미터 단위, 기본 크기)
+  const modelBoundingBoxRef = useRef({ width: 10, depth: 10 })  // 가로, 세로 (미터)
+
+  // 모델 바닥면 바운더리 폴리라인 엔티티
+  const modelBoundaryEntityRef = useRef<any>(null)
+
+  // modelTransform이 변경될 때 ref 업데이트 및 경계 체크
   useEffect(() => {
     modelTransformRef.current = modelTransform
   }, [modelTransform])
+
+  // modelTransform 변경 시 바닥면 경계 체크 및 바운더리 폴리라인 업데이트
+  useEffect(() => {
+    if (!viewerRef.current || !isLoaded) return
+    if (!loadedSampleModelRef.current) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+
+    // 점이 폴리곤 내부에 있는지 확인
+    const checkInPolygon = (point: number[], polygon: number[][]) => {
+      const x = point[0], y = point[1]
+      let inside = false
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1]
+        const xj = polygon[j][0], yj = polygon[j][1]
+        if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+          inside = !inside
+        }
+      }
+      return inside
+    }
+
+    // 모델 바닥면의 네 모서리 좌표 계산
+    const { longitude, latitude, rotation, scale } = modelTransform
+    const halfWidth = (modelBoundingBoxRef.current.width * scale) / 2
+    const halfDepth = (modelBoundingBoxRef.current.depth * scale) / 2
+    const latRad = latitude * Math.PI / 180
+    const metersPerDegLon = 111320 * Math.cos(latRad)
+    const metersPerDegLat = 111320
+    // Cesium heading은 시계방향이므로 각도를 반전
+    const rotRad = -rotation * Math.PI / 180
+    const cos = Math.cos(rotRad)
+    const sin = Math.sin(rotRad)
+
+    const localCorners = [
+      { x: -halfWidth, y: -halfDepth },
+      { x: halfWidth, y: -halfDepth },
+      { x: halfWidth, y: halfDepth },
+      { x: -halfWidth, y: halfDepth },
+    ]
+
+    const corners = localCorners.map(corner => {
+      const rotatedX = corner.x * cos - corner.y * sin
+      const rotatedY = corner.x * sin + corner.y * cos
+      return [longitude + (rotatedX / metersPerDegLon), latitude + (rotatedY / metersPerDegLat)]
+    })
+
+    // 모든 모서리가 선택된 블록들 중 하나 안에 있어야 함
+    let inBounds = true
+    if (selectedBlockEntitiesRef.current.length > 0) {
+      for (const corner of corners) {
+        let cornerInAnyBlock = false
+        for (const item of selectedBlockEntitiesRef.current) {
+          const coords = item.feature?.geometry?.coordinates?.[0]
+          if (coords && checkInPolygon(corner, coords)) {
+            cornerInAnyBlock = true
+            break
+          }
+        }
+        if (!cornerInAnyBlock) {
+          inBounds = false
+          break
+        }
+      }
+    }
+
+    // 바운더리 색상 결정
+    const boundaryColor = inBounds ? Cesium.Color.LIME : Cesium.Color.RED
+
+    // 바운더리 폴리라인 생성/업데이트
+    const boundaryPositions = [
+      ...corners.map(c => Cesium.Cartesian3.fromDegrees(c[0], c[1], 0.5)),
+      Cesium.Cartesian3.fromDegrees(corners[0][0], corners[0][1], 0.5) // 닫기
+    ]
+
+    if (modelBoundaryEntityRef.current) {
+      // 기존 폴리라인 업데이트
+      modelBoundaryEntityRef.current.polyline.positions = boundaryPositions
+      modelBoundaryEntityRef.current.polyline.material = boundaryColor
+    } else {
+      // 새 폴리라인 생성
+      modelBoundaryEntityRef.current = viewer.entities.add({
+        id: 'model-boundary',
+        polyline: {
+          positions: boundaryPositions,
+          width: 4,
+          material: boundaryColor,
+          clampToGround: true,
+        }
+      })
+    }
+
+    // 선택 영역 색상 업데이트
+    if (inBounds !== isModelInBounds) {
+      setIsModelInBounds(inBounds)
+      const areaColor = inBounds ? Cesium.Color.CYAN : Cesium.Color.RED
+      for (const item of selectedBlockEntitiesRef.current) {
+        if (item.entity?.polygon) {
+          item.entity.polygon.material = areaColor.withAlpha(0.4)
+        }
+        if (item.entity?.polyline) {
+          item.entity.polyline.material = areaColor
+        }
+      }
+    }
+
+    viewer.scene.requestRender()
+  }, [modelTransform.longitude, modelTransform.latitude, modelTransform.rotation, modelTransform.scale, isLoaded, isModelInBounds])
 
   // 상태 저장 (localStorage)
   const saveViewportState = useCallback(() => {
@@ -271,15 +420,456 @@ export default function CesiumViewer() {
     }
   }, [])
 
-  // 영역 선택 모드 토글
-  const toggleAreaSelection = useCallback(() => {
-    setIsSelectingArea(prev => !prev)
+  // 지역 선택 모드 토글
+  const toggleRegionSelection = useCallback(() => {
+    setIsSelectingRegion(prev => !prev)
+    setIsSelectingBlock(false) // 다른 선택 모드 끄기
+  }, [])
+
+  // 선택된 블록들 모두 제거
+  const clearSelectedBlocks = useCallback(() => {
+    if (!viewerRef.current) return
+
+    selectedBlockEntitiesRef.current.forEach((item) => {
+      viewerRef.current.entities.remove(item.entity)
+    })
+    selectedBlockEntitiesRef.current = []
+    setSelectedBlockCount(0)
+    setIsModelInBounds(true)
+
+    // 바운더리 폴리라인도 제거
+    if (modelBoundaryEntityRef.current) {
+      viewerRef.current.entities.remove(modelBoundaryEntityRef.current)
+      modelBoundaryEntityRef.current = null
+    }
+
+    viewerRef.current.scene.requestRender()
+  }, [])
+
+  // 점이 폴리곤 내부에 있는지 확인 (ray casting algorithm)
+  const isPointInPolygon = useCallback((point: number[], polygon: number[][]) => {
+    const x = point[0], y = point[1]
+    let inside = false
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0], yi = polygon[i][1]
+      const xj = polygon[j][0], yj = polygon[j][1]
+
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        inside = !inside
+      }
+    }
+
+    return inside
+  }, [])
+
+  // 모델 바닥면의 네 모서리 좌표 계산
+  const getModelFootprintCorners = useCallback((lon: number, lat: number, rotation: number, scale: number) => {
+    // 바운딩 박스 크기 (미터) * 스케일
+    const halfWidth = (modelBoundingBoxRef.current.width * scale) / 2
+    const halfDepth = (modelBoundingBoxRef.current.depth * scale) / 2
+
+    // 위도 기준 미터 → 경도/위도 변환 계수
+    const latRad = lat * Math.PI / 180
+    const metersPerDegLon = 111320 * Math.cos(latRad)
+    const metersPerDegLat = 111320
+
+    // 회전 각도 (라디안) - Cesium heading은 시계방향이므로 각도를 반전
+    const rotRad = -rotation * Math.PI / 180
+    const cos = Math.cos(rotRad)
+    const sin = Math.sin(rotRad)
+
+    // 로컬 좌표에서 네 모서리 (중심 기준)
+    const localCorners = [
+      { x: -halfWidth, y: -halfDepth },  // 좌하단
+      { x: halfWidth, y: -halfDepth },   // 우하단
+      { x: halfWidth, y: halfDepth },    // 우상단
+      { x: -halfWidth, y: halfDepth },   // 좌상단
+    ]
+
+    // 회전 적용 후 경도/위도로 변환
+    return localCorners.map(corner => {
+      // 회전 적용
+      const rotatedX = corner.x * cos - corner.y * sin
+      const rotatedY = corner.x * sin + corner.y * cos
+
+      // 미터 → 경도/위도 변환
+      const cornerLon = lon + (rotatedX / metersPerDegLon)
+      const cornerLat = lat + (rotatedY / metersPerDegLat)
+
+      return [cornerLon, cornerLat]
+    })
+  }, [])
+
+  // 모델 바닥면이 선택된 블록들 내에 완전히 있는지 확인
+  const checkModelInBounds = useCallback((lon: number, lat: number, rotation: number, scale: number) => {
+    if (selectedBlockEntitiesRef.current.length === 0) return true
+
+    // 모델 바닥면의 네 모서리 좌표 계산
+    const corners = getModelFootprintCorners(lon, lat, rotation, scale)
+
+    // 모든 모서리가 선택된 블록들 중 하나 안에 있어야 함
+    for (const corner of corners) {
+      let cornerInAnyBlock = false
+      for (const item of selectedBlockEntitiesRef.current) {
+        const coords = item.feature?.geometry?.coordinates?.[0]
+        if (coords && isPointInPolygon(corner, coords)) {
+          cornerInAnyBlock = true
+          break
+        }
+      }
+      // 하나라도 밖에 있으면 false
+      if (!cornerInAnyBlock) {
+        return false
+      }
+    }
+    return true
+  }, [isPointInPolygon, getModelFootprintCorners])
+
+  // 선택된 블록들의 색상 업데이트
+  const updateBlocksColor = useCallback((inBounds: boolean) => {
+    if (!viewerRef.current) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const color = inBounds ? Cesium.Color.CYAN : Cesium.Color.RED
+
+    for (const item of selectedBlockEntitiesRef.current) {
+      if (item.entity?.polygon) {
+        item.entity.polygon.material = color.withAlpha(0.4)
+      }
+      if (item.entity?.polyline) {
+        item.entity.polyline.material = color
+      }
+    }
+
+    viewerRef.current.scene.requestRender()
+  }, [])
+
+  // 샘플 모델 목록 가져오기
+  const fetchAvailableModels = useCallback(async () => {
+    try {
+      const response = await fetch('/api/models')
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableModels(data.models || [])
+      }
+    } catch (error) {
+      console.error('모델 목록 가져오기 실패:', error)
+    }
+  }, [])
+
+  // 샘플 모델 목록 가져오기 (컴포넌트 마운트 시)
+  useEffect(() => {
+    fetchAvailableModels()
+  }, [fetchAvailableModels])
+
+  // 선택된 블록 중심 좌표 계산
+  const getSelectedBlocksCenter = useCallback(() => {
+    if (selectedBlockEntitiesRef.current.length === 0) return null
+
+    let totalLon = 0
+    let totalLat = 0
+    let count = 0
+
+    for (const item of selectedBlockEntitiesRef.current) {
+      const coords = item.feature?.geometry?.coordinates?.[0]
+      if (coords) {
+        for (const coord of coords) {
+          if (Array.isArray(coord) && coord.length >= 2) {
+            totalLon += coord[0]
+            totalLat += coord[1]
+            count++
+          }
+        }
+      }
+    }
+
+    if (count === 0) return null
+
+    return {
+      lon: totalLon / count,
+      lat: totalLat / count
+    }
+  }, [])
+
+  // 샘플 모델 로드
+  const loadSampleModel = useCallback(async (filename: string) => {
+    if (!viewerRef.current) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    // 선택된 블록이 없으면 경고
+    if (selectedBlockEntitiesRef.current.length === 0) {
+      alert('먼저 영역을 선택해주세요')
+      return
+    }
+
+    setIsLoadingModel(true)
+
+    try {
+      // 기존 샘플 모델 제거 (ref와 ID 둘 다 확인)
+      if (loadedSampleModelRef.current) {
+        viewerRef.current.entities.remove(loadedSampleModelRef.current)
+        loadedSampleModelRef.current = null
+      }
+      const existingModel = viewerRef.current.entities.getById('loaded-3d-model')
+      if (existingModel) {
+        viewerRef.current.entities.remove(existingModel)
+      }
+
+      // 기존 바운더리 폴리라인 제거
+      if (modelBoundaryEntityRef.current) {
+        viewerRef.current.entities.remove(modelBoundaryEntityRef.current)
+        modelBoundaryEntityRef.current = null
+      }
+      const existingBoundary = viewerRef.current.entities.getById('model-boundary')
+      if (existingBoundary) {
+        viewerRef.current.entities.remove(existingBoundary)
+      }
+
+      // 경계 상태 초기화
+      setIsModelInBounds(true)
+
+      // 선택된 블록 중심 좌표 계산
+      const center = getSelectedBlocksCenter()
+      if (!center) {
+        alert('블록 좌표를 계산할 수 없습니다')
+        setIsLoadingModel(false)
+        return
+      }
+
+      console.log('모델 로드 위치:', center)
+
+      // 해당 모델의 바운딩 박스 정보 가져오기
+      const modelInfo = availableModels.find(m => m.filename === filename)
+      if (modelInfo?.boundingBox) {
+        // GLB 모델은 Y-up이므로 width=X, depth=Z (바닥면 기준)
+        modelBoundingBoxRef.current = {
+          width: modelInfo.boundingBox.width,
+          depth: modelInfo.boundingBox.depth,
+        }
+        console.log('모델 바운딩 박스 설정:', modelBoundingBoxRef.current)
+      }
+
+      // 모델 변환 정보 초기화 (Sidebar 슬라이더용)
+      const initialHeight = 0
+      const initialRotation = 0
+      const initialScale = 10.0  // 기본 스케일
+      setModelTransform({
+        longitude: center.lon,
+        latitude: center.lat,
+        height: initialHeight,
+        rotation: initialRotation,
+        scale: initialScale,
+      })
+
+      // 초기 위치 및 회전 설정
+      const position = Cesium.Cartesian3.fromDegrees(center.lon, center.lat, initialHeight)
+      const heading = Cesium.Math.toRadians(initialRotation)
+      const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0)
+      const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr)
+
+      // 모델 로드 - RELATIVE_TO_GROUND로 높이 조절 가능하게
+      const modelEntity = viewerRef.current.entities.add({
+        id: 'loaded-3d-model',
+        name: filename,
+        position: position,
+        orientation: orientation,
+        model: {
+          uri: `/api/models/${encodeURIComponent(filename)}`,
+          scale: initialScale,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+        }
+      })
+
+      loadedSampleModelRef.current = modelEntity
+      setLoadedModelEntity(modelEntity)
+
+      viewerRef.current.scene.requestRender()
+      console.log('샘플 모델 로드 완료:', filename)
+    } catch (error) {
+      console.error('모델 로드 실패:', error)
+      alert('모델 로드에 실패했습니다')
+    } finally {
+      setIsLoadingModel(false)
+    }
+  }, [getSelectedBlocksCenter, setLoadedModelEntity, setModelTransform, availableModels])
+
+  // 스토어의 modelToLoad 변경 감지하여 모델 로드 (Sidebar에서 트리거)
+  useEffect(() => {
+    if (modelToLoad && isLoaded && !isLoadingModel) {
+      loadSampleModel(modelToLoad)
+      setModelToLoad(null) // 로드 후 초기화
+    }
+  }, [modelToLoad, isLoaded, isLoadingModel, loadSampleModel, setModelToLoad])
+
+  // 휴먼 스케일 모델 로드/제거
+  useEffect(() => {
+    if (!viewerRef.current || !isLoaded) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+
+    if (humanScaleModelLoaded) {
+      // 기존 휴먼 모델이 있으면 제거
+      if (humanModelRef.current) {
+        viewer.entities.remove(humanModelRef.current)
+        humanModelRef.current = null
+      }
+
+      // 선택된 블록 중심 또는 건물 모델 근처에 배치
+      const center = getSelectedBlocksCenter()
+      if (!center) {
+        console.log('휴먼 모델 배치할 위치 없음')
+        setHumanScaleModelLoaded(false)
+        return
+      }
+
+      // 건물 모델에서 약간 떨어진 위치에 배치
+      const humanLon = center.lon + 0.00005  // 약 5m 옆
+      const humanLat = center.lat
+
+      humanModelTransformRef.current = { longitude: humanLon, latitude: humanLat }
+
+      // 휴먼 모델 로드 (원본 2m → 스케일 0.9로 180cm)
+      // 모델 원점 위치에 따라 높이 오프셋 조정
+      const humanHeight = 0.9  // 원점이 모델 중심에 있으면 반높이(0.9m) 올림
+      const humanEntity = viewer.entities.add({
+        id: 'human-scale-model',
+        name: '휴먼 스케일 (180cm)',
+        position: Cesium.Cartesian3.fromDegrees(humanLon, humanLat, humanHeight),
+        model: {
+          uri: '/api/models/Meshy_AI_man_0315144539_texture.glb',
+          scale: 0.9,  // 원본 2m × 0.9 = 180cm
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+        }
+      })
+
+      humanModelRef.current = humanEntity
+      viewer.scene.requestRender()
+      console.log('휴먼 스케일 모델 로드 완료')
+    } else {
+      // 휴먼 모델 제거
+      if (humanModelRef.current) {
+        viewer.entities.remove(humanModelRef.current)
+        humanModelRef.current = null
+        viewer.scene.requestRender()
+        console.log('휴먼 스케일 모델 제거')
+      }
+    }
+  }, [humanScaleModelLoaded, isLoaded, getSelectedBlocksCenter, setHumanScaleModelLoaded])
+
+  // 영역 선택 모드 토글 (블록 선택) - ON/OFF 토글
+  const toggleBlockSelection = useCallback(() => {
+    setIsSelectingBlock(prev => !prev)
+    setIsSelectingRegion(false) // 다른 선택 모드 끄기
+  }, [])
+
+  // WFS로 대지경계선 벡터 데이터 로드 및 폴리라인 그리기
+  const loadCadastralBoundaries = useCallback(async (lon: number, lat: number) => {
+    if (!viewerRef.current) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+
+    // 기존 경계선 엔티티 제거
+    cadastralBoundaryEntitiesRef.current.forEach((entity) => {
+      viewer.entities.remove(entity)
+    })
+    cadastralBoundaryEntitiesRef.current = []
+
+    // 기존 선택 블록들 제거
+    selectedBlockEntitiesRef.current.forEach((item) => {
+      viewer.entities.remove(item.entity)
+    })
+    selectedBlockEntitiesRef.current = []
+
+    // 선택된 지역 좌표 저장 (WMS 로드용)
+    selectedRegionRef.current = { lon, lat }
+
+    // 범위 계산 (약 200m)
+    const offset = 0.002
+    const west = lon - offset
+    const south = lat - offset
+    const east = lon + offset
+    const north = lat + offset
+
+    try {
+      const response = await fetch(`/api/cadastral/wfs?bbox=${west},${south},${east},${north}`)
+
+      if (!response.ok) {
+        console.error('WFS 요청 실패:', response.status)
+        return
+      }
+
+      const data = await response.json()
+
+      if (!data.features || data.features.length === 0) {
+        console.log('지적 경계 데이터 없음')
+        return
+      }
+
+      console.log(`지적 경계 ${data.features.length}개 로드됨`)
+
+      // GeoJSON features 저장 (블록 선택용)
+      cadastralFeaturesRef.current = data.features
+
+      // 각 폴리곤의 경계를 폴리라인으로 그리기 (clampToGround 사용)
+      let polylineCount = 0
+
+      for (const feature of data.features) {
+        if (feature.geometry && feature.geometry.type === 'Polygon') {
+          const rings = feature.geometry.coordinates
+
+          for (const ring of rings) {
+            // 첫 번째 폴리라인의 좌표 디버그 출력
+            if (polylineCount === 0) {
+              console.log('첫 번째 폴리라인 좌표 (원본):', ring.slice(0, 3))
+            }
+
+            // 좌표를 Cartesian3 배열로 변환 (높이 없이 - clampToGround 사용)
+            const positions = ring.map((coord: number[]) =>
+              Cesium.Cartesian3.fromDegrees(coord[0], coord[1])
+            )
+
+            // 폴리라인 엔티티 생성 (지형에 붙이기)
+            const entity = viewer.entities.add({
+              polyline: {
+                positions: positions,
+                width: 4,
+                material: Cesium.Color.MAGENTA,
+                clampToGround: true,
+                classificationType: Cesium.ClassificationType.TERRAIN,
+              }
+            })
+
+            cadastralBoundaryEntitiesRef.current.push(entity)
+            polylineCount++
+          }
+        }
+      }
+
+      viewer.scene.requestRender()
+      setHasPolylinesLoaded(true)
+      setSelectedBlockCount(0)
+      console.log('대지경계선 그리기 완료:', polylineCount, '개 폴리라인')
+      console.log('총 엔티티 수:', viewer.entities.values.length)
+    } catch (error) {
+      console.error('WFS 데이터 로드 실패:', error)
+    }
   }, [])
 
   // 지적도 토글
   const toggleCadastral = useCallback(() => {
     if (showCadastral) {
-      // 지적도 끄기
+      // 지적도 WMS 타일 끄기
       if (cadastralLayerRef.current && viewerRef.current) {
         viewerRef.current.imageryLayers.remove(cadastralLayerRef.current)
         cadastralLayerRef.current = null
@@ -287,23 +877,18 @@ export default function CesiumViewer() {
       }
       setShowCadastral(false)
     } else {
-      // 지적도 켜기 - workArea가 있으면 해당 위치, 없으면 현재 카메라 위치
+      // 지적도 WMS 타일 켜기 - 선택된 지역 좌표 사용
       if (!viewerRef.current) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
-      let lon: number, lat: number
-
-      if (workArea) {
-        lon = workArea.longitude
-        lat = workArea.latitude
-      } else {
-        // 현재 카메라 중심 위치 사용
-        const camera = viewerRef.current.camera
-        const cartographic = Cesium.Cartographic.fromCartesian(camera.position)
-        lon = Cesium.Math.toDegrees(cartographic.longitude)
-        lat = Cesium.Math.toDegrees(cartographic.latitude)
+      // 선택된 지역이 없으면 경고
+      if (!selectedRegionRef.current) {
+        console.log('먼저 지역을 선택해주세요')
+        return
       }
+
+      const { lon, lat } = selectedRegionRef.current
 
       // 기존 레이어 제거
       if (cadastralLayerRef.current) {
@@ -311,7 +896,7 @@ export default function CesiumViewer() {
         cadastralLayerRef.current = null
       }
 
-      // 지적도 로드
+      // 지적도 WMS 타일 로드
       const offset = 0.002 // 약 200m
       const west = lon - offset
       const south = lat - offset
@@ -330,21 +915,44 @@ export default function CesiumViewer() {
         cadastralLayerRef.current = viewerRef.current.imageryLayers.addImageryProvider(cadastralProvider)
         cadastralLayerRef.current.alpha = 0.85
         setShowCadastral(true)
-        console.log('지적도 로드됨:', { lon, lat, west, south, east, north })
+        console.log('지적도 WMS 타일 로드됨:', { lon, lat })
+
         viewerRef.current.scene.requestRender()
       } catch (error) {
         console.error('지적도 로드 실패:', error)
       }
     }
-  }, [showCadastral, workArea])
+  }, [showCadastral])
 
   // 지적도 레이어 제거
   const removeCadastralLayer = useCallback(() => {
-    if (!viewerRef.current || !cadastralLayerRef.current) return
+    if (!viewerRef.current) return
 
-    viewerRef.current.imageryLayers.remove(cadastralLayerRef.current)
-    cadastralLayerRef.current = null
+    // 이미지 레이어 제거
+    if (cadastralLayerRef.current) {
+      viewerRef.current.imageryLayers.remove(cadastralLayerRef.current)
+      cadastralLayerRef.current = null
+    }
+
+    // 경계선 엔티티 제거
+    cadastralBoundaryEntitiesRef.current.forEach((entity) => {
+      viewerRef.current.entities.remove(entity)
+    })
+    cadastralBoundaryEntitiesRef.current = []
+
+    // 선택된 블록들 제거
+    selectedBlockEntitiesRef.current.forEach((item) => {
+      viewerRef.current.entities.remove(item.entity)
+    })
+    selectedBlockEntitiesRef.current = []
+
+    // features 및 지역 좌표 초기화
+    cadastralFeaturesRef.current = []
+    selectedRegionRef.current = null
+
     setShowCadastral(false)
+    setHasPolylinesLoaded(false)
+    setSelectedBlockCount(0)
     viewerRef.current.scene.requestRender()
     console.log('지적도 제거됨')
   }, [])
@@ -372,28 +980,32 @@ export default function CesiumViewer() {
     const north = lat + offset
 
     try {
-      // WMS GetMap 요청으로 해당 영역만 로드
-      const cadastralProvider = new Cesium.SingleTileImageryProvider({
-        url: `/api/cadastral?bbox=${west},${south},${east},${north}&width=1024&height=1024`,
-        rectangle: Cesium.Rectangle.fromDegrees(west, south, east, north),
-        tileWidth: 1024,
-        tileHeight: 1024,
-        credit: 'Vworld 지적도',
-      })
+      // WMS 타일 로딩 비활성화 - 벡터 폴리라인 디버깅을 위해 주석 처리
+      // const cadastralProvider = new Cesium.SingleTileImageryProvider({
+      //   url: `/api/cadastral?bbox=${west},${south},${east},${north}&width=1024&height=1024`,
+      //   rectangle: Cesium.Rectangle.fromDegrees(west, south, east, north),
+      //   tileWidth: 1024,
+      //   tileHeight: 1024,
+      //   credit: 'Vworld 지적도',
+      // })
+      // cadastralLayerRef.current = viewer.imageryLayers.addImageryProvider(cadastralProvider)
+      // cadastralLayerRef.current.alpha = 0.85
 
-      cadastralLayerRef.current = viewer.imageryLayers.addImageryProvider(cadastralProvider)
-      cadastralLayerRef.current.alpha = 0.85
-      setShowCadastral(true)
-      console.log('지적도 로드됨:', { west, south, east, north })
+      // 벡터 폴리라인만 로드 (WMS 지적도는 별도 버튼으로)
+      console.log('벡터 폴리라인만 로드:', { west, south, east, north })
+
+      // 대지경계선 벡터 데이터 로드
+      loadCadastralBoundaries(lon, lat)
+
       viewer.scene.requestRender()
     } catch (error) {
       console.error('지적도 로드 실패:', error)
     }
-  }, [])
+  }, [loadCadastralBoundaries])
 
   // 영역 선택 클릭 핸들러
   useEffect(() => {
-    if (!viewerRef.current || !isLoaded || !isSelectingArea) return
+    if (!viewerRef.current || !isLoaded || !isSelectingRegion) return
 
     const Cesium = (window as any).Cesium
     if (!Cesium) return
@@ -433,7 +1045,7 @@ export default function CesiumViewer() {
       loadCadastralForArea(lon, lat)
 
       // 선택 모드 해제
-      setIsSelectingArea(false)
+      setIsSelectingRegion(false)
 
       // 해당 위치로 카메라 이동 (탑뷰)
       viewer.camera.flyTo({
@@ -452,7 +1064,184 @@ export default function CesiumViewer() {
     return () => {
       handler.destroy()
     }
-  }, [isLoaded, isSelectingArea, reverseGeocode, setWorkArea, loadCadastralForArea])
+  }, [isLoaded, isSelectingRegion, reverseGeocode, setWorkArea, loadCadastralForArea])
+
+  // 블록 선택 클릭 핸들러
+  useEffect(() => {
+    if (!viewerRef.current || !isLoaded || !isSelectingBlock) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+
+    // 점이 폴리곤 내부에 있는지 확인 (ray casting algorithm)
+    const isPointInPolygon = (point: number[], polygon: number[][]) => {
+      const x = point[0], y = point[1]
+      let inside = false
+
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1]
+        const xj = polygon[j][0], yj = polygon[j][1]
+
+        if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+          inside = !inside
+        }
+      }
+
+      return inside
+    }
+
+    handler.setInputAction((click: any) => {
+      // 클릭 위치 가져오기
+      let cartesian = viewer.scene.pickPosition(click.position)
+
+      if (!cartesian || !Cesium.defined(cartesian)) {
+        const ray = viewer.camera.getPickRay(click.position)
+        if (ray) {
+          cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+        }
+      }
+
+      if (!cartesian) return
+
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
+      const lon = Cesium.Math.toDegrees(cartographic.longitude)
+      const lat = Cesium.Math.toDegrees(cartographic.latitude)
+
+      console.log('블록 선택 클릭:', lon, lat)
+
+      // features 데이터 확인
+      if (!cadastralFeaturesRef.current || cadastralFeaturesRef.current.length === 0) {
+        console.log('지적 데이터가 없습니다')
+        return
+      }
+
+      // 클릭한 위치가 어느 폴리곤에 속하는지 확인
+      let selectedFeature = null
+      for (const feature of cadastralFeaturesRef.current) {
+        if (feature.geometry && feature.geometry.type === 'Polygon') {
+          const rings = feature.geometry.coordinates
+          // 첫 번째 링(외곽)으로 확인
+          if (rings.length > 0 && isPointInPolygon([lon, lat], rings[0])) {
+            selectedFeature = feature
+            break
+          }
+        }
+      }
+
+      if (selectedFeature) {
+        const featurePnu = selectedFeature.properties?.pnu || ''
+        const coordCount = selectedFeature.geometry?.coordinates?.[0]?.length || 0
+        console.log('선택된 블록:', selectedFeature.properties, '좌표 수:', coordCount)
+
+        // 이미 선택된 블록인지 확인 (PNU로 구분)
+        const existingIndex = selectedBlockEntitiesRef.current.findIndex(
+          (item: any) => item.pnu === featurePnu
+        )
+
+        if (existingIndex !== -1) {
+          // 이미 선택된 블록이면 제거 (토글)
+          const existing = selectedBlockEntitiesRef.current[existingIndex]
+          viewer.entities.remove(existing.entity)
+          selectedBlockEntitiesRef.current.splice(existingIndex, 1)
+          setSelectedBlockCount(selectedBlockEntitiesRef.current.length)
+          console.log('블록 선택 해제:', featurePnu)
+          viewer.scene.requestRender()
+          return
+        }
+
+        // 좌표 검증
+        const rings = selectedFeature.geometry.coordinates
+        if (!rings || !rings[0] || rings[0].length < 4) {
+          console.log('유효하지 않은 폴리곤 좌표 (최소 4개 점 필요)')
+          return
+        }
+
+        const ring = rings[0]
+
+        // 유효한 좌표만 필터링
+        const validCoords = ring.filter((coord: number[]) =>
+          Array.isArray(coord) &&
+          coord.length >= 2 &&
+          !isNaN(coord[0]) &&
+          !isNaN(coord[1]) &&
+          Math.abs(coord[0]) <= 180 &&
+          Math.abs(coord[1]) <= 90
+        )
+
+        if (validCoords.length < 4) {
+          console.log('유효한 좌표가 부족함')
+          return
+        }
+
+        // 폴리곤이 닫혀있는지 확인 (첫 점과 마지막 점이 같거나 가까운지)
+        const first = validCoords[0]
+        const last = validCoords[validCoords.length - 1]
+        const isClosed = Math.abs(first[0] - last[0]) < 0.0001 && Math.abs(first[1] - last[1]) < 0.0001
+
+        if (!isClosed) {
+          // 닫혀있지 않으면 첫 점을 마지막에 추가
+          validCoords.push([...first])
+        }
+
+        // 폴리곤 범위 계산 (비정상적으로 큰 폴리곤 필터링)
+        const lons = validCoords.map((c: number[]) => c[0])
+        const lats = validCoords.map((c: number[]) => c[1])
+        const minLon = Math.min(...lons)
+        const maxLon = Math.max(...lons)
+        const minLat = Math.min(...lats)
+        const maxLat = Math.max(...lats)
+        const lonRange = maxLon - minLon
+        const latRange = maxLat - minLat
+
+        // 약 500m 이상의 범위를 가진 폴리곤은 비정상으로 간주
+        if (lonRange > 0.01 || latRange > 0.01) {
+          console.log('비정상적으로 큰 폴리곤 (범위 초과):', { lonRange, latRange })
+          return
+        }
+
+        // 좌표를 Cartesian3 배열로 변환
+        const positions = validCoords.map((coord: number[]) =>
+          Cesium.Cartesian3.fromDegrees(coord[0], coord[1])
+        )
+
+        // 선택된 블록에 반투명 폴리곤 그리기
+        const blockEntity = viewer.entities.add({
+          polygon: {
+            hierarchy: new Cesium.PolygonHierarchy(positions),
+            material: Cesium.Color.CYAN.withAlpha(0.4),
+            classificationType: Cesium.ClassificationType.TERRAIN,
+          },
+          polyline: {
+            positions: positions,
+            width: 3,
+            material: Cesium.Color.CYAN,
+            clampToGround: true,
+            classificationType: Cesium.ClassificationType.TERRAIN,
+          }
+        })
+
+        // 배열에 추가 (PNU와 entity를 함께 저장)
+        selectedBlockEntitiesRef.current.push({
+          pnu: featurePnu,
+          entity: blockEntity,
+          feature: selectedFeature
+        })
+
+        setSelectedBlockCount(selectedBlockEntitiesRef.current.length)
+        viewer.scene.requestRender()
+        console.log('블록 선택 완료, 총', selectedBlockEntitiesRef.current.length, '개 블록')
+      } else {
+        console.log('선택된 블록 없음')
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+
+    return () => {
+      handler.destroy()
+    }
+  }, [isLoaded, isSelectingBlock])
 
   // 작업 영역 해제 시 시각적 표시 및 지적도 제거
   useEffect(() => {
@@ -503,18 +1292,62 @@ export default function CesiumViewer() {
 
       window.CESIUM_BASE_URL = '/cesium'
 
-      // Google Maps Roadmap 레이어 생성 (기본 레이어)
-      const googleRoadmap = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-        maximumLevel: 20,
-        credit: new Cesium.Credit('Google Maps'),
-      })
+      // 이미지 레이어 프로바이더 목록 생성
+      const imageryProviderViewModels = [
+        new Cesium.ProviderViewModel({
+          name: 'Google 로드맵',
+          iconUrl: Cesium.buildModuleUrl('Widgets/Images/ImageryProviders/openStreetMap.png'),
+          tooltip: 'Google Maps 로드맵',
+          creationFunction: () => {
+            return new Cesium.UrlTemplateImageryProvider({
+              url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+              maximumLevel: 20,
+              credit: new Cesium.Credit('Google Maps'),
+            })
+          }
+        }),
+        new Cesium.ProviderViewModel({
+          name: 'Google 위성',
+          iconUrl: Cesium.buildModuleUrl('Widgets/Images/ImageryProviders/bingAerialLabels.png'),
+          tooltip: 'Google Maps 위성',
+          creationFunction: () => {
+            return new Cesium.UrlTemplateImageryProvider({
+              url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+              maximumLevel: 20,
+              credit: new Cesium.Credit('Google Maps'),
+            })
+          }
+        }),
+        new Cesium.ProviderViewModel({
+          name: 'Google 하이브리드',
+          iconUrl: Cesium.buildModuleUrl('Widgets/Images/ImageryProviders/bingAerial.png'),
+          tooltip: 'Google Maps 위성 + 라벨',
+          creationFunction: () => {
+            return new Cesium.UrlTemplateImageryProvider({
+              url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+              maximumLevel: 20,
+              credit: new Cesium.Credit('Google Maps'),
+            })
+          }
+        }),
+        new Cesium.ProviderViewModel({
+          name: 'OpenStreetMap',
+          iconUrl: Cesium.buildModuleUrl('Widgets/Images/ImageryProviders/openStreetMap.png'),
+          tooltip: 'OpenStreetMap',
+          creationFunction: () => {
+            return new Cesium.OpenStreetMapImageryProvider({
+              url: 'https://a.tile.openstreetmap.org/'
+            })
+          }
+        }),
+      ]
 
       // Viewer 생성
       const viewer = new Cesium.Viewer(containerRef.current!, {
         terrain: Cesium.Terrain.fromWorldTerrain(),
-        baseLayer: new Cesium.ImageryLayer(googleRoadmap),
-        baseLayerPicker: true,  // 지도 스타일 선택 가능
+        imageryProviderViewModels: imageryProviderViewModels,
+        selectedImageryProviderViewModel: imageryProviderViewModels[0], // 기본: Google 로드맵
+        baseLayerPicker: true,
         geocoder: true,
         homeButton: true,
         sceneModePicker: true,
@@ -927,28 +1760,42 @@ export default function CesiumViewer() {
     // 마우스 왼쪽 버튼 누름 - 모델 이동 시작
     handler.setInputAction((click: any) => {
       const pickedObject = viewer.scene.pick(click.position)
-      if (Cesium.defined(pickedObject) && pickedObject.id?.id === 'loaded-3d-model') {
+      if (!Cesium.defined(pickedObject)) return
+
+      const entityId = pickedObject.id?.id
+
+      // 클릭 위치 계산
+      let cartesian = viewer.scene.pickPosition(click.position)
+      if (!cartesian || !Cesium.defined(cartesian)) {
+        const ray = viewer.camera.getPickRay(click.position)
+        if (ray) {
+          cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+        }
+      }
+      if (!cartesian) return
+
+      const clickPos = Cesium.Cartographic.fromCartesian(cartesian)
+      const clickLon = Cesium.Math.toDegrees(clickPos.longitude)
+      const clickLat = Cesium.Math.toDegrees(clickPos.latitude)
+
+      // 건물 모델 드래그
+      if (entityId === 'loaded-3d-model') {
         isModelDraggingRef.current = true
         viewer.scene.screenSpaceCameraController.enableRotate = false
         viewer.scene.screenSpaceCameraController.enableTranslate = false
-
-        // 클릭 위치와 모델 위치의 오프셋 저장 (지형 고려)
-        let cartesian = viewer.scene.pickPosition(click.position)
-        if (!cartesian || !Cesium.defined(cartesian)) {
-          const ray = viewer.camera.getPickRay(click.position)
-          if (ray) {
-            cartesian = viewer.scene.globe.pick(ray, viewer.scene)
-          }
+        modelDragStartRef.current = {
+          offsetLon: modelTransformRef.current.longitude - clickLon,
+          offsetLat: modelTransformRef.current.latitude - clickLat,
         }
-        if (cartesian) {
-          const clickPos = Cesium.Cartographic.fromCartesian(cartesian)
-          const clickLon = Cesium.Math.toDegrees(clickPos.longitude)
-          const clickLat = Cesium.Math.toDegrees(clickPos.latitude)
-          // 클릭 위치와 모델 중심 간의 오프셋 저장
-          modelDragStartRef.current = {
-            offsetLon: modelTransformRef.current.longitude - clickLon,
-            offsetLat: modelTransformRef.current.latitude - clickLat,
-          }
+      }
+      // 휴먼 모델 드래그
+      else if (entityId === 'human-scale-model') {
+        isHumanDraggingRef.current = true
+        viewer.scene.screenSpaceCameraController.enableRotate = false
+        viewer.scene.screenSpaceCameraController.enableTranslate = false
+        humanDragStartRef.current = {
+          offsetLon: humanModelTransformRef.current.longitude - clickLon,
+          offsetLat: humanModelTransformRef.current.latitude - clickLat,
         }
       }
     }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
@@ -963,29 +1810,57 @@ export default function CesiumViewer() {
       }
     }, Cesium.ScreenSpaceEventType.MIDDLE_DOWN)
 
+    // 휴먼 모델 위치 업데이트 함수
+    const updateHumanModelPosition = (lon: number, lat: number) => {
+      const entity = viewer.entities.getById('human-scale-model')
+      if (!entity) return
+      // 높이 0.9m 유지 (원본 2m 모델 × 0.9 스케일 = 180cm, 모델 원점이 중심이므로 반높이 올림)
+      entity.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0.9)
+      humanModelTransformRef.current = { longitude: lon, latitude: lat }
+      viewer.scene.requestRender()
+    }
+
     // 마우스 이동
     handler.setInputAction((movement: any) => {
-      // 모델 드래그 (이동) - 마우스 위치를 정확히 따라감
-      if (isModelDraggingRef.current && modelDragStartRef.current) {
-        let cartesian = viewer.scene.pickPosition(movement.endPosition)
-        if (!cartesian || !Cesium.defined(cartesian)) {
-          const ray = viewer.camera.getPickRay(movement.endPosition)
-          if (ray) {
-            cartesian = viewer.scene.globe.pick(ray, viewer.scene)
-          }
+      // 마우스 위치 계산 (공통)
+      let cartesian = viewer.scene.pickPosition(movement.endPosition)
+      if (!cartesian || !Cesium.defined(cartesian)) {
+        const ray = viewer.camera.getPickRay(movement.endPosition)
+        if (ray) {
+          cartesian = viewer.scene.globe.pick(ray, viewer.scene)
         }
-        if (cartesian) {
-          const currentPos = Cesium.Cartographic.fromCartesian(cartesian)
-          const mouseLon = Cesium.Math.toDegrees(currentPos.longitude)
-          const mouseLat = Cesium.Math.toDegrees(currentPos.latitude)
+      }
 
-          // 오프셋을 적용하여 모델 위치 계산 (마우스 위치 + 초기 오프셋)
-          const newLon = mouseLon + modelDragStartRef.current.offsetLon
-          const newLat = mouseLat + modelDragStartRef.current.offsetLat
+      // 건물 모델 드래그 (이동)
+      if (isModelDraggingRef.current && modelDragStartRef.current && cartesian) {
+        const currentPos = Cesium.Cartographic.fromCartesian(cartesian)
+        const mouseLon = Cesium.Math.toDegrees(currentPos.longitude)
+        const mouseLat = Cesium.Math.toDegrees(currentPos.latitude)
 
-          setModelTransform({ longitude: newLon, latitude: newLat })
-          updateModelPosition(newLon, newLat, modelTransformRef.current.height, modelTransformRef.current.rotation)
+        const newLon = mouseLon + modelDragStartRef.current.offsetLon
+        const newLat = mouseLat + modelDragStartRef.current.offsetLat
+
+        setModelTransform({ longitude: newLon, latitude: newLat })
+        updateModelPosition(newLon, newLat, modelTransformRef.current.height, modelTransformRef.current.rotation)
+
+        // 모델 바닥면이 선택 영역 내에 있는지 체크하고 색상 업데이트
+        const inBounds = checkModelInBounds(newLon, newLat, modelTransformRef.current.rotation, modelTransformRef.current.scale)
+        if (inBounds !== isModelInBounds) {
+          setIsModelInBounds(inBounds)
+          updateBlocksColor(inBounds)
         }
+      }
+
+      // 휴먼 모델 드래그 (이동)
+      if (isHumanDraggingRef.current && humanDragStartRef.current && cartesian) {
+        const currentPos = Cesium.Cartographic.fromCartesian(cartesian)
+        const mouseLon = Cesium.Math.toDegrees(currentPos.longitude)
+        const mouseLat = Cesium.Math.toDegrees(currentPos.latitude)
+
+        const newLon = mouseLon + humanDragStartRef.current.offsetLon
+        const newLat = mouseLat + humanDragStartRef.current.offsetLat
+
+        updateHumanModelPosition(newLon, newLat)
       }
 
       // 모델 회전 - 마우스 위치를 향해 모델이 바라보도록
@@ -1022,6 +1897,13 @@ export default function CesiumViewer() {
             currentTransform.height,
             newRotation
           )
+
+          // 회전 시에도 바닥면 경계 체크
+          const inBounds = checkModelInBounds(currentTransform.longitude, currentTransform.latitude, newRotation, currentTransform.scale)
+          if (inBounds !== isModelInBounds) {
+            setIsModelInBounds(inBounds)
+            updateBlocksColor(inBounds)
+          }
         }
       }
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
@@ -1030,6 +1912,11 @@ export default function CesiumViewer() {
     handler.setInputAction(() => {
       if (isModelDraggingRef.current) {
         isModelDraggingRef.current = false
+        viewer.scene.screenSpaceCameraController.enableRotate = true
+        viewer.scene.screenSpaceCameraController.enableTranslate = true
+      }
+      if (isHumanDraggingRef.current) {
+        isHumanDraggingRef.current = false
         viewer.scene.screenSpaceCameraController.enableRotate = true
         viewer.scene.screenSpaceCameraController.enableTranslate = true
       }
@@ -1046,7 +1933,7 @@ export default function CesiumViewer() {
     return () => {
       handler.destroy()
     }
-  }, [isLoaded, setModelTransform])
+  }, [isLoaded, setModelTransform, checkModelInBounds, updateBlocksColor, isModelInBounds])
 
   // 시간 변경 (일조 시뮬레이션)
   const handleTimeChange = (date: Date) => {
@@ -1064,8 +1951,8 @@ export default function CesiumViewer() {
 
       {/* 상단 컨트롤 바 */}
       {isLoaded && (
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
-          <div className="flex items-center gap-2">
+        <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10 pointer-events-none">
+          <div className="flex items-center gap-2 pointer-events-auto">
             <div className="bg-white/90 rounded-lg shadow-lg px-4 py-2">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-green-500 rounded-full"></span>
@@ -1083,28 +1970,63 @@ export default function CesiumViewer() {
               <span className="text-sm text-gray-700">새로고침</span>
             </button>
             <button
-              onClick={toggleAreaSelection}
+              onClick={toggleRegionSelection}
               className={`rounded-lg shadow-lg px-3 py-2 flex items-center gap-2 transition-colors ${
-                isSelectingArea
+                isSelectingRegion
                   ? 'bg-blue-500 text-white'
                   : 'bg-white/90 hover:bg-white text-gray-700'
               }`}
-              title="지도에서 작업 영역 선택"
+              title="지도에서 지역 선택 (지적도 로드)"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span className="text-sm">{isSelectingArea ? '클릭하여 선택...' : '영역 선택'}</span>
+              <span className="text-sm">{isSelectingRegion ? '클릭하여 선택...' : '지역 선택'}</span>
             </button>
             <button
+              onClick={toggleBlockSelection}
+              disabled={!hasPolylinesLoaded}
+              className={`rounded-lg shadow-lg px-3 py-2 flex items-center gap-2 transition-colors ${
+                isSelectingBlock
+                  ? 'bg-green-500 text-white'
+                  : selectedBlockCount > 0
+                    ? 'bg-green-100 hover:bg-green-200 text-green-700'
+                    : hasPolylinesLoaded
+                      ? 'bg-white/90 hover:bg-white text-gray-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+              title="지적 블록 선택 (모델 배치 영역)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
+              <span className="text-sm">
+                {isSelectingBlock ? '블록 선택 중...' : selectedBlockCount > 0 ? `영역 선택 (${selectedBlockCount})` : '영역 선택'}
+              </span>
+            </button>
+            {selectedBlockCount > 0 && (
+              <button
+                onClick={clearSelectedBlocks}
+                className="rounded-lg shadow-lg px-2 py-2 bg-red-100 hover:bg-red-200 text-red-600 transition-colors"
+                title="선택 초기화"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            <button
               onClick={toggleCadastral}
+              disabled={!hasPolylinesLoaded}
               className={`rounded-lg shadow-lg px-3 py-2 flex items-center gap-2 transition-colors ${
                 showCadastral
                   ? 'bg-yellow-500 text-white'
-                  : 'bg-white/90 hover:bg-white text-gray-700'
+                  : hasPolylinesLoaded
+                    ? 'bg-white/90 hover:bg-white text-gray-700'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
-              title="지적도 레이어 표시/숨김"
+              title="지적도 WMS 타일 표시/숨김"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -1138,53 +2060,60 @@ export default function CesiumViewer() {
               </button>
             )}
           </div>
-
-          {/* 선택된 작업 영역 주소 표시 */}
-          {workArea && (
-            <div className="bg-white/90 rounded-lg shadow-lg px-4 py-2 max-w-md">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{workArea.address}</p>
-                  <p className="text-xs text-gray-500">
-                    {workArea.latitude.toFixed(6)}, {workArea.longitude.toFixed(6)}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setWorkArea(null)}
-                  className="ml-2 text-gray-400 hover:text-gray-600"
-                  title="영역 선택 해제"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* 영역 선택 모드 안내 */}
-      {isSelectingArea && (
-        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-20">
-          <p className="text-sm">지도에서 작업할 영역을 클릭하세요</p>
+      {/* 선택된 작업 영역 주소 표시 - Cesium 위젯 아래에 배치 */}
+      {isLoaded && workArea && (
+        <div className="absolute top-48 right-4 bg-white/90 rounded-lg shadow-lg px-4 py-2 max-w-md z-10">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-800 truncate">{workArea.address}</p>
+              <p className="text-xs text-gray-500">
+                {workArea.latitude.toFixed(6)}, {workArea.longitude.toFixed(6)}
+              </p>
+            </div>
+            <button
+              onClick={() => setWorkArea(null)}
+              className="ml-2 text-gray-400 hover:text-gray-600"
+              title="영역 선택 해제"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 지역 선택 모드 안내 */}
+      {isSelectingRegion && (
+        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-20">
+          <p className="text-sm">지도에서 작업할 지역을 클릭하세요</p>
+        </div>
+      )}
+
+      {/* 블록 선택 모드 안내 */}
+      {isSelectingBlock && (
+        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-20">
+          <p className="text-sm">블록을 클릭하여 선택/해제 (여러 개 선택 가능) - 완료 후 버튼 다시 클릭</p>
         </div>
       )}
 
       {/* 건물 선택 모드 안내 */}
       {isBuildingSelectMode && (
-        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-20">
+        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-20">
           <p className="text-sm">삭제할 건물을 클릭하세요</p>
         </div>
       )}
 
       {/* 선택된 건물 정보 */}
       {selectedBuilding && (
-        <div className="absolute top-32 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-4 z-20 min-w-64">
+        <div className="absolute top-36 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-4 z-20 min-w-64">
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium text-gray-800">선택된 건물</h4>
             <button
@@ -1214,7 +2143,7 @@ export default function CesiumViewer() {
 
       {/* 숨긴 건물 목록 */}
       {hiddenBuildingIds.length > 0 && (
-        <div className="absolute top-20 right-4 bg-white/90 rounded-lg shadow-lg p-3 z-10 max-w-xs">
+        <div className="absolute top-64 right-4 bg-white/90 rounded-lg shadow-lg p-3 z-10 max-w-xs">
           <h4 className="font-medium text-sm text-gray-800 mb-2">숨긴 건물 ({hiddenBuildingIds.length})</h4>
           <div className="space-y-1 max-h-32 overflow-y-auto">
             {hiddenBuildingIds.map((id) => (
@@ -1270,6 +2199,7 @@ export default function CesiumViewer() {
           </div>
         </div>
       )}
+
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useProjectStore, SAMPLE_MODELS } from '@/store/projectStore'
+import { useProjectStore } from '@/store/projectStore'
 import { uploadDxf, generateMass, validatePlacement } from '@/lib/api'
 
 /**
@@ -20,6 +20,10 @@ export default function Sidebar() {
     loadedModelEntity,
     modelTransform,
     workArea,
+    availableModels,
+    selectedBlockCount,
+    isLoadingModel,
+    humanScaleModelLoaded,
     setSite,
     setBuilding,
     setModelUrl,
@@ -28,6 +32,8 @@ export default function Sidebar() {
     setSelectedModel,
     setLoadedModelEntity,
     setModelTransform,
+    setModelToLoad,
+    setHumanScaleModelLoaded,
   } = useProjectStore()
 
   const [height, setHeight] = useState(30)
@@ -58,80 +64,14 @@ export default function Sidebar() {
     alert('샘플 대지 데이터가 로드되었습니다!')
   }
 
-  // 3D 샘플 모델 로드
-  const handleLoadSampleModel = async (modelId: string) => {
-    const model = SAMPLE_MODELS.find(m => m.id === modelId)
-    if (!model || !viewer) {
-      alert('모델을 로드할 수 없습니다.')
+  // 3D 샘플 모델 로드 (스토어를 통해 CesiumViewer에서 처리)
+  const handleLoadSampleModel = (filename: string) => {
+    if (selectedBlockCount === 0) {
+      alert('먼저 영역 선택 버튼으로 블록을 선택해주세요.')
       return
     }
-
-    const Cesium = (window as any).Cesium
-    if (!Cesium) return
-
-    setLoading(true)
-    try {
-      // 기존 모델 제거
-      if (loadedModelEntity) {
-        viewer.entities.remove(loadedModelEntity)
-      }
-
-      // 좌표 설정 (우선순위: 작업 영역 > 대지 중심 > 기본값)
-      const lon = workArea?.longitude || site?.centroid?.[0] || 127.1388
-      const lat = workArea?.latitude || site?.centroid?.[1] || 37.4449
-
-      // 모델 변환 정보 초기화 (회전 기본값 180도)
-      const initialRotation = 180
-      setModelTransform({
-        longitude: lon,
-        latitude: lat,
-        height: 0,
-        rotation: initialRotation,
-      })
-
-      // 모델 위치 (지형 기준 상대 높이)
-      const position = Cesium.Cartesian3.fromDegrees(lon, lat, 0)
-
-      // 초기 회전 적용 (180도)
-      const heading = Cesium.Math.toRadians(initialRotation)
-      const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0)
-      const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr)
-
-      // GLB 모델 로드 - 지형 기준 상대 높이로 배치
-      const entity = viewer.entities.add({
-        id: 'loaded-3d-model',
-        name: model.name,
-        position: position,
-        orientation: orientation,
-        model: {
-          uri: model.url,
-          scale: 5.0,
-          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-        },
-      })
-
-      setSelectedModel(model)
-      setLoadedModelEntity(entity)
-
-      // 모델 위치로 카메라 이동 (탑뷰)
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(lon, lat, 150),
-        orientation: {
-          heading: Cesium.Math.toRadians(0),
-          pitch: Cesium.Math.toRadians(-90), // 탑뷰 (수직 아래)
-          roll: 0,
-        },
-        duration: 1.5,
-      })
-
-      console.log('모델 로드 완료:', { lon, lat, model: model.name })
-      alert(`${model.name} 모델이 로드되었습니다!\n\n조작 방법:\n- 좌클릭 드래그: 모델 이동\n- 휠클릭 드래그: 모델 회전`)
-    } catch (error) {
-      console.error('모델 로드 실패:', error)
-      alert('모델 로드에 실패했습니다.')
-    } finally {
-      setLoading(false)
-    }
+    // 스토어에 로드할 모델 파일명 설정 → CesiumViewer에서 감지하여 로드
+    setModelToLoad(filename)
   }
 
   // 로드된 모델 제거
@@ -192,6 +132,20 @@ export default function Sidebar() {
       Cesium.Cartesian3.fromDegrees(modelTransform.longitude, modelTransform.latitude, modelTransform.height),
       hpr
     )
+
+    viewer.scene.requestRender()
+  }
+
+  // 모델 스케일 조절
+  const handleModelScaleChange = (newScale: number) => {
+    if (!loadedModelEntity || !viewer) return
+
+    setModelTransform({ scale: newScale })
+
+    // 스케일 업데이트
+    if (loadedModelEntity.model) {
+      loadedModelEntity.model.scale = newScale
+    }
 
     viewer.scene.requestRender()
   }
@@ -370,45 +324,56 @@ export default function Sidebar() {
             {/* 3D 샘플 모델 로드 */}
             <div className="border-t pt-4">
               <h4 className="font-medium mb-2">3D 샘플 모델</h4>
-              {workArea ? (
-                <div className="bg-blue-50 rounded-lg p-2 mb-3">
-                  <p className="text-xs text-blue-700">
-                    <span className="font-medium">선택된 영역:</span> {workArea.address}
+              {selectedBlockCount > 0 ? (
+                <div className="bg-green-50 rounded-lg p-2 mb-3">
+                  <p className="text-xs text-green-700">
+                    <span className="font-medium">선택된 블록:</span> {selectedBlockCount}개
                   </p>
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 mb-3">
-                  먼저 지도에서 <span className="font-medium">'영역 선택'</span> 버튼으로 작업 영역을 지정하세요.
+                  먼저 지도에서 <span className="font-medium">'지역 선택'</span> 후 <span className="font-medium">'영역 선택'</span>으로 블록을 지정하세요.
                 </p>
               )}
-              <div className="space-y-2">
-                {SAMPLE_MODELS.map((model) => (
-                  <button
-                    key={model.id}
-                    onClick={() => handleLoadSampleModel(model.id)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors ${
-                      selectedModel?.id === model.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center">
-                      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="font-medium text-sm">{model.name}</p>
-                      <p className="text-xs text-gray-500">GLB 모델</p>
-                    </div>
-                    {selectedModel?.id === model.id && (
-                      <span className="text-blue-600 text-xs font-medium">로드됨</span>
-                    )}
-                  </button>
-                ))}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {availableModels.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">모델을 불러오는 중...</p>
+                ) : (
+                  availableModels.map((model) => (
+                    <button
+                      key={model.filename}
+                      onClick={() => handleLoadSampleModel(model.filename)}
+                      disabled={selectedBlockCount === 0 || isLoadingModel}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                        selectedBlockCount === 0
+                          ? 'border-gray-200 bg-gray-100 opacity-50 cursor-not-allowed'
+                          : isLoadingModel
+                            ? 'border-gray-200 bg-gray-100 cursor-wait'
+                            : 'border-gray-200 hover:border-purple-400 hover:bg-purple-50'
+                      }`}
+                    >
+                      <div className="w-10 h-10 bg-purple-100 rounded flex items-center justify-center">
+                        <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="font-medium text-sm">{model.displayName}</p>
+                        <p className="text-xs text-gray-500">{model.sizeFormatted}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
-              {selectedModel && (
+              {loadedModelEntity && (
                 <div className="mt-3 space-y-3">
+                  {/* 로딩 상태 표시 */}
+                  {isLoadingModel && (
+                    <div className="bg-yellow-50 rounded-lg p-3 text-xs text-yellow-700 text-center">
+                      모델 로딩 중...
+                    </div>
+                  )}
+
                   {/* 조작 방법 안내 */}
                   <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700">
                     <p className="font-medium mb-1">모델 조작</p>
@@ -416,11 +381,23 @@ export default function Sidebar() {
                     <p>- 휠클릭 드래그: 회전 (마우스 방향)</p>
                   </div>
 
-                  {/* 높이 조절 슬라이더 */}
+                  {/* 높이 조절 슬라이더 + 입력 */}
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      높이: {modelTransform.height.toFixed(1)}m
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-700">높이</label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={-10}
+                          max={30}
+                          step={0.5}
+                          value={modelTransform.height}
+                          onChange={(e) => handleModelHeightChange(Number(e.target.value))}
+                          className="w-16 px-2 py-1 text-sm border rounded text-right"
+                        />
+                        <span className="text-sm text-gray-500">m</span>
+                      </div>
+                    </div>
                     <input
                       type="range"
                       min={-10}
@@ -437,11 +414,23 @@ export default function Sidebar() {
                     </div>
                   </div>
 
-                  {/* 회전 조절 슬라이더 */}
+                  {/* 회전 조절 슬라이더 + 입력 */}
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      회전: {modelTransform.rotation.toFixed(0)}°
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-700">회전</label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={360}
+                          step={1}
+                          value={Math.round(modelTransform.rotation)}
+                          onChange={(e) => handleModelRotationChange(Number(e.target.value) % 360)}
+                          className="w-16 px-2 py-1 text-sm border rounded text-right"
+                        />
+                        <span className="text-sm text-gray-500">°</span>
+                      </div>
+                    </div>
                     <input
                       type="range"
                       min={0}
@@ -458,11 +447,62 @@ export default function Sidebar() {
                     </div>
                   </div>
 
+                  {/* 스케일 조절 슬라이더 + 입력 */}
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-700">스케일</label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={1}
+                          max={50}
+                          step={1}
+                          value={modelTransform.scale}
+                          onChange={(e) => handleModelScaleChange(Number(e.target.value))}
+                          className="w-16 px-2 py-1 text-sm border rounded text-right"
+                        />
+                        <span className="text-sm text-gray-500">x</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={50}
+                      step={1}
+                      value={modelTransform.scale}
+                      onChange={(e) => handleModelScaleChange(Number(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>1x</span>
+                      <span>25x</span>
+                      <span>50x</span>
+                    </div>
+                  </div>
+
                   {/* 위치 정보 표시 */}
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs text-gray-600">
                       위치: [{modelTransform.longitude.toFixed(6)}, {modelTransform.latitude.toFixed(6)}]
                     </p>
+                  </div>
+
+                  {/* 휴먼 스케일 비교 모델 */}
+                  <div className="border-t pt-3">
+                    <p className="text-xs text-gray-500 mb-2">휴먼 스케일 비교 (180cm)</p>
+                    <button
+                      onClick={() => setHumanScaleModelLoaded(!humanScaleModelLoaded)}
+                      className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                        humanScaleModelLoaded
+                          ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      {humanScaleModelLoaded ? '사람 모델 제거' : '사람 모델 추가'}
+                    </button>
                   </div>
 
                   <button

@@ -56,7 +56,7 @@ interface ValidationResult {
   }>
 }
 
-// 샘플 모델 정보
+// 샘플 모델 정보 (기존 - deprecated)
 interface SampleModel {
   id: string
   name: string
@@ -64,7 +64,7 @@ interface SampleModel {
   thumbnail?: string
 }
 
-// 사용 가능한 샘플 모델 목록
+// 사용 가능한 샘플 모델 목록 (기존 - deprecated)
 export const SAMPLE_MODELS: SampleModel[] = [
   {
     id: 'sample_house',
@@ -72,6 +72,19 @@ export const SAMPLE_MODELS: SampleModel[] = [
     url: '/models/sample_house.glb',
   },
 ]
+
+// API 기반 모델 정보
+interface AvailableModel {
+  filename: string
+  displayName: string
+  size: number
+  sizeFormatted: string
+  boundingBox: {
+    width: number
+    height: number
+    depth: number
+  }
+}
 
 interface ProjectState {
   // Cesium Viewer 참조
@@ -101,6 +114,7 @@ interface ProjectState {
     latitude: number
     height: number
     rotation: number // Z축 회전 (도)
+    scale: number // 스케일
   }
 
   // 검토 결과
@@ -111,6 +125,21 @@ interface ProjectState {
 
   // 에러 메시지
   error: string | null
+
+  // API 기반 샘플 모델 목록
+  availableModels: AvailableModel[]
+
+  // 선택된 블록 수
+  selectedBlockCount: number
+
+  // 로드할 모델 파일명 (Sidebar에서 설정, CesiumViewer에서 처리)
+  modelToLoad: string | null
+
+  // 모델 로딩 중
+  isLoadingModel: boolean
+
+  // 휴먼 스케일 모델 로드 여부
+  humanScaleModelLoaded: boolean
 
   // Actions
   setViewer: (viewer: any) => void
@@ -124,6 +153,11 @@ interface ProjectState {
   setValidation: (result: ValidationResult) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+  setAvailableModels: (models: AvailableModel[]) => void
+  setSelectedBlockCount: (count: number) => void
+  setModelToLoad: (filename: string | null) => void
+  setIsLoadingModel: (loading: boolean) => void
+  setHumanScaleModelLoaded: (loaded: boolean) => void
   reset: () => void
 }
 
@@ -141,10 +175,16 @@ export const useProjectStore = create<ProjectState>((set) => ({
     latitude: 37.4449,
     height: 0,
     rotation: 180,
+    scale: 10.0,
   },
   validation: null,
   isLoading: false,
   error: null,
+  availableModels: [],
+  selectedBlockCount: 0,
+  modelToLoad: null,
+  isLoadingModel: false,
+  humanScaleModelLoaded: false,
 
   // Actions
   setViewer: (viewer) => set({ viewer }),
@@ -172,6 +212,16 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setError: (error) => set({ error }),
 
+  setAvailableModels: (models) => set({ availableModels: models }),
+
+  setSelectedBlockCount: (count) => set({ selectedBlockCount: count }),
+
+  setModelToLoad: (filename) => set({ modelToLoad: filename }),
+
+  setIsLoadingModel: (loading) => set({ isLoadingModel: loading }),
+
+  setHumanScaleModelLoaded: (loaded) => set({ humanScaleModelLoaded: loaded }),
+
   reset: () =>
     set({
       workArea: null,
@@ -185,9 +235,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
         latitude: 37.4449,
         height: 0,
         rotation: 180,
+        scale: 10.0,
       },
       validation: null,
       isLoading: false,
       error: null,
+      availableModels: [],
+      selectedBlockCount: 0,
+      modelToLoad: null,
+      isLoadingModel: false,
+      humanScaleModelLoaded: false,
     }),
 }))
