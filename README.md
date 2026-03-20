@@ -13,6 +13,9 @@ CAD 도면(DXF)을 기반으로 3D 건물 매스를 생성하고, 건축 규정(
 - 건축 규정 자동 검토
 - 일조 시뮬레이션 (날짜/시간별 그림자)
 - OSM Buildings 배경 건물 표시
+- **지적도 WFS 연동** (국토정보플랫폼)
+- **건축선 분석** (도로/인접대지 판별, 이격거리 계산)
+- **프로젝트 저장/불러오기** (JSON 파일)
 
 ---
 
@@ -45,15 +48,33 @@ building_cesium/
 ├── frontend/                    # Next.js 프론트엔드
 │   ├── app/
 │   │   ├── layout.tsx          # 루트 레이아웃
-│   │   ├── page.tsx            # 메인 페이지
-│   │   └── globals.css         # 전역 스타일
+│   │   ├── page.tsx            # 메인 페이지 (헤더, 저장/불러오기)
+│   │   ├── globals.css         # 전역 스타일
+│   │   └── api/                # API 라우트
+│   │       ├── cadastral/wfs/  # 지적도 WFS 프록시
+│   │       └── zone/wfs/       # 용도지역 WFS 프록시
 │   ├── components/
 │   │   ├── CesiumViewer.tsx    # 3D 뷰어 컴포넌트 (핵심)
-│   │   └── Sidebar.tsx         # 사이드바 컨트롤
+│   │   ├── Sidebar.tsx         # 사이드바 컨트롤
+│   │   └── ErrorBanner.tsx     # 에러 표시
+│   ├── hooks/                   # 커스텀 훅
+│   │   ├── useCesiumViewer.ts  # Cesium 초기화/관리
+│   │   ├── useCadastral.ts     # 지적도 WFS 데이터
+│   │   ├── useBlockSelection.ts # 지적 블록 선택
+│   │   ├── useBuildingLine.ts  # 건축선 분석
+│   │   ├── useOsmBuildings.ts  # OSM 건물 숨김
+│   │   └── useProjectPersistence.ts # 프로젝트 저장/불러오기
 │   ├── store/
 │   │   └── projectStore.ts     # Zustand 상태 관리
 │   ├── lib/
-│   │   └── api.ts              # 백엔드 API 클라이언트
+│   │   ├── api.ts              # 백엔드 API 클라이언트
+│   │   ├── geometry.ts         # 기하학 유틸 (점-폴리곤 포함 등)
+│   │   ├── buildingLine.ts     # 건축선 분석 로직
+│   │   ├── setbackTable.ts     # 용도지역별 이격거리 기준표
+│   │   └── projectSerializer.ts # 프로젝트 직렬화
+│   ├── types/
+│   │   ├── cesium.ts           # Cesium 관련 타입
+│   │   └── projectFile.ts      # 프로젝트 파일 타입
 │   └── .env.local              # 환경변수 (Cesium 토큰)
 │
 ├── backend/                     # FastAPI 백엔드
@@ -67,6 +88,11 @@ building_cesium/
 │   ├── models/                 # 생성된 GLB 파일 저장
 │   ├── uploads/                # 업로드된 DXF 파일
 │   └── requirements.txt        # Python 의존성
+│
+├── docs/                        # 문서
+│   ├── MODULES.md              # 모듈별 개발 가이드
+│   ├── QUICKSTART.md           # 빠른 시작 가이드
+│   └── ...                     # 기타 문서
 │
 └── README.md                   # 이 문서
 ```
@@ -301,6 +327,18 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:3002
 4. 마우스로 건물 이동/회전
 5. **"배치 검토 실행"** 버튼 클릭
 
+### 지적도 & 건축선 워크플로우
+1. **"지역 선택"** 버튼 클릭 후 지도에서 위치 클릭
+2. 지적도 로드 후 **"영역 선택"** 버튼 클릭
+3. 대지 블록 클릭하여 선택
+4. **"건축선 분석"** 버튼으로 건축선 확인
+
+### 프로젝트 저장/불러오기
+1. 헤더의 **"프로젝트 저장"** 클릭
+2. 프로젝트 이름 입력 (선택사항)
+3. JSON 파일 다운로드
+4. **"불러오기"**로 저장된 프로젝트 복원
+
 ### 마우스 조작
 | 동작 | 기능 |
 |------|------|
@@ -342,14 +380,24 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:3002
 
 ---
 
+## 구현 완료된 기능
+
+- [x] 지적도 WFS 연동 (국토정보플랫폼)
+- [x] 지적 블록 선택 기능
+- [x] 건축선 분석 (도로/인접대지 판별)
+- [x] 용도지역별 이격거리 기준 적용
+- [x] OSM 건물 숨김 기능
+- [x] 프로젝트 저장/불러오기 (JSON)
+- [x] 휴먼 스케일 모델 배치
+- [x] 3D 모델 로드 및 배치
+
 ## 향후 개선 사항
 
 - [ ] 건물 크기(가로/세로) 조정 기능
 - [ ] 다중 건물 배치 지원
-- [ ] 다양한 건물 모델 (집, 아파트 등)
 - [ ] 실제 DXF 파일 업로드 테스트
-- [ ] 용도지역별 규정 적용
 - [ ] 일조권 분석 결과 시각화
+- [ ] PDF 리포트 생성
 
 ---
 
