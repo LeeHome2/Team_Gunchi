@@ -141,6 +141,13 @@ interface ProjectState {
   // 휴먼 스케일 모델 로드 여부
   humanScaleModelLoaded: boolean
 
+  // 프로젝트 저장/불러오기 함수 참조 (CesiumViewer에서 설정)
+  saveProjectFn: ((projectName?: string) => void) | null
+  loadProjectFn: ((file: File) => Promise<void>) | null
+  isSavingProject: boolean
+  isLoadingProject: boolean
+  projectError: string | null
+
   // Actions
   setViewer: (viewer: any) => void
   setWorkArea: (workArea: WorkArea | null) => void
@@ -158,6 +165,11 @@ interface ProjectState {
   setModelToLoad: (filename: string | null) => void
   setIsLoadingModel: (loading: boolean) => void
   setHumanScaleModelLoaded: (loaded: boolean) => void
+  setSaveProjectFn: (fn: ((projectName?: string) => void) | null) => void
+  setLoadProjectFn: (fn: ((file: File) => Promise<void>) | null) => void
+  setIsSavingProject: (saving: boolean) => void
+  setIsLoadingProject: (loading: boolean) => void
+  setProjectError: (error: string | null) => void
   reset: () => void
 }
 
@@ -185,6 +197,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
   modelToLoad: null,
   isLoadingModel: false,
   humanScaleModelLoaded: false,
+  saveProjectFn: null,
+  loadProjectFn: null,
+  isSavingProject: false,
+  isLoadingProject: false,
+  projectError: null,
 
   // Actions
   setViewer: (viewer) => set({ viewer }),
@@ -222,6 +239,12 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setHumanScaleModelLoaded: (loaded) => set({ humanScaleModelLoaded: loaded }),
 
+  setSaveProjectFn: (fn) => set({ saveProjectFn: fn }),
+  setLoadProjectFn: (fn) => set({ loadProjectFn: fn }),
+  setIsSavingProject: (saving) => set({ isSavingProject: saving }),
+  setIsLoadingProject: (loading) => set({ isLoadingProject: loading }),
+  setProjectError: (error) => set({ projectError: error }),
+
   reset: () =>
     set({
       workArea: null,
@@ -245,5 +268,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
       modelToLoad: null,
       isLoadingModel: false,
       humanScaleModelLoaded: false,
+      saveProjectFn: null,
+      loadProjectFn: null,
+      isSavingProject: false,
+      isLoadingProject: false,
+      projectError: null,
     }),
 }))

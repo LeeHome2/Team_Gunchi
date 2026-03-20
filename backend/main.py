@@ -164,7 +164,7 @@ async def generate_mass(request: MassGenerateRequest):
 
 
 @app.post("/api/validate-placement", response_model=ValidationResponse)
-async def validate_placement(request: ValidationRequest):
+async def validate_placement_endpoint(request: ValidationRequest):
     """
     건축 배치 규정 검토
 
@@ -172,69 +172,44 @@ async def validate_placement(request: ValidationRequest):
     - 건폐율: (건축면적/대지면적) × 100
     - 이격거리: 대지경계선~건물 최소 거리
     - 높이제한: 최고 높이 검증
+    - 대지 이탈 검사
     """
-    from shapely.geometry import Polygon
-    from shapely.ops import nearest_points
+    from services.validation import (
+        validate_placement,
+        validate_with_zone,
+        ValidationConfig,
+        get_zone_config,
+    )
 
     try:
-        site_polygon = Polygon(request.site_footprint)
-        building_polygon = Polygon(request.building_footprint)
-
-        site_area = site_polygon.area
-        building_area = building_polygon.area
-
-        # 건폐율 계산
-        building_coverage = (building_area / site_area) * 100
-        coverage_limit = request.coverage_limit or 60.0
-        coverage_ok = building_coverage <= coverage_limit
-
-        # 이격거리 계산
-        site_boundary = site_polygon.exterior
-        building_boundary = building_polygon.exterior
-        min_distance = site_boundary.distance(building_boundary)
-        setback_required = request.setback_required or 1.5
-        setback_ok = min_distance >= setback_required
-
-        # 높이 검토
-        height_limit = request.height_limit or 12.0
-        height_ok = request.building_height <= height_limit
-
-        # 위반 사항 수집
-        violations = []
-        if not coverage_ok:
-            violations.append({
-                "code": "BCR_EXCEED",
-                "message": f"건폐율 {coverage_limit}% 초과 (현재 {building_coverage:.1f}%)"
-            })
-        if not setback_ok:
-            violations.append({
-                "code": "SETBACK_VIOLATION",
-                "message": f"이격거리 부족 (필요 {setback_required}m, 현재 {min_distance:.2f}m)"
-            })
-        if not height_ok:
-            violations.append({
-                "code": "HEIGHT_EXCEED",
-                "message": f"높이제한 {height_limit}m 초과 (현재 {request.building_height}m)"
-            })
+        # 용도지역이 지정된 경우 해당 설정 사용
+        if request.zone_type:
+            result = validate_with_zone(
+                site_footprint=request.site_footprint,
+                building_footprint=request.building_footprint,
+                building_height=request.building_height,
+                zone_name=request.zone_type,
+            )
+        else:
+            # 수동 설정 또는 기본값 사용
+            config = ValidationConfig(
+                coverage_limit=request.coverage_limit or 60.0,
+                setback_required=request.setback_required or 1.5,
+                height_limit=request.height_limit or 12.0,
+            )
+            result = validate_placement(
+                site_footprint=request.site_footprint,
+                building_footprint=request.building_footprint,
+                building_height=request.building_height,
+                config=config,
+            )
 
         return ValidationResponse(
-            is_valid=len(violations) == 0,
-            building_coverage={
-                "value": round(building_coverage, 1),
-                "limit": coverage_limit,
-                "status": "OK" if coverage_ok else "VIOLATION"
-            },
-            setback={
-                "min_distance_m": round(min_distance, 2),
-                "required_m": setback_required,
-                "status": "OK" if setback_ok else "VIOLATION"
-            },
-            height={
-                "value_m": request.building_height,
-                "limit_m": height_limit,
-                "status": "OK" if height_ok else "VIOLATION"
-            },
-            violations=violations
+            is_valid=result.is_valid,
+            building_coverage=result.building_coverage,
+            setback=result.setback,
+            height=result.height,
+            violations=result.violations,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -101,6 +101,50 @@
 
 ---
 
+### Module D-1: Custom Hooks
+**파일**: `frontend/hooks/*.ts`
+**담당 기능**:
+- 기능별 로직 분리 및 재사용
+
+| 훅 | 파일 | 설명 |
+|----|------|------|
+| `useCesiumViewer` | `useCesiumViewer.ts` | Cesium 뷰어 초기화/관리 |
+| `useCadastral` | `useCadastral.ts` | 지적도 WFS 데이터 로드/표시 |
+| `useBlockSelection` | `useBlockSelection.ts` | 지적 블록 선택 관리 |
+| `useBuildingLine` | `useBuildingLine.ts` | 건축선 분석/시각화 |
+| `useOsmBuildings` | `useOsmBuildings.ts` | OSM 건물 타일셋 숨김 관리 |
+| `useProjectPersistence` | `useProjectPersistence.ts` | 프로젝트 저장/불러오기 |
+
+---
+
+### Module D-2: Utility Libraries
+**파일**: `frontend/lib/*.ts`
+**담당 기능**:
+- 공통 유틸리티 함수
+
+| 라이브러리 | 파일 | 설명 |
+|-----------|------|------|
+| `geometry` | `geometry.ts` | 기하학 계산 (점-폴리곤 포함, 오프셋) |
+| `buildingLine` | `buildingLine.ts` | 건축선 분석 로직 |
+| `setbackTable` | `setbackTable.ts` | 용도지역별 이격거리 기준표 |
+| `projectSerializer` | `projectSerializer.ts` | 프로젝트 파일 직렬화/역직렬화 |
+| `coordinates` | `coordinates.ts` | 좌표 변환 유틸리티 |
+| `building` | `building.ts` | 건물 관련 유틸리티 |
+
+---
+
+### Module D-3: Types
+**파일**: `frontend/types/*.ts`
+**담당 기능**:
+- TypeScript 타입 정의
+
+| 타입 파일 | 설명 |
+|----------|------|
+| `cesium.ts` | Cesium 관련 타입 (CesiumViewer, SelectedBlock 등) |
+| `projectFile.ts` | 프로젝트 파일 포맷 타입 (v1.0.0) |
+
+---
+
 ## Backend 모듈
 
 ### Module E: DXF Parser
@@ -298,7 +342,7 @@ http://localhost:3002
 
 ### Phase 1 (필수)
 - [ ] Module E: 실제 DXF 파일 파싱 테스트
-- [ ] Module G: 용도지역별 검토 기준
+- [x] Module G: 용도지역별 검토 기준 (건축선 분석 구현됨)
 - [ ] Module A: 다중 건물 지원
 
 ### Phase 2 (권장)
@@ -309,4 +353,13 @@ http://localhost:3002
 ### Phase 3 (추가)
 - [ ] 일조권 분석 결과 시각화
 - [ ] PDF 리포트 생성
-- [ ] 프로젝트 저장/불러오기
+- [x] 프로젝트 저장/불러오기 (구현 완료)
+
+### 구현 완료된 기능
+- [x] 지적도 WFS 연동 (useCadastral)
+- [x] 블록 선택 기능 (useBlockSelection)
+- [x] 건축선 분석 (useBuildingLine)
+- [x] OSM 건물 숨김 (useOsmBuildings)
+- [x] 프로젝트 저장/불러오기 (useProjectPersistence)
+- [x] 휴먼 스케일 모델 배치
+- [x] 3D 모델 로드 및 배치

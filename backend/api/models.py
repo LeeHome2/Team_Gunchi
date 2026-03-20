@@ -67,17 +67,21 @@ class ValidationRequest(BaseModel):
         default=9.0,
         description="건물 높이 (m)"
     )
+    zone_type: Optional[str] = Field(
+        default=None,
+        description="용도지역 (예: 제1종일반주거지역) - 지정 시 자동으로 규정 적용"
+    )
     coverage_limit: Optional[float] = Field(
-        default=60.0,
-        description="건폐율 한도 (%)"
+        default=None,
+        description="건폐율 한도 (%) - zone_type 미지정 시 사용"
     )
     setback_required: Optional[float] = Field(
-        default=1.5,
-        description="필요 이격거리 (m)"
+        default=None,
+        description="필요 이격거리 (m) - zone_type 미지정 시 사용"
     )
     height_limit: Optional[float] = Field(
-        default=12.0,
-        description="높이 한도 (m)"
+        default=None,
+        description="높이 한도 (m) - zone_type 미지정 시 사용"
     )
 
 

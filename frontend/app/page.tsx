@@ -1,9 +1,10 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useProjectStore } from '@/store/projectStore'
 import Sidebar from '@/components/Sidebar'
+import ErrorBanner from '@/components/ErrorBanner'
 
 const CesiumViewer = dynamic(() => import('@/components/CesiumViewer'), {
   ssr: false,
@@ -21,7 +22,14 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
-  const { isLoading, viewer } = useProjectStore()
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const {
+    isLoading, viewer, setError,
+    saveProjectFn, loadProjectFn, isSavingProject, isLoadingProject, projectError,
+    setProjectError,
+  } = useProjectStore()
 
   // 주소 검색 및 이동
   const handleSearch = useCallback(async () => {
@@ -56,11 +64,11 @@ export default function Home() {
           })
         }
       } else {
-        alert('검색 결과가 없습니다.')
+        setError('검색 결과가 없습니다.')
       }
     } catch (error) {
       console.error('검색 오류:', error)
-      alert('검색 중 오류가 발생했습니다.')
+      setError('검색 중 오류가 발생했습니다.')
     } finally {
       setIsSearching(false)
     }
@@ -73,10 +81,58 @@ export default function Home() {
     }
   }
 
+  // 프로젝트 저장 다이얼로그 열기
+  const handleOpenSaveDialog = useCallback(() => {
+    if (!saveProjectFn) {
+      setError('뷰어가 초기화되지 않았습니다')
+      return
+    }
+    setProjectName('')
+    setShowSaveDialog(true)
+  }, [saveProjectFn, setError])
+
+  // 프로젝트 저장 실행
+  const handleSaveProject = useCallback(() => {
+    if (saveProjectFn) {
+      saveProjectFn(projectName || undefined)
+      setShowSaveDialog(false)
+      setProjectName('')
+    }
+  }, [saveProjectFn, projectName])
+
+  // 프로젝트 불러오기 (파일 선택)
+  const handleLoadClick = useCallback(() => {
+    if (!loadProjectFn) {
+      setError('뷰어가 초기화되지 않았습니다')
+      return
+    }
+    fileInputRef.current?.click()
+  }, [loadProjectFn, setError])
+
+  // 파일 선택 후 불러오기
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && loadProjectFn) {
+      await loadProjectFn(file)
+    }
+    // 같은 파일 다시 선택 가능하도록
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [loadProjectFn])
+
+  // 새로고침
+  const handleRefresh = useCallback(() => {
+    window.location.reload()
+  }, [])
+
   const sidebarClass = `bg-white border-r border-gray-200 flex-shrink-0 transition-all duration-300 ${sidebarOpen ? "w-80" : "w-0"} overflow-hidden`
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* 에러 배너 */}
+      <ErrorBanner />
+
       <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -115,10 +171,44 @@ export default function Home() {
             </button>
           </div>
           <nav className="flex items-center gap-4">
-            <button className="text-gray-600 hover:text-gray-800 text-sm">프로젝트 저장</button>
-            <button className="text-gray-600 hover:text-gray-800 text-sm">내보내기</button>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">새 프로젝트</button>
+            <button
+              onClick={handleOpenSaveDialog}
+              disabled={isSavingProject || !saveProjectFn}
+              className="text-gray-600 hover:text-gray-800 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {isSavingProject && (
+                <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div>
+              )}
+              프로젝트 저장
+            </button>
+            <button
+              onClick={handleLoadClick}
+              disabled={isLoadingProject || !loadProjectFn}
+              className="text-gray-600 hover:text-gray-800 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {isLoadingProject && (
+                <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div>
+              )}
+              불러오기
+            </button>
+            <button
+              onClick={handleRefresh}
+              className="text-gray-600 hover:text-gray-800 text-sm flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              새로고침
+            </button>
           </nav>
+          {/* 숨겨진 파일 입력 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleFileChange}
+            className="hidden"
+          />
         </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
@@ -175,6 +265,61 @@ export default function Home() {
           </div>
         </aside>
       </div>
+
+      {/* 프로젝트 저장 다이얼로그 */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">프로젝트 저장</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                프로젝트 이름 (선택사항)
+              </label>
+              <input
+                type="text"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="예: 판교 주택 설계"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveProject()
+                  if (e.key === 'Escape') setShowSaveDialog(false)
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowSaveDialog(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSaveProject}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 프로젝트 에러 토스트 */}
+      {projectError && (
+        <div className="fixed bottom-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3">
+          <span className="text-sm">{projectError}</span>
+          <button
+            onClick={() => setProjectError(null)}
+            className="text-white/80 hover:text-white"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

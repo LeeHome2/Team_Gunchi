@@ -29,6 +29,7 @@ export default function Sidebar() {
     setModelUrl,
     setValidation,
     setLoading,
+    setError,
     setSelectedModel,
     setLoadedModelEntity,
     setModelTransform,
@@ -61,13 +62,14 @@ export default function Sidebar() {
     }
     setSite(sampleSite)
     setActiveTab('mass')
-    alert('샘플 대지 데이터가 로드되었습니다!')
+    setError(null) // 이전 에러 클리어
+    console.log('샘플 대지 데이터가 로드되었습니다.')
   }
 
   // 3D 샘플 모델 로드 (스토어를 통해 CesiumViewer에서 처리)
   const handleLoadSampleModel = (filename: string) => {
     if (selectedBlockCount === 0) {
-      alert('먼저 영역 선택 버튼으로 블록을 선택해주세요.')
+      setError('먼저 영역 선택 버튼으로 블록을 선택해주세요.')
       return
     }
     // 스토어에 로드할 모델 파일명 설정 → CesiumViewer에서 감지하여 로드
@@ -170,7 +172,7 @@ export default function Sidebar() {
       }
     } catch (error) {
       console.error('업로드 실패:', error)
-      alert('파일 업로드에 실패했습니다.')
+      setError('파일 업로드에 실패했습니다.')
     } finally {
       setLoading(false)
     }
@@ -179,7 +181,7 @@ export default function Sidebar() {
   // 매스 생성
   const handleGenerateMass = async () => {
     if (!site?.footprint) {
-      alert('먼저 DXF 파일을 업로드하세요.')
+      setError('먼저 DXF 파일을 업로드하세요.')
       return
     }
 
@@ -204,7 +206,7 @@ export default function Sidebar() {
       }
     } catch (error) {
       console.error('매스 생성 실패:', error)
-      alert('매스 생성에 실패했습니다.')
+      setError('매스 생성에 실패했습니다.')
     } finally {
       setLoading(false)
     }
@@ -213,7 +215,7 @@ export default function Sidebar() {
   // 배치 검토
   const handleValidate = async () => {
     if (!site?.footprint || !building?.footprint) {
-      alert('대지와 건물 정보가 필요합니다.')
+      setError('대지와 건물 정보가 필요합니다.')
       return
     }
 
@@ -228,7 +230,7 @@ export default function Sidebar() {
       setValidation(result)
     } catch (error) {
       console.error('검토 실패:', error)
-      alert('배치 검토에 실패했습니다.')
+      setError('배치 검토에 실패했습니다.')
     } finally {
       setLoading(false)
     }
@@ -585,7 +587,7 @@ export default function Sidebar() {
                   const Cesium = (window as any).Cesium
 
                   if (!viewer || !Cesium) {
-                    alert('Viewer가 로드되지 않았습니다.')
+                    setError('Viewer가 로드되지 않았습니다.')
                     return
                   }
 

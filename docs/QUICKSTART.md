@@ -47,11 +47,24 @@ npm run dev
 
 ## 3. 테스트 (1분)
 
+### 기본 워크플로우
 1. "샘플 데이터로 테스트" 클릭
 2. "3D 매스 생성" 클릭
 3. "건물 위치로 이동" 클릭
 4. 건물 드래그해서 이동
 5. "배치 검토 실행" 클릭
+
+### 지적도 & 건축선 워크플로우
+1. "지역 선택" 버튼 클릭 후 지도에서 위치 클릭
+2. 지적도 로드 후 "영역 선택" 버튼 클릭
+3. 대지 블록 클릭하여 선택
+4. "건축선 분석" 버튼으로 건축선 확인
+
+### 프로젝트 저장/불러오기
+1. 헤더의 "프로젝트 저장" 클릭
+2. 프로젝트 이름 입력 (선택사항)
+3. JSON 파일 다운로드
+4. "불러오기"로 저장된 프로젝트 복원
 
 ---
 
@@ -59,22 +72,38 @@ npm run dev
 
 ```
 frontend/
+├── app/
+│   ├── page.tsx          ← 메인 페이지 (헤더, 저장/불러오기)
+│   └── api/              ← API 라우트 (지적도 WFS 프록시 등)
 ├── components/
-│   ├── CesiumViewer.tsx  ← 3D 뷰어 (담당: ?)
-│   └── Sidebar.tsx       ← UI 컨트롤 (담당: ?)
+│   ├── CesiumViewer.tsx  ← 3D 뷰어 (메인 컴포넌트)
+│   ├── Sidebar.tsx       ← UI 컨트롤
+│   └── ErrorBanner.tsx   ← 에러 표시
+├── hooks/
+│   ├── useCesiumViewer.ts     ← Cesium 초기화
+│   ├── useCadastral.ts        ← 지적도 데이터
+│   ├── useBlockSelection.ts   ← 블록 선택
+│   ├── useBuildingLine.ts     ← 건축선 분석
+│   ├── useOsmBuildings.ts     ← OSM 건물 숨김
+│   └── useProjectPersistence.ts ← 프로젝트 저장/불러오기
 ├── store/
-│   └── projectStore.ts   ← 상태관리
-└── lib/
-    ├── api.ts            ← API 호출
-    ├── building.ts       ← 건물 유틸 (NEW)
-    └── coordinates.ts    ← 좌표 유틸 (NEW)
+│   └── projectStore.ts   ← 전역 상태관리 (Zustand)
+├── lib/
+│   ├── api.ts            ← Backend API 호출
+│   ├── geometry.ts       ← 기하학 유틸
+│   ├── buildingLine.ts   ← 건축선 분석 로직
+│   ├── setbackTable.ts   ← 이격거리 기준표
+│   └── projectSerializer.ts ← 프로젝트 직렬화
+└── types/
+    ├── cesium.ts         ← Cesium 타입
+    └── projectFile.ts    ← 프로젝트 파일 타입
 
 backend/
 ├── main.py               ← API 엔드포인트
 └── services/
-    ├── dxf_parser.py     ← DXF 파싱 (담당: ?)
+    ├── dxf_parser.py     ← DXF 파싱
     ├── gltf_exporter.py  ← GLB 생성
-    └── validation.py     ← 규정 검토 (NEW)
+    └── validation.py     ← 규정 검토
 ```
 
 ---

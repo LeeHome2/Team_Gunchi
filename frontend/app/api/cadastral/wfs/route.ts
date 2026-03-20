@@ -49,6 +49,12 @@ function xmlToGeoJSON(xmlText: string): any {
     const pnuMatch = /<sop:pnu>([^<]*)<\/sop:pnu>/i.exec(memberContent)
     const addrMatch = /<sop:addr>([^<]*)<\/sop:addr>/i.exec(memberContent)
     const jibunMatch = /<sop:jibun>([^<]*)<\/sop:jibun>/i.exec(memberContent)
+    // 지목 속성 추출 (도로 판별용)
+    const jimokMatch = /<sop:jimok>([^<]*)<\/sop:jimok>/i.exec(memberContent)
+    // 지목 코드 추출 (숫자 코드)
+    const jimokCdMatch = /<sop:jimok_cd>([^<]*)<\/sop:jimok_cd>/i.exec(memberContent)
+    // 면적 추출
+    const areaMatch = /<sop:ar>([^<]*)<\/sop:ar>/i.exec(memberContent)
 
     // LinearRing 내의 coordinates 또는 posList 추출
     const rings: number[][][] = []
@@ -105,12 +111,22 @@ function xmlToGeoJSON(xmlText: string): any {
     }
 
     if (rings.length > 0) {
+      const jimok = jimokMatch ? jimokMatch[1] : null
+      const jimokCd = jimokCdMatch ? jimokCdMatch[1] : null
+
       features.push({
         type: 'Feature',
         properties: {
           pnu: pnuMatch ? pnuMatch[1] : null,
           addr: addrMatch ? addrMatch[1] : null,
           jibun: jibunMatch ? jibunMatch[1] : null,
+          // 지목 정보 (도로="도", 대지="대" 등)
+          jimok: jimok,
+          jimokCd: jimokCd,
+          // 도로 여부 판별 (지목이 "도"이면 도로)
+          isRoad: jimok === '도' || jimokCd === '07',
+          // 면적 (제곱미터)
+          area: areaMatch ? parseFloat(areaMatch[1]) : null,
         },
         geometry: {
           type: 'Polygon',
