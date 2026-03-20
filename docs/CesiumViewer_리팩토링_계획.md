@@ -1,8 +1,11 @@
 # CesiumViewer.tsx 리팩토링 계획
 
+> **상태**: ✅ 1단계 완료 (2026-03-21)
+
 ## 현재 상태
-- **총 라인 수**: 2,452줄
-- **문제점**: 단일 파일에 너무 많은 책임이 집중됨
+- **리팩토링 전**: 2,452줄
+- **리팩토링 후**: ~1,100줄 (훅으로 분리)
+- **문제점**: 단일 파일에 너무 많은 책임이 집중됨 → **해결됨**
 
 ---
 
@@ -279,18 +282,18 @@ frontend/
 
 ## 구현 우선순위
 
-### 1단계 (즉시)
-- [ ] `useCesiumViewer.ts` - 초기화 로직 분리
-- [ ] `useBuildingLine.ts` - 건축선 로직 분리
-- [ ] `useBlockSelection.ts` - 블록 선택 분리
+### 1단계 (즉시) ✅ 완료
+- [x] `useCesiumViewer.ts` - 초기화 로직 분리
+- [x] `useBuildingLine.ts` - 건축선 로직 분리
+- [x] `useBlockSelection.ts` - 블록 선택 분리
 
-### 2단계 (단기)
-- [ ] `useModelDrag.ts` - 드래그 로직 분리
-- [ ] `useOsmBuildings.ts` - 건물 숨기기 분리
-- [ ] `useCadastral.ts` - 지적도 분리
+### 2단계 (단기) ✅ 완료
+- [x] `useOsmBuildings.ts` - 건물 숨기기 분리
+- [x] `useCadastral.ts` - 지적도 분리
+- [x] `useProjectPersistence.ts` - 프로젝트 저장/불러오기 (추가)
 
-### 3단계 (중기)
-- [ ] UI 컴포넌트 분리
+### 3단계 (중기) - 미완료
+- [ ] UI 컴포넌트 분리 (CesiumControls, BuildingLinePanel 등)
 - [ ] 유틸리티 함수 정리
 
 ---
