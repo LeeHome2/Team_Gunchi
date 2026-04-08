@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useProjectStore } from '@/store/projectStore'
 import { useCesiumViewer, DEFAULT_POSITION } from '@/hooks/useCesiumViewer'
 import { useBuildingLine } from '@/hooks/useBuildingLine'
+import { useSunlightAnalysis } from '@/hooks/useSunlightAnalysis'
 import { useBlockSelection } from '@/hooks/useBlockSelection'
 import { useCadastral } from '@/hooks/useCadastral'
 import { useOsmBuildings } from '@/hooks/useOsmBuildings'
@@ -125,6 +126,11 @@ export default function CesiumViewer() {
   // === 건축선 (Hook) ===
   const buildingLine = useBuildingLine(viewerRef, {
     getSelectedBlocks: blockSelection.getSelectedBlocks,
+  })
+
+  // === 일조 분석 (Hook) ===
+  const sunlightAnalysis = useSunlightAnalysis(viewerRef, {
+    getBuildingLineResult: buildingLine.getBuildingLineResult,
   })
 
   // === OSM 건물 숨기기 (Hook) ===
@@ -1235,9 +1241,9 @@ export default function CesiumViewer() {
 
       {/* 일조 시뮬레이션 */}
       {isLoaded && (
-        <div className="absolute bottom-8 left-4 bg-white/90 rounded-lg shadow-lg p-4 z-10">
+        <div className="absolute bottom-8 left-4 bg-white/90 rounded-lg shadow-lg p-4 z-10 min-w-64">
           <h4 className="font-medium text-sm mb-2">일조 시뮬레이션</h4>
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-600">날짜</label>
               <input
@@ -1266,6 +1272,145 @@ export default function CesiumViewer() {
                 className="w-full"
               />
             </div>
+
+            {/* 일조 분석 버튼 */}
+            <div className="pt-2 border-t border-gray-200">
+              <button
+                onClick={() => sunlightAnalysis.startAnalysis(currentTime, 2)}
+                disabled={sunlightAnalysis.isAnalyzing || !buildingLine.showBuildingLine}
+                className={`w-full py-2 px-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  sunlightAnalysis.isAnalyzing
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : !buildingLine.showBuildingLine
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                }`}
+                title={!buildingLine.showBuildingLine ? '먼저 건축선을 계산해주세요' : ''}
+              >
+                {sunlightAnalysis.isAnalyzing ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    분석 중...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    일조 분석 시작
+                  </>
+                )}
+              </button>
+
+              {/* 진행률 표시 */}
+              {sunlightAnalysis.isAnalyzing && sunlightAnalysis.analysisProgress && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+                    <span>{sunlightAnalysis.analysisProgress.currentHour}시 분석 중</span>
+                    <span>{sunlightAnalysis.analysisProgress.percentComplete}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${sunlightAnalysis.analysisProgress.percentComplete}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 분석 결과 요약 */}
+            {sunlightAnalysis.analysisResult && !sunlightAnalysis.isAnalyzing && (
+              <div className="pt-2 border-t border-gray-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-medium text-gray-700">분석 결과</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={sunlightAnalysis.toggleHeatmap}
+                      className={`px-2 py-1 text-xs rounded ${
+                        sunlightAnalysis.showHeatmap
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {sunlightAnalysis.showHeatmap ? '히트맵 숨김' : '히트맵 표시'}
+                    </button>
+                    <button
+                      onClick={sunlightAnalysis.clearAnalysis}
+                      className="px-2 py-1 text-xs bg-red-100 text-red-600 rounded hover:bg-red-200"
+                    >
+                      초기화
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="bg-blue-50 rounded p-2 text-center">
+                    <div className="text-blue-600 font-medium">평균</div>
+                    <div className="text-gray-800 font-bold">
+                      {sunlightAnalysis.analysisResult.statistics.averageSunlightHours.toFixed(1)}h
+                    </div>
+                  </div>
+                  <div className="bg-red-50 rounded p-2 text-center">
+                    <div className="text-red-600 font-medium">최소</div>
+                    <div className="text-gray-800 font-bold">
+                      {sunlightAnalysis.analysisResult.statistics.minSunlightHours}h
+                    </div>
+                  </div>
+                  <div className="bg-green-50 rounded p-2 text-center">
+                    <div className="text-green-600 font-medium">최대</div>
+                    <div className="text-gray-800 font-bold">
+                      {sunlightAnalysis.analysisResult.statistics.maxSunlightHours}h
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-500">
+                  {sunlightAnalysis.analysisResult.totalPoints}개 포인트 분석 | {sunlightAnalysis.analysisResult.analysisDate}
+                </div>
+
+                {/* 히트맵 범례 */}
+                <div className="mt-2 pt-2 border-t border-gray-100">
+                  <div className="text-xs text-gray-600 mb-1">범례 (일조시간)</div>
+                  <div className="flex h-3 rounded overflow-hidden">
+                    <div className="flex-1 bg-red-500" title="0h"></div>
+                    <div className="flex-1 bg-orange-500" title="3h"></div>
+                    <div className="flex-1 bg-yellow-500" title="6h"></div>
+                    <div className="flex-1 bg-lime-500" title="9h"></div>
+                    <div className="flex-1 bg-green-500" title="13h"></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                    <span>0h</span>
+                    <span>13h</span>
+                  </div>
+                </div>
+
+                {/* 히트맵 모드 선택 */}
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => sunlightAnalysis.setHeatmapMode('point')}
+                    className={`flex-1 py-1 text-xs rounded ${
+                      sunlightAnalysis.heatmapMode === 'point'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    포인트
+                  </button>
+                  <button
+                    onClick={() => sunlightAnalysis.setHeatmapMode('cell')}
+                    className={`flex-1 py-1 text-xs rounded ${
+                      sunlightAnalysis.heatmapMode === 'cell'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    셀
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

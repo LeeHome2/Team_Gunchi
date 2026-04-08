@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const VWORLD_API_KEY = '2D8CA368-665E-34A7-8CC3-CABBDAB8DAC0'
+const VWORLD_API_KEY = process.env.VWORLD_API_KEY || ''
 
 // GML 좌표 문자열을 [lon, lat] 배열로 파싱
 function parseGMLCoordinates(coordString: string): number[][] {

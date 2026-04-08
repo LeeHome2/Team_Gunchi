@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const VWORLD_API_KEY = '2D8CA368-665E-34A7-8CC3-CABBDAB8DAC0'
+const VWORLD_API_KEY = process.env.VWORLD_API_KEY || ''
 
 // 용도지역 코드 → 명칭 매핑
 const ZONE_CODE_MAP: Record<string, string> = {

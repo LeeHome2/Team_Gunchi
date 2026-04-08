@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState, RefObject } from 'react'
+import * as turf from '@turf/turf'
 import {
   analyzeBuildingLine,
   fetchZoneType,
@@ -11,6 +12,99 @@ import {
 import { ZoneType, DEFAULT_SETBACKS } from '@/lib/setbackTable'
 import type { SelectedBlock, CesiumViewer } from '@/types/cesium'
 import type { SerializedBuildingLineResult } from '@/types/projectFile'
+
+/**
+ * 여러 블록을 하나의 폴리곤으로 합필
+ */
+function mergeBlocks(blocks: SelectedBlock[]): GeoJSON.Feature<GeoJSON.Polygon> | null {
+  if (blocks.length === 0) return null
+
+  if (blocks.length === 1) {
+    // 단일 블록
+    const feature = blocks[0].feature
+    return {
+      type: 'Feature',
+      properties: feature.properties || {},
+      geometry: feature.geometry as GeoJSON.Polygon,
+    }
+  }
+
+  // 여러 블록 합필
+  try {
+    // 첫 번째 블록으로 시작
+    let merged: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> = turf.polygon(
+      blocks[0].feature.geometry.coordinates as number[][][]
+    )
+
+    // 나머지 블록들을 순차적으로 합필
+    for (let i = 1; i < blocks.length; i++) {
+      const block = blocks[i]
+      const polygon = turf.polygon(block.feature.geometry.coordinates as number[][][])
+
+      const unionResult = turf.union(
+        turf.featureCollection([merged, polygon])
+      )
+
+      if (unionResult) {
+        merged = unionResult as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+      }
+    }
+
+    // MultiPolygon인 경우 가장 큰 폴리곤 선택 또는 첫 번째 폴리곤 사용
+    if (merged.geometry.type === 'MultiPolygon') {
+      console.log('합필 결과가 MultiPolygon입니다. 가장 큰 폴리곤을 선택합니다.')
+      const polygons = merged.geometry.coordinates
+      let largestArea = 0
+      let largestPolygon: number[][][] = polygons[0]
+
+      for (const poly of polygons) {
+        const area = turf.area(turf.polygon(poly))
+        if (area > largestArea) {
+          largestArea = area
+          largestPolygon = poly
+        }
+      }
+
+      return {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: largestPolygon,
+        },
+      }
+    }
+
+    // 합필된 속성 병합
+    const mergedProperties: Record<string, any> = {}
+    blocks.forEach((block, idx) => {
+      if (block.feature.properties) {
+        Object.entries(block.feature.properties).forEach(([key, value]) => {
+          if (idx === 0) {
+            mergedProperties[key] = value
+          }
+        })
+      }
+    })
+    mergedProperties.mergedCount = blocks.length
+    mergedProperties.mergedPnus = blocks.map(b => b.pnu).join(',')
+
+    return {
+      type: 'Feature',
+      properties: mergedProperties,
+      geometry: merged.geometry as GeoJSON.Polygon,
+    }
+  } catch (error) {
+    console.error('블록 합필 오류:', error)
+    // 실패 시 첫 번째 블록만 반환
+    const feature = blocks[0].feature
+    return {
+      type: 'Feature',
+      properties: feature.properties || {},
+      geometry: feature.geometry as GeoJSON.Polygon,
+    }
+  }
+}
 
 interface UseBuildingLineOptions {
   getSelectedBlocks: () => SelectedBlock[]
@@ -44,6 +138,7 @@ export function useBuildingLine(
   // 엔티티 참조
   const buildingLineEntitiesRef = useRef<any[]>([])
   const roadEdgeEntitiesRef = useRef<any[]>([])
+  const adjacentEdgeEntitiesRef = useRef<any[]>([])
 
   // 건축선 엔티티들 제거
   const clearBuildingLine = useCallback(() => {
@@ -59,6 +154,11 @@ export function useBuildingLine(
       viewer.entities.remove(entity)
     })
     roadEdgeEntitiesRef.current = []
+
+    adjacentEdgeEntitiesRef.current.forEach((entity) => {
+      viewer.entities.remove(entity)
+    })
+    adjacentEdgeEntitiesRef.current = []
 
     setShowBuildingLine(false)
     setBuildingLineResult(null)
@@ -84,28 +184,25 @@ export function useBuildingLine(
     clearBuildingLine()
 
     try {
-      // 첫 번째 선택된 블록을 대상으로 건축선 계산
-      const selectedBlock = selectedBlocks[0]
-      const feature = selectedBlock.feature
+      // 여러 블록 선택 시 합필 처리
+      const mergedPolygon = mergeBlocks(selectedBlocks)
 
-      if (!feature || !feature.geometry) {
-        console.warn('선택된 블록에 geometry가 없습니다')
+      if (!mergedPolygon || !mergedPolygon.geometry) {
+        console.warn('블록 합필 실패 또는 geometry가 없습니다')
         return
       }
 
-      // GeoJSON Feature 생성
-      const cadastralPolygon = {
-        type: 'Feature' as const,
-        properties: feature.properties || {},
-        geometry: feature.geometry as GeoJSON.Polygon,
-      }
+      console.log(`${selectedBlocks.length}개 블록 ${selectedBlocks.length > 1 ? '합필' : '선택'} 완료`)
 
-      // 중심점 계산
-      const coords = feature.geometry.coordinates[0]
-      const centerLon = coords.reduce((sum: number, c: number[]) => sum + c[0], 0) / coords.length
-      const centerLat = coords.reduce((sum: number, c: number[]) => sum + c[1], 0) / coords.length
+      // GeoJSON Feature 사용
+      const cadastralPolygon = mergedPolygon
 
-      console.log('건축선 계산 시작:', { centerLon, centerLat })
+      // 중심점 계산 (turf 사용)
+      const centroid = turf.centroid(cadastralPolygon)
+      const centerLon = centroid.geometry.coordinates[0]
+      const centerLat = centroid.geometry.coordinates[1]
+
+      console.log('건축선 계산 시작:', { centerLon, centerLat, blockCount: selectedBlocks.length })
 
       // 용도지역 조회
       const zoneType = await fetchZoneType(centerLon, centerLat)
@@ -133,25 +230,40 @@ export function useBuildingLine(
         용도지역: result.zoneType,
       })
 
-      // 건축선 폴리라인 표시 (빨간색)
+      // 건축선 폴리곤 표시 (빨간 테두리 + 반투명 면)
       if (result.buildingLine && result.buildingLine.geometry) {
         const buildingLineCoords = result.buildingLine.geometry.coordinates[0]
         const positions = buildingLineCoords.flatMap((c: number[]) => [c[0], c[1]])
+        const cartesianPositions = Cesium.Cartesian3.fromDegreesArray(positions)
 
+        // 건축선 테두리
         const buildingLineEntity = viewer.entities.add({
           polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArray(positions),
-            width: 5,
-            material: Cesium.Color.RED,
+            positions: cartesianPositions,
+            width: 4,
+            material: new Cesium.PolylineDashMaterialProperty({
+              color: Cesium.Color.RED,
+              dashLength: 12,
+            }),
             clampToGround: true,
             classificationType: Cesium.ClassificationType.TERRAIN,
             zIndex: 10,
           },
         })
         buildingLineEntitiesRef.current.push(buildingLineEntity)
+
+        // 건축 가능 영역 면
+        const areaEntity = viewer.entities.add({
+          polygon: {
+            hierarchy: new Cesium.PolygonHierarchy(cartesianPositions),
+            material: Cesium.Color.RED.withAlpha(0.08),
+            classificationType: Cesium.ClassificationType.TERRAIN,
+          },
+        })
+        buildingLineEntitiesRef.current.push(areaEntity)
       }
 
-      // 도로 접촉 변 표시 (주황색)
+      // 도로 접촉 변 표시 (주황색, 두꺼운 실선)
       result.roadEdges.forEach((edgeInfo) => {
         const edge = edgeInfo.edge
         const positions = [
@@ -162,7 +274,7 @@ export function useBuildingLine(
         const roadEdgeEntity = viewer.entities.add({
           polyline: {
             positions: Cesium.Cartesian3.fromDegreesArray(positions),
-            width: 7,
+            width: 8,
             material: Cesium.Color.ORANGE,
             clampToGround: true,
             classificationType: Cesium.ClassificationType.TERRAIN,
@@ -170,9 +282,10 @@ export function useBuildingLine(
           },
         })
         roadEdgeEntitiesRef.current.push(roadEdgeEntity)
+
       })
 
-      // 인접 대지 변 표시 (노란색)
+      // 인접 대지 변 표시 (노란색, 얇은 실선)
       result.adjacentLotEdges.forEach((edgeInfo) => {
         const edge = edgeInfo.edge
         const positions = [
@@ -190,7 +303,7 @@ export function useBuildingLine(
             zIndex: 6,
           },
         })
-        roadEdgeEntitiesRef.current.push(adjacentEdgeEntity)
+        adjacentEdgeEntitiesRef.current.push(adjacentEdgeEntity)
       })
 
       setShowBuildingLine(true)
@@ -240,22 +353,35 @@ export function useBuildingLine(
     setBuildingLineResult(result as BuildingLineResult)
     setCurrentZoneType(result.zoneType as ZoneType)
 
-    // 건축선 폴리라인 표시 (빨간색)
+    // 건축선 폴리곤 표시 (빨간 대시선 + 반투명 면)
     if (result.buildingLine?.geometry?.coordinates?.[0]) {
       const buildingLineCoords = result.buildingLine.geometry.coordinates[0]
       const positions = buildingLineCoords.flatMap((c: number[]) => [c[0], c[1]])
+      const cartesianPositions = Cesium.Cartesian3.fromDegreesArray(positions)
 
       const buildingLineEntity = viewer.entities.add({
         polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(positions),
-          width: 5,
-          material: Cesium.Color.RED,
+          positions: cartesianPositions,
+          width: 4,
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: Cesium.Color.RED,
+            dashLength: 12,
+          }),
           clampToGround: true,
           classificationType: Cesium.ClassificationType.TERRAIN,
           zIndex: 10,
         },
       })
       buildingLineEntitiesRef.current.push(buildingLineEntity)
+
+      const areaEntity = viewer.entities.add({
+        polygon: {
+          hierarchy: new Cesium.PolygonHierarchy(cartesianPositions),
+          material: Cesium.Color.RED.withAlpha(0.08),
+          classificationType: Cesium.ClassificationType.TERRAIN,
+        },
+      })
+      buildingLineEntitiesRef.current.push(areaEntity)
     }
 
     // 도로 접촉 변 표시 (주황색)
@@ -269,7 +395,7 @@ export function useBuildingLine(
       const roadEdgeEntity = viewer.entities.add({
         polyline: {
           positions: Cesium.Cartesian3.fromDegreesArray(positions),
-          width: 7,
+          width: 8,
           material: Cesium.Color.ORANGE,
           clampToGround: true,
           classificationType: Cesium.ClassificationType.TERRAIN,
@@ -297,7 +423,7 @@ export function useBuildingLine(
           zIndex: 6,
         },
       })
-      roadEdgeEntitiesRef.current.push(adjacentEdgeEntity)
+      adjacentEdgeEntitiesRef.current.push(adjacentEdgeEntity)
     })
 
     setShowBuildingLine(true)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const VWORLD_API_KEY = '2D8CA368-665E-34A7-8CC3-CABBDAB8DAC0'
+const VWORLD_API_KEY = process.env.VWORLD_API_KEY || ''
 
 export async function GET(request: NextRequest) {
   // GetCapabilities 요청으로 사용 가능한 레이어 목록 확인

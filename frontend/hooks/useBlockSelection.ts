@@ -184,7 +184,8 @@ export function useBlockSelection(
         const lonRange = maxLon - minLon
         const latRange = maxLat - minLat
 
-        if (lonRange > 0.01 || latRange > 0.01) {
+        // 약 5km (0.05도) 이상의 범위를 가진 폴리곤은 비정상으로 간주
+        if (lonRange > 0.05 || latRange > 0.05) {
           console.log('비정상적으로 큰 폴리곤 (범위 초과):', { lonRange, latRange })
           return
         }
