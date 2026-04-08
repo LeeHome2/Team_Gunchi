@@ -1,0 +1,92 @@
+{
+  "source": "elect CASA VELACION-1",
+  "layers": {
+    "all_layers": [
+      "0",
+      "PARABOLAS",
+      "MANCHETA",
+      "LOCALIZACION",
+      "TUBERIA",
+      "COMANDO-SUICHE",
+      "APARATOS-SANITARIOS",
+      "TITULOS",
+      "PLANTA-ARQUITECTONICA",
+      "ELEMENTOS-ELEC",
+      "TUBERIA-PISO",
+      "CABLES",
+      "TUBERIA-TELEF",
+      "TUBERIA-TV",
+      "ACOMETIDAS",
+      "TEXTO",
+      "CARGAS-DIAGRAMA-CONVENC",
+      "DEFPOINTS"
+    ],
+    "classified": {
+      "wall": [],
+      "door": [],
+      "window": [],
+      "dimension": [],
+      "furniture": [],
+      "stair": [],
+      "column": [],
+      "text": [
+        "TEXTO"
+      ]
+    },
+    "unclassified": [
+      "0",
+      "PARABOLAS",
+      "MANCHETA",
+      "LOCALIZACION",
+      "TUBERIA",
+      "COMANDO-SUICHE",
+      "APARATOS-SANITARIOS",
+      "TITULOS",
+      "PLANTA-ARQUITECTONICA",
+      "ELEMENTOS-ELEC",
+      "TUBERIA-PISO",
+      "CABLES",
+      "TUBERIA-TELEF",
+      "TUBERIA-TV",
+      "ACOMETIDAS",
+      "CARGAS-DIAGRAMA-CONVENC",
+      "DEFPOINTS"
+    ]
+  },
+  "stats": {
+    "total_entities": 1728,
+    "type_counts": {
+      "MTEXT": 1,
+      "TEXT": 313,
+      "LINE": 1231,
+      "LWPOLYLINE": 42,
+      "ARC": 53,
+      "CIRCLE": 85,
+      "INSERT": 3
+    },
+    "layer_counts": {
+      "PARABOLAS": 1,
+      "CARGAS-DIAGRAMA-CONVENC": 275,
+      "TITULOS": 6,
+      "TUBERIA-TV": 11,
+      "CABLES": 195,
+      "TUBERIA": 136,
+      "TUBERIA-PISO": 50,
+      "ELEMENTOS-ELEC": 434,
+      "COMANDO-SUICHE": 41,
+      "PLANTA-ARQUITECTONICA": 381,
+      "TUBERIA-TELEF": 29,
+      "TEXTO": 164,
+      "ACOMETIDAS": 2,
+      "APARATOS-SANITARIOS": 3
+    },
+    "bounding_box": {
+      "min_x": -57.83,
+      "min_y": -46.1,
+      "max_x": -5.1,
+      "max_y": 18.99,
+      "width": 52.73,
+      "height": 65.09
+    }
+  }
+}

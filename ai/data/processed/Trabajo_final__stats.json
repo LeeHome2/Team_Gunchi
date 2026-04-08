@@ -1,0 +1,66 @@
+{
+  "source": "Trabajo_final_",
+  "layers": {
+    "all_layers": [
+      "0",
+      "Defpoints",
+      "Muros",
+      "Ventanas",
+      "Puertas",
+      "Muebles objetos y demas",
+      "Cotas",
+      "Medianeras"
+    ],
+    "classified": {
+      "wall": [],
+      "door": [],
+      "window": [],
+      "dimension": [],
+      "furniture": [],
+      "stair": [],
+      "column": [],
+      "text": []
+    },
+    "unclassified": [
+      "0",
+      "Defpoints",
+      "Muros",
+      "Ventanas",
+      "Puertas",
+      "Muebles objetos y demas",
+      "Cotas",
+      "Medianeras"
+    ]
+  },
+  "stats": {
+    "total_entities": 857,
+    "type_counts": {
+      "LINE": 621,
+      "CIRCLE": 77,
+      "LWPOLYLINE": 40,
+      "INSERT": 26,
+      "ARC": 22,
+      "MTEXT": 46,
+      "DIMENSION": 23,
+      "SPLINE": 2
+    },
+    "layer_counts": {
+      "Muros": 96,
+      "Medianeras": 7,
+      "Ventanas": 56,
+      "Muebles objetos y demas": 161,
+      "0": 468,
+      "Defpoints": 21,
+      "Puertas": 25,
+      "Cotas": 23
+    },
+    "bounding_box": {
+      "min_x": 21.99,
+      "min_y": 14.41,
+      "max_x": 73.67,
+      "max_y": 45.6,
+      "width": 51.68,
+      "height": 31.19
+    }
+  }
+}

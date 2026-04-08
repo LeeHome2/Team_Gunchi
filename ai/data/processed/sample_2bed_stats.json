@@ -1,0 +1,67 @@
+{
+  "source": "sample_2bed",
+  "layers": {
+    "all_layers": [
+      "0",
+      "Defpoints",
+      "A-WALL",
+      "A-DOOR",
+      "A-WINDOW",
+      "DIM",
+      "FURNITURE",
+      "TEXT"
+    ],
+    "classified": {
+      "wall": [
+        "A-WALL"
+      ],
+      "door": [
+        "A-DOOR"
+      ],
+      "window": [
+        "A-WINDOW"
+      ],
+      "dimension": [
+        "DIM"
+      ],
+      "furniture": [
+        "FURNITURE"
+      ],
+      "stair": [],
+      "column": [],
+      "text": [
+        "TEXT"
+      ]
+    },
+    "unclassified": [
+      "0",
+      "Defpoints"
+    ]
+  },
+  "stats": {
+    "total_entities": 20,
+    "type_counts": {
+      "LWPOLYLINE": 1,
+      "LINE": 9,
+      "ARC": 3,
+      "CIRCLE": 3,
+      "TEXT": 4
+    },
+    "layer_counts": {
+      "A-WALL": 3,
+      "A-DOOR": 3,
+      "A-WINDOW": 6,
+      "FURNITURE": 3,
+      "TEXT": 3,
+      "DIM": 2
+    },
+    "bounding_box": {
+      "min_x": 0.0,
+      "min_y": -500.0,
+      "max_x": 10000.0,
+      "max_y": 6000.0,
+      "width": 10000.0,
+      "height": 6500.0
+    }
+  }
+}

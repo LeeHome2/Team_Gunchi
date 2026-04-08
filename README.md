@@ -1,21 +1,81 @@
-# Building Cesium - CAD 기반 건축 매스 생성 시스템
+# Building Cesium
 
-CesiumJS를 활용한 3D 건물 배치 및 규정 검토 시스템
+CAD 기반 3D 건축 매스 생성 및 규정 검토 시스템
 
-## 프로젝트 개요
+## 시스템 아키텍처
 
-CAD 도면(DXF)을 기반으로 3D 건물 매스를 생성하고, 건축 규정(건폐율, 이격거리, 높이제한)을 검토하는 웹 애플리케이션입니다.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Frontend (Next.js)                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐│
+│  │ CesiumViewer│  │   Sidebar   │  │    Hooks    │  │    projectStore     ││
+│  │  - 3D 지도   │  │  - 업로드    │  │ -건축선분석 │  │   (Zustand 상태)     ││
+│  │  - 건물 매스 │  │  - 매스설정  │  │ -지적도WFS  │  │  - site, building   ││
+│  │  - 마우스조작│  │  - 규정검토  │  │ -프로젝트   │  │  - validation       ││
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────────┘│
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │ REST API
+┌──────────────────────────────────▼──────────────────────────────────────────┐
+│                              Backend (FastAPI)                               │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+│  │   dxf_parser    │  │  gltf_exporter  │  │       validation            │  │
+│  │  DXF → Polygon  │  │ Polygon → GLB   │  │  건폐율/이격/높이 검토       │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼──────────────────────────────────────────┐
+│                              AI Module (Python)                              │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+│  │    extractor    │  │   classifier    │  │        exporter             │  │
+│  │  DXF → CSV      │  │ 레이어 자동분류  │  │  분류결과 → GLB             │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 주요 기능
-- DXF 파일 업로드 및 대지 경계 추출
-- 3D 건물 매스 생성 및 시각화
-- 마우스 드래그로 건물 이동/회전
-- 건축 규정 자동 검토
-- 일조 시뮬레이션 (날짜/시간별 그림자)
-- OSM Buildings 배경 건물 표시
-- **지적도 WFS 연동** (국토정보플랫폼)
-- **건축선 분석** (도로/인접대지 판별, 이격거리 계산)
-- **프로젝트 저장/불러오기** (JSON 파일)
+---
+
+## 주요 기능
+
+| 기능 | 설명 |
+|------|------|
+| DXF 파일 파싱 | CAD 도면에서 대지 경계 자동 추출 |
+| 3D 매스 생성 | 건물 높이/층수 설정 후 GLB 모델 생성 |
+| 건물 배치 | 마우스 드래그로 이동/회전 |
+| 규정 검토 | 건폐율, 이격거리, 높이제한 자동 계산 |
+| 지적도 연동 | 국토정보플랫폼 WFS로 실시간 지적 데이터 |
+| 건축선 분석 | 도로/인접대지 판별 및 법정 이격거리 계산 |
+| 일조 시뮬레이션 | 날짜/시간별 그림자 시각화 |
+| AI 레이어 분류 | CAD 도면 레이어 자동 분류 (wall/door/window) |
+
+---
+
+## 프로젝트 구조
+
+```
+building_cesium/
+├── frontend/                 # Next.js 프론트엔드
+│   ├── app/                  # 페이지 및 API 라우트
+│   ├── components/           # React 컴포넌트
+│   ├── hooks/                # 커스텀 훅
+│   ├── store/                # Zustand 상태관리
+│   ├── lib/                  # 유틸리티
+│   └── types/                # TypeScript 타입
+│
+├── backend/                  # FastAPI 백엔드
+│   ├── main.py               # API 엔드포인트
+│   ├── services/             # 비즈니스 로직
+│   └── api/                  # Pydantic 모델
+│
+├── ai/                       # AI 레이어 분류 모듈
+│   ├── src/                  # 소스 코드
+│   ├── data/                 # 학습/테스트 데이터
+│   ├── models/               # 학습된 모델
+│   └── notebooks/            # Jupyter 노트북
+│
+└── docs/                     # 문서
+    ├── QUICKSTART.md         # 빠른 시작 가이드
+    └── MODULES.md            # 모듈별 개발 가이드
+```
 
 ---
 
@@ -27,377 +87,331 @@ CAD 도면(DXF)을 기반으로 3D 건물 매스를 생성하고, 건축 규정(
 | Next.js | 14.1.0 | React 프레임워크 |
 | CesiumJS | 1.114.0 | 3D 지구 시각화 |
 | Zustand | 4.5.0 | 상태 관리 |
-| TypeScript | 5.x | 타입 안정성 |
+| TypeScript | 5.3.3 | 타입 안정성 |
 | Tailwind CSS | 3.4.1 | 스타일링 |
+| Turf.js | 7.3.4 | 지리 연산 |
 
 ### Backend
+| 기술 | 버전 | 용도 |
+|------|------|------|
+| FastAPI | 0.109.0 | REST API 서버 |
+| ezdxf | 1.1.4 | DXF 파일 파싱 |
+| Shapely | 2.0.2 | 기하학 연산 |
+| trimesh | 4.0.8 | 3D 메쉬 생성 |
+| pyproj | 3.6.1 | 좌표 변환 |
+
+### AI Module
 | 기술 | 용도 |
 |------|------|
-| FastAPI | REST API 서버 |
-| ezdxf | DXF 파일 파싱 |
-| Shapely | 기하학 연산 |
-| trimesh | 3D 메쉬 생성 |
-| pyproj | 좌표 변환 |
+| ezdxf | DXF 파싱 |
+| pandas | 데이터 처리 |
+| scikit-learn | ML 모델 |
+| trimesh | GLB 내보내기 |
 
 ---
 
-## 프로젝트 구조
+## 설치 및 실행
 
-```
-building_cesium/
-├── frontend/                    # Next.js 프론트엔드
-│   ├── app/
-│   │   ├── layout.tsx          # 루트 레이아웃
-│   │   ├── page.tsx            # 메인 페이지 (헤더, 저장/불러오기)
-│   │   ├── globals.css         # 전역 스타일
-│   │   └── api/                # API 라우트
-│   │       ├── cadastral/wfs/  # 지적도 WFS 프록시
-│   │       └── zone/wfs/       # 용도지역 WFS 프록시
-│   ├── components/
-│   │   ├── CesiumViewer.tsx    # 3D 뷰어 컴포넌트 (핵심)
-│   │   ├── Sidebar.tsx         # 사이드바 컨트롤
-│   │   └── ErrorBanner.tsx     # 에러 표시
-│   ├── hooks/                   # 커스텀 훅
-│   │   ├── useCesiumViewer.ts  # Cesium 초기화/관리
-│   │   ├── useCadastral.ts     # 지적도 WFS 데이터
-│   │   ├── useBlockSelection.ts # 지적 블록 선택
-│   │   ├── useBuildingLine.ts  # 건축선 분석
-│   │   ├── useOsmBuildings.ts  # OSM 건물 숨김
-│   │   └── useProjectPersistence.ts # 프로젝트 저장/불러오기
-│   ├── store/
-│   │   └── projectStore.ts     # Zustand 상태 관리
-│   ├── lib/
-│   │   ├── api.ts              # 백엔드 API 클라이언트
-│   │   ├── geometry.ts         # 기하학 유틸 (점-폴리곤 포함 등)
-│   │   ├── buildingLine.ts     # 건축선 분석 로직
-│   │   ├── setbackTable.ts     # 용도지역별 이격거리 기준표
-│   │   └── projectSerializer.ts # 프로젝트 직렬화
-│   ├── types/
-│   │   ├── cesium.ts           # Cesium 관련 타입
-│   │   └── projectFile.ts      # 프로젝트 파일 타입
-│   └── .env.local              # 환경변수 (Cesium 토큰)
-│
-├── backend/                     # FastAPI 백엔드
-│   ├── main.py                 # API 엔드포인트
-│   ├── api/
-│   │   └── models.py           # Pydantic 모델
-│   ├── services/
-│   │   ├── dxf_parser.py       # DXF 파싱 서비스
-│   │   ├── gltf_exporter.py    # glTF 생성 서비스
-│   │   └── coordinate_transform.py  # 좌표 변환
-│   ├── models/                 # 생성된 GLB 파일 저장
-│   ├── uploads/                # 업로드된 DXF 파일
-│   └── requirements.txt        # Python 의존성
-│
-├── docs/                        # 문서
-│   ├── MODULES.md              # 모듈별 개발 가이드
-│   ├── QUICKSTART.md           # 빠른 시작 가이드
-│   └── ...                     # 기타 문서
-│
-└── README.md                   # 이 문서
+### 사전 요구사항
+
+- Node.js 18+
+- Python 3.11+
+- Cesium Ion 계정 (무료)
+
+### 1. 저장소 클론
+
+```bash
+git clone https://github.com/your-repo/building_cesium.git
+cd building_cesium
 ```
 
----
+### 2. Backend 설정
 
-## 핵심 컴포넌트 설명
-
-### 1. CesiumViewer.tsx (3D 뷰어)
-
-**역할**: CesiumJS 뷰어 초기화 및 3D 시각화
-
-**주요 기능**:
-```typescript
-// Cesium 초기화
-const viewer = new Cesium.Viewer(container, {
-  terrain: Cesium.Terrain.fromWorldTerrain(),  // 지형 데이터
-  shadows: true,                                // 그림자 활성화
-})
-
-// OSM Buildings 로드
-const osmBuildingsTileset = await Cesium.createOsmBuildingsAsync()
-viewer.scene.primitives.add(osmBuildingsTileset)
-```
-
-**건물 매스 표시**:
-```typescript
-// Polygon Extrude 방식으로 3D 건물 생성
-viewer.entities.add({
-  id: 'building-mass',
-  polygon: {
-    hierarchy: Cesium.Cartesian3.fromDegreesArray(positions),
-    height: 0,
-    extrudedHeight: buildingHeight,  // 돌출 높이
-    material: Cesium.Color.CORNFLOWERBLUE.withAlpha(0.8),
-    heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-  },
-})
-```
-
-**마우스 드래그 처리**:
-```typescript
-// 좌클릭: 건물 이동
-handler.setInputAction((click) => {
-  const picked = viewer.scene.pick(click.position)
-  if (picked?.id?.id === 'building-mass') {
-    setIsDragging(true)
-    // 카메라 컨트롤 비활성화
-    viewer.scene.screenSpaceCameraController.enableRotate = false
-  }
-}, Cesium.ScreenSpaceEventType.LEFT_DOWN)
-
-// 우클릭: 건물 회전
-handler.setInputAction((click) => {
-  // ... 회전 로직
-}, Cesium.ScreenSpaceEventType.RIGHT_DOWN)
-```
-
----
-
-### 2. Sidebar.tsx (사이드바 컨트롤)
-
-**역할**: 사용자 입력 및 워크플로우 관리
-
-**탭 구성**:
-1. **업로드 탭**: DXF 파일 업로드 / 샘플 데이터 로드
-2. **매스 탭**: 건물 높이, 층수 설정 / 이동/회전 컨트롤
-3. **검토 탭**: 건축 규정 검토 실행 및 결과 표시
-
-**샘플 데이터 로드**:
-```typescript
-const handleLoadSample = () => {
-  const sampleSite = {
-    fileId: 'sample',
-    footprint: [
-      [127.1385, 37.4447],  // 성남시 좌표
-      [127.1390, 37.4447],
-      [127.1390, 37.4451],
-      [127.1385, 37.4451],
-    ],
-    area: 300,
-    centroid: [127.13875, 37.4449],
-  }
-  setSite(sampleSite)
-}
-```
-
----
-
-### 3. projectStore.ts (상태 관리)
-
-**역할**: Zustand를 이용한 전역 상태 관리
-
-**상태 구조**:
-```typescript
-interface ProjectState {
-  viewer: any | null           // Cesium Viewer 참조
-  site: SiteInfo | null        // 대지 정보
-  building: BuildingInfo | null // 건물 정보
-  modelUrl: string | null      // 생성된 모델 URL
-  validation: ValidationResult | null  // 검토 결과
-  isLoading: boolean           // 로딩 상태
-}
-```
-
----
-
-### 4. Backend API (main.py)
-
-**엔드포인트**:
-
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/health` | 서버 상태 확인 |
-| POST | `/api/upload-dxf` | DXF 파일 업로드 |
-| POST | `/api/generate-mass` | 3D 매스 생성 |
-| POST | `/api/validate-placement` | 규정 검토 |
-
-**규정 검토 로직**:
-```python
-# 건폐율 = (건축면적 / 대지면적) x 100
-building_coverage = (building_area / site_area) * 100
-coverage_ok = building_coverage <= 60.0  # 기본 60%
-
-# 이격거리 = 대지경계선 ~ 건물 최소 거리
-min_distance = site_boundary.distance(building_boundary)
-setback_ok = min_distance >= 1.5  # 기본 1.5m
-
-# 높이제한
-height_ok = building_height <= 12.0  # 기본 12m
-```
-
----
-
-## 데이터 흐름
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        사용자 조작                           │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Sidebar.tsx                               │
-│  - DXF 업로드 / 샘플 로드                                    │
-│  - 높이, 층수 설정                                           │
-│  - 이동/회전 슬라이더                                        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  projectStore.ts (Zustand)                   │
-│  - site: 대지 정보                                           │
-│  - building: 건물 정보                                       │
-│  - validation: 검토 결과                                     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-┌─────────────────────────┐     ┌─────────────────────────────┐
-│    CesiumViewer.tsx     │     │      Backend API            │
-│  - 3D 시각화             │     │  - /api/generate-mass       │
-│  - 마우스 이벤트 처리     │     │  - /api/validate-placement  │
-│  - 건물 이동/회전         │     │  - 좌표 변환, 검증           │
-└─────────────────────────┘     └─────────────────────────────┘
-```
-
----
-
-## 좌표계 설명
-
-### 경위도 (WGS84)
-- **형식**: [longitude, latitude] = [경도, 위도]
-- **예시**: [127.1385, 37.4447] (성남시)
-- **사용처**: Cesium 위치, API 통신
-
-### 미터 단위 (로컬)
-- **형식**: [x, y] in meters
-- **변환**: 경위도 → 미터 (건물 크기 계산용)
-```typescript
-const metersPerDegLon = 111320 * Math.cos(latRad)  // 경도 1도당 미터
-const metersPerDegLat = 111320                      // 위도 1도당 미터
-```
-
----
-
-## 실행 방법
-
-### 1. Backend 실행
 ```bash
 cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python -m uvicorn main:app --reload --port 8000
 ```
 
-### 2. Frontend 실행
+### 3. Frontend 설정
+
 ```bash
 cd frontend
 npm install
+```
+
+### 4. 환경 변수 설정
+
+**frontend/.env.local**
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_CESIUM_TOKEN=your_cesium_ion_token
+VWORLD_API_KEY=your_vworld_api_key
+```
+
+> - Cesium Ion 토큰 발급: https://cesium.com/ion/tokens
+> - V-World API 키 발급: https://www.vworld.kr/dev/v4api.do
+
+### 5. 실행
+
+```bash
+# Terminal 1: Backend
+cd backend
+uvicorn main:app --reload --port 8000
+
+# Terminal 2: Frontend
+cd frontend
 npm run dev
 ```
 
-### 3. 브라우저 접속
+### 6. 브라우저 접속
+
 ```
 http://localhost:3002
 ```
 
 ---
 
-## 환경 변수
+## API Reference
 
-### Frontend (.env.local)
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_CESIUM_TOKEN=your_cesium_ion_token
+### Backend API
+
+Base URL: `http://localhost:8000`
+
+#### 상태 확인
+
+```http
+GET /health
 ```
-> Cesium 토큰 발급: https://cesium.com/ion/ (무료 계정 생성 후 Access Token 발급)
 
-### Backend (.env) - 선택사항
-```env
-CORS_ORIGINS=http://localhost:3000,http://localhost:3002
+**Response**
+```json
+{ "status": "healthy" }
 ```
 
 ---
 
-## 조작 방법
+#### DXF 파일 업로드
+
+```http
+POST /api/upload-dxf
+Content-Type: multipart/form-data
+```
+
+**Request**
+| Field | Type | Description |
+|-------|------|-------------|
+| file | File | DXF 파일 |
+
+**Response**
+```json
+{
+  "success": true,
+  "file_id": "uuid-string",
+  "site": {
+    "footprint": [[127.1385, 37.4447], ...],
+    "area_sqm": 350.5,
+    "centroid": [127.1387, 37.4449],
+    "bounds": {
+      "min_x": 127.1385,
+      "min_y": 37.4447,
+      "max_x": 127.1390,
+      "max_y": 37.4451
+    }
+  }
+}
+```
+
+---
+
+#### 3D 매스 생성
+
+```http
+POST /api/generate-mass
+Content-Type: application/json
+```
+
+**Request**
+```json
+{
+  "footprint": [[127.1385, 37.4447], [127.1390, 37.4447], ...],
+  "height": 9.0,
+  "floors": 3
+}
+```
+
+**Response**
+```json
+{
+  "success": true,
+  "model_id": "uuid-string",
+  "model_url": "/models/uuid-string.glb",
+  "height": 9.0,
+  "floors": 3
+}
+```
+
+---
+
+#### 배치 규정 검토
+
+```http
+POST /api/validate-placement
+Content-Type: application/json
+```
+
+**Request**
+```json
+{
+  "site_footprint": [[127.1385, 37.4447], ...],
+  "building_footprint": [[127.1386, 37.4448], ...],
+  "building_height": 9.0,
+  "zone_type": "제1종일반주거지역",
+  "coverage_limit": 60.0,
+  "setback_required": 1.5,
+  "height_limit": 12.0
+}
+```
+
+**Response**
+```json
+{
+  "is_valid": true,
+  "building_coverage": {
+    "value": 45.5,
+    "limit": 60.0,
+    "status": "OK"
+  },
+  "setback": {
+    "min_distance_m": 2.3,
+    "required_m": 1.5,
+    "status": "OK"
+  },
+  "height": {
+    "value_m": 9.0,
+    "limit_m": 12.0,
+    "status": "OK"
+  },
+  "violations": []
+}
+```
+
+---
+
+### 외부 API
+
+#### Cesium Ion
+
+- **용도**: 3D 지형 데이터, OSM Buildings
+- **발급**: https://cesium.com/ion/tokens
+- **환경변수**: `NEXT_PUBLIC_CESIUM_TOKEN`
+
+#### 국토정보플랫폼 (V-World)
+
+- **용도**: 지적도 WFS 데이터
+- **발급**: https://www.vworld.kr/dev/v4api.do
+- **환경변수**: `VWORLD_API_KEY`
+
+**지적도 WFS 요청 예시**
+```
+GET /api/cadastral/wfs?bbox=127.1,37.4,127.2,37.5
+```
+
+---
+
+## AI 모듈 사용법
+
+### 파이프라인 실행
+
+```bash
+cd ai
+
+# 전체 파이프라인 (DXF → 분류 → GLB)
+python -m src.pipeline -i data/raw/sample.dxf
+
+# 개별 단계
+python -m src.extractor -i data/raw/sample.dxf    # Feature 추출
+python -m src.classifier -i data/processed/sample.csv  # 분류
+python -m src.exporter -i data/labeled/sample.csv      # GLB 생성
+```
+
+### Input/Output
+
+| 단계 | Input | Output |
+|------|-------|--------|
+| 추출 | `data/raw/*.dxf` | `data/processed/*.csv` |
+| 분류 | `data/processed/*.csv` | `data/labeled/*.csv` |
+| 내보내기 | `data/labeled/*.csv` | `data/output/*.glb` |
+
+### 분류 레이블
+
+| 레이블 | 설명 |
+|--------|------|
+| wall | 벽체 |
+| door | 문 |
+| window | 창문 |
+| stair | 계단 |
+| furniture | 가구 |
+| dimension | 치수 |
+| text | 텍스트 |
+| other | 기타 |
+
+---
+
+## 사용자 조작 가이드
 
 ### 기본 워크플로우
-1. **"샘플 데이터로 테스트"** 버튼 클릭
-2. **"3D 매스 생성"** 버튼 클릭
-3. **"건물 위치로 이동"** 버튼 클릭
+
+1. **샘플 데이터 로드** 또는 DXF 업로드
+2. **3D 매스 생성** 버튼 클릭
+3. **건물 위치로 이동** 클릭
 4. 마우스로 건물 이동/회전
-5. **"배치 검토 실행"** 버튼 클릭
-
-### 지적도 & 건축선 워크플로우
-1. **"지역 선택"** 버튼 클릭 후 지도에서 위치 클릭
-2. 지적도 로드 후 **"영역 선택"** 버튼 클릭
-3. 대지 블록 클릭하여 선택
-4. **"건축선 분석"** 버튼으로 건축선 확인
-
-### 프로젝트 저장/불러오기
-1. 헤더의 **"프로젝트 저장"** 클릭
-2. 프로젝트 이름 입력 (선택사항)
-3. JSON 파일 다운로드
-4. **"불러오기"**로 저장된 프로젝트 복원
+5. **배치 검토 실행** 클릭
 
 ### 마우스 조작
+
 | 동작 | 기능 |
 |------|------|
 | 좌클릭 + 드래그 (건물) | 건물 이동 |
 | 우클릭 + 드래그 (건물) | 건물 회전 |
 | 좌클릭 + 드래그 (지도) | 카메라 회전 |
-| 우클릭 + 드래그 (지도) | 카메라 줌 |
 | 마우스 휠 | 줌 인/아웃 |
 
-### 일조 시뮬레이션
-- 좌하단 패널에서 **날짜** 선택
-- **시간 슬라이더**로 0~23시 조절
-- 실시간 그림자 변화 확인
+### 건축선 분석
+
+1. **지역 선택** 버튼 클릭
+2. 지도에서 위치 클릭 (지적도 로드)
+3. **영역 선택** 후 대지 블록 클릭
+4. **건축선 분석** 버튼으로 결과 확인
 
 ---
 
-## Three.js 버전과 비교
+## 건축 규정 기준
 
-| 기능 | Three.js | Cesium |
-|------|:--------:|:------:|
-| 건물 이동 | O | O |
-| 건물 회전 | O | O |
-| 건물 크기 조정 | O | X |
-| 다중 건물 | O | X |
-| 일조 시뮬레이션 | X | O |
-| OSM 배경 건물 | X | O |
-| 지형 데이터 | X | O |
-| 백엔드 API | X | O |
+### 용도지역별 기준
 
----
+| 용도지역 | 건폐율 | 이격거리 | 높이제한 |
+|----------|--------|----------|----------|
+| 제1종전용주거 | 50% | 2.0m | 10m |
+| 제1종일반주거 | 60% | 1.5m | 16m |
+| 제2종일반주거 | 60% | 1.5m | 20m |
+| 일반상업 | 80% | 0m | 무제한 |
 
-## 검토 조건 (기본값)
+### 검토 항목
 
-| 항목 | 기본값 | 설명 |
-|------|--------|------|
-| 건폐율 | 60% | (건축면적 / 대지면적) x 100 |
-| 이격거리 | 1.5m | 대지경계선 ~ 건물 최소 거리 |
-| 높이제한 | 12m | 건물 최고 높이 |
+- **건폐율**: (건축면적 / 대지면적) × 100
+- **이격거리**: 대지경계선 ~ 건물 최소 거리
+- **높이제한**: 건물 최고 높이
 
 ---
 
-## 구현 완료된 기능
+## 개발 가이드
 
-- [x] 지적도 WFS 연동 (국토정보플랫폼)
-- [x] 지적 블록 선택 기능
-- [x] 건축선 분석 (도로/인접대지 판별)
-- [x] 용도지역별 이격거리 기준 적용
-- [x] OSM 건물 숨김 기능
-- [x] 프로젝트 저장/불러오기 (JSON)
-- [x] 휴먼 스케일 모델 배치
-- [x] 3D 모델 로드 및 배치
+자세한 개발 가이드는 아래 문서 참고:
 
-## 향후 개선 사항
-
-- [ ] 건물 크기(가로/세로) 조정 기능
-- [ ] 다중 건물 배치 지원
-- [ ] 실제 DXF 파일 업로드 테스트
-- [ ] 일조권 분석 결과 시각화
-- [ ] PDF 리포트 생성
+- [QUICKSTART.md](docs/QUICKSTART.md) - 5분 빠른 시작
+- [MODULES.md](docs/MODULES.md) - 모듈별 개발 가이드
 
 ---
 
@@ -409,4 +423,4 @@ MIT License
 
 ## 팀 정보
 
-팀 건치 (Team Geonchi) - 2024 종합설계프로젝트
+**팀 건치 (Team Geonchi)** - 2024 종합설계프로젝트

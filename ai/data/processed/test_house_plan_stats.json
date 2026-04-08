@@ -1,0 +1,66 @@
+{
+  "source": "test_house_plan",
+  "layers": {
+    "all_layers": [
+      "0",
+      "Defpoints",
+      "A-WALL",
+      "A-DOOR",
+      "A-WINDOW",
+      "DIM",
+      "FURNITURE",
+      "TEXT"
+    ],
+    "classified": {
+      "wall": [
+        "A-WALL"
+      ],
+      "door": [
+        "A-DOOR"
+      ],
+      "window": [
+        "A-WINDOW"
+      ],
+      "dimension": [
+        "DIM"
+      ],
+      "furniture": [
+        "FURNITURE"
+      ],
+      "stair": [],
+      "column": [],
+      "text": [
+        "TEXT"
+      ]
+    },
+    "unclassified": [
+      "0",
+      "Defpoints"
+    ]
+  },
+  "stats": {
+    "total_entities": 13,
+    "type_counts": {
+      "LINE": 7,
+      "ARC": 2,
+      "CIRCLE": 1,
+      "TEXT": 2,
+      "LWPOLYLINE": 1
+    },
+    "layer_counts": {
+      "A-WALL": 5,
+      "A-DOOR": 2,
+      "A-WINDOW": 2,
+      "FURNITURE": 2,
+      "TEXT": 2
+    },
+    "bounding_box": {
+      "min_x": 0.0,
+      "min_y": 0.0,
+      "max_x": 10000.0,
+      "max_y": 8000.0,
+      "width": 10000.0,
+      "height": 8000.0
+    }
+  }
+}

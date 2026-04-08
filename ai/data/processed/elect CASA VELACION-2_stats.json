@@ -1,0 +1,89 @@
+{
+  "source": "elect CASA VELACION-2",
+  "layers": {
+    "all_layers": [
+      "0",
+      "PARABOLAS",
+      "MANCHETA",
+      "LOCALIZACION",
+      "TUBERIA",
+      "CAJONEO",
+      "TITULOS",
+      "NOTAS",
+      "ELEMENTOS-ELEC",
+      "TUBERIA-PISO",
+      "CABLES",
+      "TUBERIA-TELEF",
+      "TUBERIA-TV",
+      "ACOMETIDAS",
+      "TEXTO",
+      "CARGAS-DIAGRAMA-CONVENC",
+      "DEFPOINTS"
+    ],
+    "classified": {
+      "wall": [],
+      "door": [],
+      "window": [],
+      "dimension": [],
+      "furniture": [],
+      "stair": [],
+      "column": [],
+      "text": [
+        "TEXTO"
+      ]
+    },
+    "unclassified": [
+      "0",
+      "PARABOLAS",
+      "MANCHETA",
+      "LOCALIZACION",
+      "TUBERIA",
+      "CAJONEO",
+      "TITULOS",
+      "NOTAS",
+      "ELEMENTOS-ELEC",
+      "TUBERIA-PISO",
+      "CABLES",
+      "TUBERIA-TELEF",
+      "TUBERIA-TV",
+      "ACOMETIDAS",
+      "CARGAS-DIAGRAMA-CONVENC",
+      "DEFPOINTS"
+    ]
+  },
+  "stats": {
+    "total_entities": 2862,
+    "type_counts": {
+      "MTEXT": 1,
+      "LINE": 2042,
+      "CIRCLE": 162,
+      "LWPOLYLINE": 87,
+      "ARC": 107,
+      "TEXT": 442,
+      "INSERT": 21
+    },
+    "layer_counts": {
+      "PARABOLAS": 1,
+      "CARGAS-DIAGRAMA-CONVENC": 393,
+      "TUBERIA-TV": 12,
+      "TUBERIA-PISO": 60,
+      "ELEMENTOS-ELEC": 711,
+      "ACOMETIDAS": 12,
+      "CAJONEO": 1159,
+      "TITULOS": 12,
+      "NOTAS": 56,
+      "TEXTO": 201,
+      "CABLES": 234,
+      "TUBERIA-TELEF": 7,
+      "TUBERIA": 4
+    },
+    "bounding_box": {
+      "min_x": -89.13,
+      "min_y": -9.47,
+      "max_x": -5.1,
+      "max_y": 19.52,
+      "width": 84.03,
+      "height": 28.99
+    }
+  }
+}

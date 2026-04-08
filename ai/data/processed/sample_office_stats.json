@@ -1,0 +1,67 @@
+{
+  "source": "sample_office",
+  "layers": {
+    "all_layers": [
+      "0",
+      "Defpoints",
+      "A-WALL",
+      "A-DOOR",
+      "A-WINDOW",
+      "DIM",
+      "FURNITURE",
+      "TEXT"
+    ],
+    "classified": {
+      "wall": [
+        "A-WALL"
+      ],
+      "door": [
+        "A-DOOR"
+      ],
+      "window": [
+        "A-WINDOW"
+      ],
+      "dimension": [
+        "DIM"
+      ],
+      "furniture": [
+        "FURNITURE"
+      ],
+      "stair": [],
+      "column": [],
+      "text": [
+        "TEXT"
+      ]
+    },
+    "unclassified": [
+      "0",
+      "Defpoints"
+    ]
+  },
+  "stats": {
+    "total_entities": 32,
+    "type_counts": {
+      "LWPOLYLINE": 1,
+      "LINE": 15,
+      "ARC": 5,
+      "CIRCLE": 5,
+      "TEXT": 6
+    },
+    "layer_counts": {
+      "A-WALL": 5,
+      "A-DOOR": 5,
+      "A-WINDOW": 10,
+      "FURNITURE": 5,
+      "TEXT": 5,
+      "DIM": 2
+    },
+    "bounding_box": {
+      "min_x": 0.0,
+      "min_y": -500.0,
+      "max_x": 15000.0,
+      "max_y": 8000.0,
+      "width": 15000.0,
+      "height": 8500.0
+    }
+  }
+}
