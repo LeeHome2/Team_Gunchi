@@ -97,6 +97,26 @@ export interface SerializedLoadedModel {
   displayName?: string
 }
 
+// 생성된 매스 모델
+export interface SerializedGeneratedMass {
+  id: string
+  fileName: string
+  label: string
+  glbUrl: string
+  footprint: number[][]
+  centroid: number[]
+  area: number
+  height: number
+  floors: number
+  classification: {
+    total_entities: number
+    class_counts: Record<string, number>
+    average_confidence: number
+  }
+  boundingBox?: { width: number; depth: number; height: number }
+  createdAt: number
+}
+
 // 시간 상태
 export interface SerializedTimeState {
   isoString: string
@@ -136,6 +156,12 @@ export interface ProjectFile {
 
   // 모델 상태
   loadedModel: SerializedLoadedModel | null
+
+  // 생성된 매스 모델 목록
+  generatedMasses?: SerializedGeneratedMass[]
+
+  // 현재 뷰포트에 배치된 매스 GLB URL
+  activeMassGlbUrl?: string | null
 
   // 휴먼 모델 상태
   humanModelTransform: SerializedHumanModelTransform | null

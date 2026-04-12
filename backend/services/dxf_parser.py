@@ -203,6 +203,64 @@ class DXFParser:
         }
 
 
+    def extract_road_lines(
+        self,
+        road_layer_names: Optional[List[str]] = None,
+    ) -> List[List[Tuple[float, float]]]:
+        """
+        도로 중심선 추출.
+
+        DXF 레이어명에 'road', 'ROAD', '도로' 등이 포함된 레이어에서
+        LINE / POLYLINE / LWPOLYLINE을 추출하여 좌표 리스트로 반환.
+
+        Args:
+            road_layer_names: 도로 레이어 이름 목록 (None이면 자동 탐지)
+
+        Returns:
+            [[(x1,y1), (x2,y2), ...], ...] 도로 중심선 리스트
+        """
+        if not self.doc:
+            return []
+
+        # 도로 레이어 자동 탐지
+        if road_layer_names is None:
+            road_keywords = ['road', 'ROAD', '도로', 'street', 'STREET', '차도', '진입로']
+            all_layers = self.get_layers()
+            road_layer_names = [
+                layer for layer in all_layers
+                if any(kw.lower() in layer.lower() for kw in road_keywords)
+            ]
+
+        if not road_layer_names:
+            logger.info("No road layers detected in DXF")
+            return []
+
+        road_lines: List[List[Tuple[float, float]]] = []
+        modelspace = self.doc.modelspace()
+
+        for entity in modelspace:
+            if entity.dxf.layer not in road_layer_names:
+                continue
+
+            if entity.dxftype() == "LINE":
+                start = (entity.dxf.start[0], entity.dxf.start[1])
+                end = (entity.dxf.end[0], entity.dxf.end[1])
+                road_lines.append([start, end])
+
+            elif entity.dxftype() == "LWPOLYLINE":
+                points = [(p[0], p[1]) for p in entity.get_points()]
+                if len(points) >= 2:
+                    road_lines.append(points)
+
+            elif entity.dxftype() == "POLYLINE":
+                points = [(v.dxf.location[0], v.dxf.location[1]) for v in entity.vertices]
+                if len(points) >= 2:
+                    road_lines.append(points)
+
+        logger.info(f"Extracted {len(road_lines)} road lines from layers {road_layer_names}")
+        return road_lines
+
+
 def parse_dxf_file(file_path: str, layer_name: Optional[str] = None) -> Dict[str, Any]:
     """
     DXF 파일을 파싱하여 footprint 정보 반환
@@ -234,12 +292,62 @@ def parse_dxf_file(file_path: str, layer_name: Optional[str] = None) -> Dict[str
     coordinates = parser.get_footprint_coordinates(footprint)
     info = parser.get_footprint_info(footprint)
 
+    # DXF 단위 감지: $INSUNITS 또는 좌표 범위로 mm 여부 판별
+    dxf_unit_scale = 1.0  # 기본: 미터
+    try:
+        insunits = parser.doc.header.get('$INSUNITS', 0)
+        if insunits == 4:  # mm
+            dxf_unit_scale = 0.001
+        elif insunits == 5:  # cm
+            dxf_unit_scale = 0.01
+        elif insunits == 6:  # m
+            dxf_unit_scale = 1.0
+        else:
+            # 좌표 범위로 추정: bounds extent > 500이면 mm
+            bounds = info["bounds"]
+            extent = max(bounds["max_x"] - bounds["min_x"], bounds["max_y"] - bounds["min_y"])
+            if extent > 500:
+                dxf_unit_scale = 0.001
+                logger.info(f"Auto-detected mm units: extent={extent:.0f}")
+    except Exception as e:
+        logger.warning(f"Failed to detect DXF units: {e}")
+
+    # mm/cm 단위인 경우 면적·둘레를 미터 단위로 보정
+    if dxf_unit_scale != 1.0:
+        info["area"] = info["area"] * (dxf_unit_scale ** 2)       # mm² → m²
+        info["perimeter"] = info["perimeter"] * dxf_unit_scale     # mm → m
+        logger.info(f"Corrected area to {info['area']:.2f} m² (scale={dxf_unit_scale})")
+
+    # 엔티티 정보 추출 (AI 분류용)
+    entities = []
+    total_entities = 0
+    try:
+        modelspace = parser.doc.modelspace()
+        for entity in modelspace:
+            total_entities += 1
+            entities.append({
+                "type": entity.dxftype(),
+                "layer": entity.dxf.layer,
+                "handle": entity.dxf.handle if hasattr(entity.dxf, 'handle') else str(total_entities),
+            })
+    except Exception as e:
+        logger.warning(f"Failed to extract entities: {e}")
+
+    # 도로 중심선 추출 (주차 진입로용)
+    road_lines = parser.extract_road_lines()
+
     return {
         "success": True,
         "footprint": coordinates,
         "area": info["area"],
         "centroid": info["centroid"],
-        "bounds": info["bounds"],
+        "bounds": {
+            **info["bounds"],
+            "layers": layers
+        },
         "perimeter": info["perimeter"],
-        "available_layers": layers
+        "available_layers": layers,
+        "total_entities": total_entities,
+        "entities": entities,
+        "road_lines": road_lines,
     }

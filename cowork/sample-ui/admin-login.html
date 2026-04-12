@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>관리자 로그인 — 건축물 배치 시스템</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body{background:#111318;min-height:100vh;display:flex;align-items:center;justify-content:center}
+  .login-box{width:380px;background:#fff;border-radius:var(--radius-xl);padding:32px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .login-icon{width:40px;height:40px;background:var(--gray-900);border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+  .login-icon svg{width:18px;height:18px;color:#fff}
+  .login-title{text-align:center;font-size:18px;font-weight:700;margin-bottom:3px;letter-spacing:-.01em}
+  .login-sub{text-align:center;font-size:12.5px;color:var(--gray-500);margin-bottom:22px}
+  .back-link{display:block;text-align:center;margin-top:18px;font-size:11.5px;color:rgba(255,255,255,.3)}
+  .back-link:hover{color:rgba(255,255,255,.55)}
+</style>
+</head>
+<body>
+  <div>
+    <div class="login-box">
+      <div class="login-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="login-title">관리자 로그인</div>
+      <div class="login-sub">건축물 배치 시스템 관리 콘솔</div>
+      <div class="form-group">
+        <label class="form-label">관리자 ID</label>
+        <input class="input" placeholder="admin@geonchi.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">비밀번호</label>
+        <input class="input" type="password" placeholder="비밀번호 입력">
+      </div>
+      <button class="btn btn-primary btn-block" style="padding:11px;margin-top:6px" onclick="location.href='admin-dashboard.html'">로그인</button>
+    </div>
+    <a class="back-link" href="login.html">← 사용자 로그인으로 돌아가기</a>
+  </div>
+</body>
+</html>

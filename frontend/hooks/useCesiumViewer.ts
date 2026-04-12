@@ -26,6 +26,10 @@ interface UseCesiumViewerReturn {
   viewerRef: RefObject<any>
   containerRef: RefObject<HTMLDivElement>
   isLoaded: boolean
+  /** Number of globe terrain/imagery tiles still loading (0 = idle). */
+  tilesLoading: number
+  /** True until the globe has reported tilesLoading===0 at least once after init. */
+  initialTilesReady: boolean
   osmTilesetRef: RefObject<any>
   refreshViewer: () => void
 }
@@ -42,6 +46,8 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
   const osmTilesetRef = useRef<any>(null)
 
   const [isLoaded, setIsLoaded] = useState(false)
+  const [tilesLoading, setTilesLoading] = useState(0)
+  const [initialTilesReady, setInitialTilesReady] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   // 뷰포트 새로고침
@@ -52,16 +58,30 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
     }
     initRef.current = false
     setIsLoaded(false)
+    setTilesLoading(0)
+    setInitialTilesReady(false)
     setRefreshKey((prev) => prev + 1)
   }, [])
 
   // Cesium 초기화
   useEffect(() => {
-    if (!containerRef.current || initRef.current) return
+    // React 18 strict mode에서 effect가 두 번 실행되는 걸 방어하기 위해
+    // 컨테이너 엘리먼트를 effect 시작 시점에 로컬로 캡처한다.
+    const container = containerRef.current
+    if (!container || initRef.current) return
     initRef.current = true
+
+    let cancelled = false
+    let localViewer: any = null
 
     const initCesium = async () => {
       const Cesium = await import('cesium')
+
+      // 비동기 대기 동안 cleanup이 실행됐거나 DOM에서 분리되었으면 중단
+      if (cancelled || !container.isConnected) {
+        initRef.current = false
+        return
+      }
 
       // Cesium을 window에 저장
       ;(window as any).Cesium = Cesium
@@ -124,8 +144,10 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
         }),
       ]
 
-      // Viewer 생성
-      const viewer = new Cesium.Viewer(containerRef.current!, {
+      // Viewer 생성 — effect 시작 시점에 캡처한 container 사용
+      // NOTE: preserveDrawingBuffer=true 는 결과 확인 페이지에서 `canvas.toDataURL()`
+      // 로 스크린샷을 뽑기 위해 필수. 성능 영향은 배치 에디터 규모에서 무시할 수준.
+      const viewer = new Cesium.Viewer(container, {
         terrain: Cesium.Terrain.fromWorldTerrain(),
         imageryProviderViewModels: imageryProviderViewModels,
         selectedImageryProviderViewModel: imageryProviderViewModels[0],
@@ -140,6 +162,11 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
         shadows: true,
         requestRenderMode: true,
         maximumRenderTimeChange: Infinity,
+        contextOptions: {
+          webgl: {
+            preserveDrawingBuffer: true,
+          },
+        },
       })
 
       // 시계 애니메이션 중지
@@ -196,7 +223,47 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
         console.warn('OSM Buildings 로드 실패:', e)
       }
 
+      // cleanup이 비동기 작업 도중에 실행됐다면 바로 파괴
+      if (cancelled) {
+        try {
+          viewer.destroy()
+        } catch {}
+        return
+      }
+
+      localViewer = viewer
       viewerRef.current = viewer
+
+      // Track globe tile loading so we can show a loading overlay until the
+      // initial terrain + imagery tiles have settled.
+      try {
+        const removeListener = viewer.scene.globe.tileLoadProgressEvent.addEventListener(
+          (queued: number) => {
+            if (cancelled) return
+            setTilesLoading(queued)
+            if (queued === 0) {
+              setInitialTilesReady(true)
+            }
+          }
+        )
+        // Remove listener on destroy
+        const prevDestroy = viewer.destroy.bind(viewer)
+        viewer.destroy = () => {
+          try { removeListener() } catch {}
+          prevDestroy()
+        }
+      } catch (e) {
+        // If the event isn't available for some reason, fall back to
+        // declaring the viewport ready immediately so we don't hang the UI.
+        setInitialTilesReady(true)
+      }
+
+      // Safety fallback: even if the tile queue never drains (offline / failed
+      // imagery), stop showing the loading overlay after 8 seconds.
+      setTimeout(() => {
+        if (!cancelled) setInitialTilesReady(true)
+      }, 8000)
+
       setIsLoaded(true)
       console.log('Cesium Viewer 초기화 완료')
 
@@ -206,7 +273,7 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
       // 저장된 상태 복원 (새로고침 시)
       if (refreshKey > 0 && restoreState) {
         setTimeout(() => {
-          restoreState(viewer)
+          if (!cancelled) restoreState(viewer)
         }, 500)
       }
     }
@@ -214,10 +281,17 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
     initCesium()
 
     return () => {
-      if (viewerRef.current) {
-        viewerRef.current.destroy()
-        viewerRef.current = null
+      cancelled = true
+      // 첫 실행이 localViewer를 만들었으면 그걸 정리
+      const toDestroy = localViewer || viewerRef.current
+      if (toDestroy) {
+        try {
+          toDestroy.destroy()
+        } catch {}
       }
+      viewerRef.current = null
+      // 다음 mount에서 다시 초기화할 수 있도록 플래그 리셋
+      initRef.current = false
     }
   }, [refreshKey, onViewerReady, restoreState])
 
@@ -225,6 +299,8 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
     viewerRef,
     containerRef,
     isLoaded,
+    tilesLoading,
+    initialTilesReady,
     osmTilesetRef,
     refreshViewer,
   }

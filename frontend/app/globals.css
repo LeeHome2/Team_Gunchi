@@ -2,13 +2,151 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Cesium 위젯 스타일 */
+/* Cesium widget styles */
 @import 'cesium/Build/Cesium/Widgets/widgets.css';
 
+/* ============================================================================
+   Theme tokens — light mode default, .dark overrides for dark mode
+   --------------------------------------------------------------------------
+   Existing Tailwind classes like `bg-navy-900`, `text-white`, `border-white/10`
+   are remapped to CSS variables in tailwind.config.js so they auto-flip
+   when `.dark` is present on <html>.
+   ============================================================================ */
+
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 255, 255, 255;
+  /* --- Foreground (maps to Tailwind `white`) --- */
+  --color-fg: 15 23 42; /* slate-900 on light — becomes pure white in .dark */
+
+  /* --- Navy scale (maps to Tailwind `bg-navy-*`) ---
+     These represent PAGE / SURFACE backgrounds. Light mode = whites & greys. */
+  --navy-950: 248 250 252; /* deepest page bg — slate-50 */
+  --navy-900: 255 255 255; /* page bg — pure white */
+  --navy-850: 255 255 255; /* card bg — white */
+  --navy-800: 249 250 251; /* elevated panel — gray-50 */
+  --navy-700: 243 244 246; /* hover — gray-100 */
+  --navy-600: 229 231 235; /* border strong — gray-200 */
+  --navy-500: 209 213 219; /* muted — gray-300 */
+  --navy-400: 156 163 175; /* subtle — gray-400 */
+
+  /* --- Brand scale (maps to Tailwind `bg-brand-*`)
+     Inverted vs dark mode so text-brand-300 stays readable on white. */
+  --brand-50: 23 37 84;      /* reserved, rarely used */
+  --brand-100: 30 58 138;
+  --brand-200: 30 64 175;    /* text-brand-200 — dark blue */
+  --brand-300: 29 78 216;    /* text-brand-300 — darker blue on white */
+  --brand-400: 37 99 235;    /* borders, medium blue */
+  --brand-500: 37 99 235;    /* primary CTA bg — blue-600 */
+  --brand-600: 29 78 216;
+  --brand-700: 30 58 138;
+  --brand-800: 191 219 254;  /* light tint for bg */
+  --brand-900: 219 234 254;  /* lightest tint */
+
+  /* --- Blueprint grid pattern (used by bg-grid + body) --- */
+  --blueprint-major: rgba(37, 99, 235, 0.10);  /* 56px grid lines */
+  --blueprint-minor: rgba(37, 99, 235, 0.05);  /* 14px grid lines */
+  --blueprint-dot:   rgba(37, 99, 235, 0.28);  /* intersection dots */
+  --blueprint-size-major: 112px;
+  --blueprint-size-minor: 14px;
+  --blueprint-pattern:
+    linear-gradient(var(--blueprint-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--blueprint-major) 1px, transparent 1px),
+    linear-gradient(var(--blueprint-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--blueprint-minor) 1px, transparent 1px);
+
+  /* --- Page background radial glow --- */
+  --page-bg: #FFFFFF;
+  --page-bg-deep: #F8FAFC;
+  --radial-glow:
+    radial-gradient(ellipse at top, rgba(37, 99, 235, 0.08), transparent 60%);
+  --hero-gradient:
+    linear-gradient(135deg, #FFFFFF 0%, #F1F5F9 50%, #FFFFFF 100%);
+
+  /* --- Gradient heading text (landing page) --- */
+  --heading-gradient:
+    linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #3b82f6 100%);
+
+  /* --- Shadows --- */
+  --shadow-card:
+    0 1px 3px rgba(15, 23, 42, 0.06),
+    0 8px 24px rgba(15, 23, 42, 0.05);
+  --shadow-glow: 0 0 40px rgba(37, 99, 235, 0.22);
+  --shadow-glow-sm: 0 4px 16px rgba(37, 99, 235, 0.18);
+
+  /* --- Scrollbar --- */
+  --scrollbar-track: rgba(15, 23, 42, 0.04);
+  --scrollbar-thumb: rgba(37, 99, 235, 0.28);
+  --scrollbar-thumb-hover: rgba(37, 99, 235, 0.5);
+
+  /* --- Cesium overlay panels --- */
+  --panel-bg: rgba(255, 255, 255, 0.92);
+  --panel-border: rgba(15, 23, 42, 0.08);
+  --panel-fg: #0F172A;
 }
+
+/* ----- Dark mode ----- */
+.dark {
+  --color-fg: 255 255 255;
+
+  /* Original navy scale from legacy design */
+  --navy-950: 6 12 26;
+  --navy-900: 10 19 40;
+  --navy-850: 13 24 48;
+  --navy-800: 17 30 60;
+  --navy-700: 22 40 73;
+  --navy-600: 28 51 90;
+  --navy-500: 36 66 111;
+  --navy-400: 53 88 138;
+
+  /* Original brand scale */
+  --brand-50: 234 241 255;
+  --brand-100: 208 224 255;
+  --brand-200: 163 193 255;
+  --brand-300: 119 162 255;
+  --brand-400: 82 136 245;
+  --brand-500: 59 111 227;
+  --brand-600: 42 87 194;
+  --brand-700: 31 66 153;
+  --brand-800: 22 49 115;
+  --brand-900: 15 34 82;
+
+  /* Darker blueprint grid (cyan lines on navy) */
+  --blueprint-major: rgba(119, 162, 255, 0.08);
+  --blueprint-minor: rgba(119, 162, 255, 0.04);
+  --blueprint-dot:   rgba(119, 162, 255, 0.22);
+  --blueprint-size-major: 112px;
+  --blueprint-size-minor: 14px;
+  --blueprint-pattern:
+    linear-gradient(var(--blueprint-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--blueprint-major) 1px, transparent 1px),
+    linear-gradient(var(--blueprint-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--blueprint-minor) 1px, transparent 1px);
+
+  --page-bg: #0A1328;
+  --page-bg-deep: #060C1A;
+  --radial-glow:
+    radial-gradient(ellipse at top, rgba(82, 136, 245, 0.15), transparent 60%);
+  --hero-gradient:
+    linear-gradient(135deg, #0A1328 0%, #111E3C 50%, #0A1328 100%);
+
+  --heading-gradient:
+    linear-gradient(135deg, #77A2FF 0%, #5288F5 50%, #A3C1FF 100%);
+
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 40px rgba(82, 136, 245, 0.35);
+  --shadow-glow-sm: 0 0 20px rgba(82, 136, 245, 0.25);
+
+  --scrollbar-track: rgba(10, 19, 40, 0.5);
+  --scrollbar-thumb: rgba(82, 136, 245, 0.3);
+  --scrollbar-thumb-hover: rgba(82, 136, 245, 0.5);
+
+  --panel-bg: rgba(10, 19, 40, 0.85);
+  --panel-border: rgba(255, 255, 255, 0.10);
+  --panel-fg: #E7EEFB;
+}
+
+/* ============================================================================
+   Base
+   ============================================================================ */
 
 * {
   box-sizing: border-box;
@@ -21,14 +159,194 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
   height: 100%;
+  color: rgb(var(--color-fg));
+  background: var(--page-bg);
+  font-family: 'Inter', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
+/* Blueprint grid covers the whole page (fixed so it stays put on scroll). */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-color: var(--page-bg);
+  background-image: var(--blueprint-pattern);
+  background-size:
+    var(--blueprint-size-major) var(--blueprint-size-major),
+    var(--blueprint-size-major) var(--blueprint-size-major),
+    var(--blueprint-size-minor) var(--blueprint-size-minor),
+    var(--blueprint-size-minor) var(--blueprint-size-minor);
+  background-position: 0 0;
 }
 
-/* Cesium 뷰어 컨테이너 */
+/* Dot at the intersection of each major grid cell (architectural feel) */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(
+      circle at 0 0,
+      var(--blueprint-dot) 1.4px,
+      transparent 1.8px
+    );
+  background-size: var(--blueprint-size-major) var(--blueprint-size-major);
+  background-position: 0 0;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 85%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 85%);
+}
+
+/* Make sure app content sits above the pseudo-element blueprint */
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ============================================================================
+   Reusable components
+   ============================================================================ */
+
+@layer components {
+  /* Primary CTA button — filled brand blue (always readable) */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg
+           font-semibold
+           shadow-glow-sm hover:shadow-glow
+           transition-all duration-200
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: rgb(var(--brand-500));
+    color: #ffffff;
+  }
+  .btn-primary:hover {
+    background-color: rgb(var(--brand-400));
+  }
+  .btn-primary:disabled:hover {
+    background-color: rgb(var(--brand-500));
+  }
+
+  /* Secondary button — outlined */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg
+           font-semibold text-white
+           border border-white/15 hover:border-white/30
+           bg-white/5 hover:bg-white/10
+           backdrop-blur-sm
+           transition-all duration-200
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Ghost nav button */
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-md
+           text-sm font-medium text-white/70 hover:text-white
+           hover:bg-white/5 transition-colors;
+  }
+
+  /* Input */
+  .input-field {
+    @apply w-full px-4 py-2.5 rounded-lg
+           bg-navy-900/70 border border-white/10
+           text-white placeholder-white/40
+           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-400/20
+           transition-colors;
+  }
+
+  /* Card — glassy panel */
+  .card {
+    @apply rounded-2xl bg-navy-850/70 border border-white/10
+           backdrop-blur-md shadow-card;
+  }
+
+  .card-hover {
+    @apply hover:border-brand-400/40 hover:shadow-glow-sm transition-all;
+  }
+
+  /* Label tag */
+  .tag {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md
+           text-xs font-semibold tracking-wide uppercase;
+  }
+  .tag-brand {
+    @apply tag bg-brand-500/15 text-brand-300 border border-brand-400/30;
+  }
+  .tag-ok {
+    @apply tag bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-400/30;
+  }
+  .tag-warn {
+    @apply tag bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-400/30;
+  }
+  .tag-err {
+    @apply tag bg-red-500/15 text-red-700 dark:text-red-300 border border-red-400/30;
+  }
+
+  /* Validation statuses */
+  .validation-ok {
+    @apply text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-400/20;
+  }
+  .validation-warning {
+    @apply text-amber-700 dark:text-amber-300 bg-amber-500/10 px-2 py-1 rounded border border-amber-400/20;
+  }
+  .validation-error {
+    @apply text-red-700 dark:text-red-300 bg-red-500/10 px-2 py-1 rounded border border-red-400/20;
+  }
+
+  /* Spinner */
+  .spinner {
+    @apply animate-spin rounded-full h-6 w-6 border-2 border-brand-400/30 border-t-brand-400;
+  }
+
+  /* Gradient heading text */
+  .heading-gradient {
+    background: var(--heading-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* Extra blueprint grid — for hero sections etc. */
+  .bg-grid {
+    background-image: var(--blueprint-pattern);
+    background-size:
+      var(--blueprint-size-major) var(--blueprint-size-major),
+      var(--blueprint-size-major) var(--blueprint-size-major),
+      var(--blueprint-size-minor) var(--blueprint-size-minor),
+      var(--blueprint-size-minor) var(--blueprint-size-minor);
+  }
+
+  /* Subtle panel divider */
+  .divider {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent;
+  }
+}
+
+/* ============================================================================
+   Cesium overlays (inside editor)
+   ============================================================================ */
+
 .cesium-container {
   width: 100%;
   height: 100%;
@@ -40,15 +358,17 @@ body {
   height: 100%;
 }
 
-/* 컨트롤 패널 스타일 */
 .control-panel {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
+  top: 12px;
+  left: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--panel-fg);
+  border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(12px);
   z-index: 1000;
   max-width: 320px;
 }
@@ -56,38 +376,17 @@ body {
 .sidebar {
   width: 100%;
   height: 100%;
-  background: white;
+  background: var(--panel-bg);
+  border-right: 1px solid var(--panel-border);
   overflow-y: auto;
 }
 
-/* 버튼 스타일 */
-.btn-primary {
-  @apply bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors;
-}
+/* ============================================================================
+   Utilities
+   ============================================================================ */
 
-.btn-secondary {
-  @apply bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors;
-}
-
-/* 인풋 스타일 */
-.input-field {
-  @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500;
-}
-
-/* 검토 결과 스타일 */
-.validation-ok {
-  @apply text-green-600 bg-green-50 px-2 py-1 rounded;
-}
-
-.validation-warning {
-  @apply text-yellow-600 bg-yellow-50 px-2 py-1 rounded;
-}
-
-.validation-error {
-  @apply text-red-600 bg-red-50 px-2 py-1 rounded;
-}
-
-/* 로딩 스피너 */
-.spinner {
-  @apply animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600;
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
 }

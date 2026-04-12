@@ -25,7 +25,7 @@ export default function ErrorBanner() {
 
   return (
     <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-slide-down">
-      <div className="bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 max-w-lg">
+      <div className="bg-red-500 text-[#fff] px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 max-w-lg">
         {/* 에러 아이콘 */}
         <svg
           className="w-5 h-5 flex-shrink-0"

@@ -68,7 +68,7 @@ export default function SaveLoadToolbar({
           className={`rounded-lg shadow-lg px-3 py-2 flex items-center gap-2 transition-colors ${
             isSaving
               ? 'bg-gray-300 cursor-wait text-gray-500'
-              : 'bg-white/90 hover:bg-gray-100 text-gray-700'
+              : 'bg-[#ffffffe6] hover:bg-gray-100 text-gray-700'
           }`}
           title="프로젝트 저장"
         >
@@ -90,7 +90,7 @@ export default function SaveLoadToolbar({
           className={`rounded-lg shadow-lg px-3 py-2 flex items-center gap-2 transition-colors ${
             isLoading
               ? 'bg-gray-300 cursor-wait text-gray-500'
-              : 'bg-white/90 hover:bg-gray-100 text-gray-700'
+              : 'bg-[#ffffffe6] hover:bg-gray-100 text-gray-700'
           }`}
           title="프로젝트 불러오기"
         >
@@ -118,7 +118,7 @@ export default function SaveLoadToolbar({
       {/* 저장 다이얼로그 */}
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
+          <div className="bg-[#ffffff] rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
             <h3 className="text-lg font-medium text-gray-800 mb-4">프로젝트 저장</h3>
             <input
               type="text"
@@ -141,7 +141,7 @@ export default function SaveLoadToolbar({
               </button>
               <button
                 onClick={handleSaveConfirm}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                className="px-4 py-2 bg-blue-500 text-[#fff] rounded-lg hover:bg-blue-600 transition-colors"
               >
                 저장
               </button>
@@ -152,7 +152,7 @@ export default function SaveLoadToolbar({
 
       {/* 에러 토스트 */}
       {error && (
-        <div className="fixed bottom-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50 max-w-md">
+        <div className="fixed bottom-4 right-4 bg-red-500 text-[#fff] px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50 max-w-md">
           <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
@@ -181,7 +181,7 @@ export default function SaveLoadToolbar({
       {/* 로딩 오버레이 */}
       {isLoading && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 flex items-center gap-4">
+          <div className="bg-[#ffffff] rounded-lg shadow-xl p-6 flex items-center gap-4">
             <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-gray-700">프로젝트를 불러오는 중...</span>
           </div>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>내 프로젝트 — 건축물 배치 시스템</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .page-body{max-width:960px;margin:0 auto;padding:28px 24px}
+  .page-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:24px}
+  .page-title{font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .page-sub{font-size:12.5px;color:var(--gray-500);margin-top:2px}
+  .header-actions{display:flex;gap:8px;align-items:center}
+  .search-box{width:200px}
+
+  .proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .proj-card{background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;transition:all .2s;cursor:pointer}
+  .proj-card:hover{border-color:var(--gray-300);box-shadow:var(--shadow-md);transform:translateY(-1px)}
+  .proj-thumb{height:120px;display:flex;align-items:flex-end;padding:12px;position:relative;overflow:hidden}
+  .proj-thumb .status{position:absolute;top:10px;right:10px}
+  .proj-body{padding:14px 16px}
+  .proj-name{font-size:14px;font-weight:600;margin-bottom:3px;letter-spacing:-.01em}
+  .proj-meta{font-size:11.5px;color:var(--gray-400);margin-bottom:10px}
+  .proj-stats{display:flex;gap:14px;font-size:11.5px;color:var(--gray-500)}
+  .proj-stats span{display:flex;align-items:center;gap:3px}
+  .proj-footer{display:flex;gap:6px;padding:0 16px 14px}
+
+  .proj-card-new{border-style:dashed;border-color:var(--gray-300);display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:248px;color:var(--gray-400);gap:6px;transition:all .2s}
+  .proj-card-new:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
+  .proj-card-new .plus{font-size:28px;font-weight:300;line-height:1}
+  .proj-card-new .text{font-size:13px;font-weight:500}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-logo">건축물 배치 시스템</div>
+    <span class="topbar-badge">Cesium 3D</span>
+    <div class="topbar-nav">
+      <a class="nav-link active" href="projects.html">내 프로젝트</a>
+      <a class="nav-link" href="results.html">결과 관리</a>
+      <a class="nav-link" href="settings.html">설정</a>
+      <div class="avatar-menu">
+        <div class="avatar" onclick="this.nextElementSibling.classList.toggle('show')">이</div>
+        <div class="avatar-dropdown">
+          <a href="#">내 정보</a>
+          <a href="#">비밀번호 변경</a>
+          <a href="login.html" style="color:var(--danger)">로그아웃</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-body">
+    <div class="page-header">
+      <div>
+        <div class="page-title">내 프로젝트</div>
+        <div class="page-sub">총 3개의 프로젝트</div>
+      </div>
+      <div class="header-actions">
+        <input class="input input-sm search-box" placeholder="프로젝트 검색...">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('newModal').classList.add('show')">+ 새 프로젝트</button>
+      </div>
+    </div>
+
+    <div class="proj-grid">
+      <div class="proj-card" onclick="location.href='editor.html'">
+        <div class="proj-thumb" style="background:linear-gradient(135deg,#1e293b,#334155)">
+          <span class="status"><span class="badge badge-success">활성</span></span>
+        </div>
+        <div class="proj-body">
+          <div class="proj-name">판교 주택 설계 A안</div>
+          <div class="proj-meta">2026.03.20 수정</div>
+          <div class="proj-stats">
+            <span>300m²</span>
+            <span>건폐율 45%</span>
+            <span>10층</span>
+          </div>
+        </div>
+        <div class="proj-footer">
+          <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();location.href='editor.html'">열기</button>
+          <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();showToast('프로젝트가 복제되었습니다')">복제</button>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();showToast('프로젝트가 삭제되었습니다')">삭제</button>
+        </div>
+      </div>
+
+      <div class="proj-card" onclick="location.href='editor.html'">
+        <div class="proj-thumb" style="background:linear-gradient(135deg,#0f2942,#1a4068)">
+          <span class="status"><span class="badge badge-success">활성</span></span>
+        </div>
+        <div class="proj-body">
+          <div class="proj-name">분당 다세대 검토</div>
+          <div class="proj-meta">2026.03.18 수정</div>
+          <div class="proj-stats">
+            <span>520m²</span>
+            <span>건폐율 52%</span>
+            <span>5층</span>
+          </div>
+        </div>
+        <div class="proj-footer">
+          <button class="btn btn-sm btn-primary" onclick="event.stopPropagation()">열기</button>
+          <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation()">복제</button>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation()">삭제</button>
+        </div>
+      </div>
+
+      <div class="proj-card" onclick="location.href='editor.html'">
+        <div class="proj-thumb" style="background:linear-gradient(135deg,#1a2e1a,#2d4a2d)">
+          <span class="status"><span class="badge badge-gray">임시저장</span></span>
+        </div>
+        <div class="proj-body">
+          <div class="proj-name">강남 단독주택 초안</div>
+          <div class="proj-meta">2026.03.15 수정</div>
+          <div class="proj-stats">
+            <span>—</span>
+            <span>—</span>
+          </div>
+        </div>
+        <div class="proj-footer">
+          <button class="btn btn-sm btn-primary" onclick="event.stopPropagation()">열기</button>
+          <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation()">복제</button>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation()">삭제</button>
+        </div>
+      </div>
+
+      <div class="proj-card proj-card-new" onclick="document.getElementById('newModal').classList.add('show')">
+        <span class="plus">+</span>
+        <span class="text">새 프로젝트 생성</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 새 프로젝트 모달 -->
+  <div class="modal-overlay" id="newModal" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="modal">
+      <div class="modal-title">새 프로젝트 생성</div>
+      <div class="modal-sub">건축 배치 설계를 시작합니다.</div>
+      <div class="form-group">
+        <label class="form-label">프로젝트 이름</label>
+        <input class="input" placeholder="예: 판교 주택 설계">
+      </div>
+      <div class="form-group">
+        <label class="form-label">설명 (선택)</label>
+        <textarea class="input" rows="2" placeholder="프로젝트에 대한 간단한 메모"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="document.getElementById('newModal').classList.remove('show')">취소</button>
+        <button class="btn btn-primary" onclick="document.getElementById('newModal').classList.remove('show');location.href='editor.html'">생성</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script>
+    function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
+    document.addEventListener('click',e=>{if(!e.target.closest('.avatar-menu'))document.querySelectorAll('.avatar-dropdown').forEach(d=>d.classList.remove('show'))})
+  </script>
+</body>
+</html>

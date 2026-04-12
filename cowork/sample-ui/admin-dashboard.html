@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>관리자 대시보드 — 건축물 배치 시스템</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body{background:var(--gray-50)}
+  .chart-area{display:flex;gap:14px;margin-bottom:24px}
+  .chart-card{flex:1;background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius-lg);padding:16px;box-shadow:var(--shadow-xs)}
+  .chart-title{font-size:12.5px;font-weight:600;margin-bottom:10px;color:var(--gray-700)}
+  .bar-chart{display:flex;align-items:flex-end;gap:6px;height:72px}
+  .bar{width:100%;background:var(--primary);border-radius:3px 3px 0 0;min-height:4px;transition:height .3s;opacity:.85}
+  .bar-labels{display:flex;justify-content:space-between;font-size:9.5px;color:var(--gray-400);margin-top:5px}
+  .log-line{font-family:'SF Mono','Cascadia Code','Fira Code',monospace;font-size:11.5px;padding:6px 10px;border-bottom:1px solid var(--gray-100)}
+  .log-line.error{background:var(--danger-light);color:var(--danger)}
+  .log-line.warn{background:var(--warn-light);color:#92400e}
+  .log-line.info{color:var(--gray-600)}
+  .admin-page{display:none}
+  .admin-page.active{display:block}
+</style>
+</head>
+<body>
+  <div class="admin-layout">
+    <div class="admin-sidebar">
+      <div class="admin-sidebar-header">
+        <div class="title">건축물 배치</div>
+        <div class="sub">관리 콘솔</div>
+      </div>
+      <div class="admin-nav">
+        <div class="admin-nav-group">
+          <div class="admin-nav-label">메인</div>
+          <div class="admin-nav-item active" onclick="navTo(this,'dash')"><span class="admin-nav-icon">—</span>대시보드</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-label">관리</div>
+          <div class="admin-nav-item" onclick="navTo(this,'users')"><span class="admin-nav-icon">—</span>사용자 관리</div>
+          <div class="admin-nav-item" onclick="navTo(this,'projects')"><span class="admin-nav-icon">—</span>프로젝트 관리</div>
+          <div class="admin-nav-item" onclick="navTo(this,'results')"><span class="admin-nav-icon">—</span>결과 관리</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-label">데이터</div>
+          <div class="admin-nav-item" onclick="navTo(this,'regs')"><span class="admin-nav-icon">—</span>규정 관리</div>
+          <div class="admin-nav-item" onclick="navTo(this,'ai')"><span class="admin-nav-icon">—</span>AI 모델</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-label">시스템</div>
+          <div class="admin-nav-item" onclick="navTo(this,'logs')"><span class="admin-nav-icon">—</span>로그</div>
+          <div class="admin-nav-item" onclick="navTo(this,'auth')"><span class="admin-nav-icon">—</span>인증 관리</div>
+          <div class="admin-nav-item" onclick="navTo(this,'service')"><span class="admin-nav-icon">—</span>서비스 설정</div>
+        </div>
+      </div>
+      <div style="padding:14px 16px;border-top:1px solid #22252d">
+        <a href="admin-login.html" style="font-size:12px;color:#555;display:flex;align-items:center;gap:6px">로그아웃</a>
+      </div>
+    </div>
+
+    <div class="admin-content">
+      <div class="admin-topbar">
+        <span class="admin-topbar-title" id="pageTitle">대시보드</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+          <span style="font-size:12px;color:var(--gray-500)">admin@geonchi.com</span>
+          <div class="avatar" style="background:var(--gray-900)">A</div>
+        </div>
+      </div>
+
+      <div class="admin-body">
+        <!-- 대시보드 -->
+        <div class="admin-page active" id="page-dash">
+          <div class="stat-grid">
+            <div class="stat-card"><div class="label">전체 사용자</div><div class="value">128</div><div class="change up">+12 이번 주</div></div>
+            <div class="stat-card"><div class="label">활성 프로젝트</div><div class="value">45</div><div class="change up">+8 이번 주</div></div>
+            <div class="stat-card"><div class="label">오늘 API 요청</div><div class="value">1,247</div><div class="change down">-3% 어제 대비</div></div>
+            <div class="stat-card"><div class="label">서버 상태</div><div class="value" style="color:var(--success);font-size:20px">정상 가동</div><div class="change" style="color:var(--gray-500)">CPU 23% · RAM 61%</div></div>
+          </div>
+          <div class="chart-area">
+            <div class="chart-card">
+              <div class="chart-title">주간 사용량</div>
+              <div class="bar-chart"><div class="bar" style="height:25%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:35%"></div><div class="bar" style="height:55%"></div><div class="bar" style="height:48%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:58%"></div></div>
+              <div class="bar-labels"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span><span>일</span></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">최근 이벤트</div>
+              <div class="log-line error">[03-25 14:32] DXF 파싱 실패 — user_42</div>
+              <div class="log-line warn">[03-25 13:45] API 응답 지연 — /ai/predict (3.2s)</div>
+              <div class="log-line info">[03-25 13:18] 모델 v2.1 배포 완료</div>
+              <div class="log-line info">[03-25 12:05] 신규 사용자 가입 — park@test.com</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 사용자 관리 -->
+        <div class="admin-page" id="page-users">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <input class="input input-sm" style="width:220px" placeholder="사용자 검색...">
+            <button class="btn btn-primary btn-sm">+ 사용자 추가</button>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>ID</th><th>이름</th><th>이메일</th><th>가입일</th><th>프로젝트</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>이호민</td><td>homin@test.com</td><td>2026.03.15</td><td>3</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">편집</button> <button class="btn btn-sm btn-danger">정지</button></td></tr>
+              <tr><td>2</td><td>김건축</td><td>kim@test.com</td><td>2026.03.18</td><td>1</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">편집</button> <button class="btn btn-sm btn-danger">정지</button></td></tr>
+              <tr><td>3</td><td>박설계</td><td>park@test.com</td><td>2026.03.20</td><td>0</td><td><span class="badge badge-gray">비활성</span></td><td><button class="btn btn-sm btn-secondary">편집</button> <button class="btn btn-sm btn-danger">삭제</button></td></tr>
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--gray-500)">
+            <span>총 128명</span>
+            <div style="display:flex;gap:4px"><button class="btn btn-sm btn-secondary">이전</button><button class="btn btn-sm btn-primary">1</button><button class="btn btn-sm btn-secondary">2</button><button class="btn btn-sm btn-secondary">다음</button></div>
+          </div>
+        </div>
+
+        <!-- 프로젝트 관리 -->
+        <div class="admin-page" id="page-projects">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <input class="input input-sm" style="width:220px" placeholder="프로젝트 검색...">
+          </div>
+          <table class="tbl" style="margin-bottom:20px">
+            <thead><tr><th>ID</th><th>프로젝트명</th><th>소유자</th><th>생성일</th><th>대지면적</th><th>CAD</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>판교 주택 A안</td><td>이호민</td><td>03.20</td><td>300m²</td><td>site_a.dxf</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">상세</button> <button class="btn btn-sm btn-danger">삭제</button></td></tr>
+              <tr><td>2</td><td>분당 다세대</td><td>김건축</td><td>03.18</td><td>520m²</td><td>multi_b.dxf</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">상세</button> <button class="btn btn-sm btn-danger">삭제</button></td></tr>
+            </tbody>
+          </table>
+          <div class="chart-title">지도 데이터 연결 상태</div>
+          <div style="display:flex;gap:12px">
+            <div class="card" style="flex:1"><div style="font-weight:600;font-size:13px">Cesium Ion</div><div style="font-size:11px;color:var(--gray-500);margin:4px 0">Terrain / Imagery</div><span class="badge badge-success">연결됨</span></div>
+            <div class="card" style="flex:1"><div style="font-weight:600;font-size:13px">OSM Buildings</div><div style="font-size:11px;color:var(--gray-500);margin:4px 0">주변 건물 3D</div><span class="badge badge-success">활성</span></div>
+            <div class="card" style="flex:1"><div style="font-weight:600;font-size:13px">국토정보 WFS</div><div style="font-size:11px;color:var(--gray-500);margin:4px 0">지적도/용도지역</div><span class="badge badge-success">연결됨</span></div>
+          </div>
+        </div>
+
+        <!-- 규정 관리 -->
+        <div class="admin-page" id="page-regs">
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:-.01em">기본 규정 기준값</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+            <div class="card"><div style="font-size:12px;color:var(--gray-500)">건폐율 한도</div><div style="display:flex;align-items:center;gap:6px;margin-top:6px"><input class="input input-sm" value="60" style="width:72px;text-align:right"><span style="font-size:13px;color:var(--gray-500)">%</span></div></div>
+            <div class="card"><div style="font-size:12px;color:var(--gray-500)">이격거리</div><div style="display:flex;align-items:center;gap:6px;margin-top:6px"><input class="input input-sm" value="3.0" style="width:72px;text-align:right"><span style="font-size:13px;color:var(--gray-500)">m</span></div></div>
+            <div class="card"><div style="font-size:12px;color:var(--gray-500)">높이 제한</div><div style="display:flex;align-items:center;gap:6px;margin-top:6px"><input class="input input-sm" value="30.0" style="width:72px;text-align:right"><span style="font-size:13px;color:var(--gray-500)">m</span></div></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:14px;font-weight:600">지역별 규정 데이터</div>
+            <button class="btn btn-primary btn-sm">+ 지역 규정 추가</button>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>지역</th><th>용도지역</th><th>건폐율</th><th>용적률</th><th>높이 제한</th><th>이격거리</th><th>관리</th></tr></thead>
+            <tbody>
+              <tr><td>성남시 분당구</td><td>제1종 일반주거</td><td>60%</td><td>200%</td><td>30m</td><td>3.0m</td><td><button class="btn btn-sm btn-secondary">편집</button></td></tr>
+              <tr><td>서울시 강남구</td><td>제2종 일반주거</td><td>60%</td><td>250%</td><td>—</td><td>3.0m</td><td><button class="btn btn-sm btn-secondary">편집</button></td></tr>
+              <tr><td>인천시 연수구</td><td>일반상업</td><td>80%</td><td>600%</td><td>—</td><td>—</td><td><button class="btn btn-sm btn-secondary">편집</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- AI 모델 -->
+        <div class="admin-page" id="page-ai">
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px">AI 모델 버전 관리</div>
+          <table class="tbl" style="margin-bottom:24px">
+            <thead><tr><th>버전</th><th>알고리즘</th><th>학습일</th><th>정확도</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody>
+              <tr><td><strong>v2.1</strong></td><td>XGBoost 레이어 분류</td><td>2026.03.20</td><td>94.2%</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">상세</button></td></tr>
+              <tr><td>v2.0</td><td>MLP 기반 분류</td><td>2026.03.10</td><td>91.5%</td><td><span class="badge badge-gray">비활성</span></td><td><button class="btn btn-sm btn-primary">활성화</button></td></tr>
+              <tr><td>v1.0</td><td>Random Forest</td><td>2026.02.28</td><td>87.3%</td><td><span class="badge badge-gray">비활성</span></td><td><button class="btn btn-sm btn-primary">활성화</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 로그 -->
+        <div class="admin-page" id="page-logs">
+          <div style="display:flex;gap:6px;margin-bottom:14px">
+            <button class="btn btn-sm btn-primary">전체</button>
+            <button class="btn btn-sm btn-secondary">오류</button>
+            <button class="btn btn-sm btn-secondary">경고</button>
+            <input class="input input-sm" style="width:180px;margin-left:auto" placeholder="로그 검색...">
+          </div>
+          <div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden">
+            <div class="log-line info">[2026-03-25 15:01:23] INFO — 사용자 로그인 성공 (user_id: 12)</div>
+            <div class="log-line info">[2026-03-25 14:58:47] INFO — DXF 파일 업로드 (site_new.dxf, 245KB)</div>
+            <div class="log-line error">[2026-03-25 14:32:15] ERROR — DXF 파싱 실패: invalid layer (user_id: 42)</div>
+            <div class="log-line warn">[2026-03-25 13:45:02] WARN — API 응답 지연: /ai/predict (3.2s)</div>
+            <div class="log-line info">[2026-03-25 13:18:33] INFO — AI 모델 v2.1 배포 완료</div>
+            <div class="log-line info">[2026-03-25 12:05:11] INFO — 신규 사용자 가입 (park@test.com)</div>
+            <div class="log-line info">[2026-03-25 11:42:08] INFO — 규정 검토 완료 (project_id: 7, PASS)</div>
+            <div class="log-line error">[2026-03-25 10:15:44] ERROR — DB 연결 타임아웃 (retry 2/3)</div>
+          </div>
+        </div>
+
+        <!-- 결과 관리 -->
+        <div class="admin-page" id="page-results">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <input class="input input-sm" style="width:220px" placeholder="결과 검색...">
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-primary">전체</button>
+              <button class="btn btn-sm btn-secondary">적합</button>
+              <button class="btn btn-sm btn-secondary">부적합</button>
+            </div>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>ID</th><th>프로젝트</th><th>소유자</th><th>검토일</th><th>건폐율</th><th>높이</th><th>판정</th><th>관리</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>판교 주택 A안 #3</td><td>이호민</td><td>03.25</td><td>45%/60%</td><td>32m/30m</td><td><span class="badge badge-danger">부적합</span></td><td><button class="btn btn-sm btn-secondary">상세</button> <button class="btn btn-sm btn-danger">삭제</button></td></tr>
+              <tr><td>2</td><td>판교 주택 A안 #2</td><td>이호민</td><td>03.24</td><td>42%/60%</td><td>28m/30m</td><td><span class="badge badge-success">적합</span></td><td><button class="btn btn-sm btn-secondary">상세</button> <button class="btn btn-sm btn-danger">삭제</button></td></tr>
+              <tr><td>3</td><td>분당 다세대 #1</td><td>김건축</td><td>03.20</td><td>52%/60%</td><td>15m/30m</td><td><span class="badge badge-success">적합</span></td><td><button class="btn btn-sm btn-secondary">상세</button> <button class="btn btn-sm btn-danger">삭제</button></td></tr>
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--gray-500)">
+            <span>총 3건</span>
+            <button class="btn btn-sm btn-secondary">CSV 내보내기</button>
+          </div>
+        </div>
+
+        <!-- 인증 관리 -->
+        <div class="admin-page" id="page-auth">
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px">관리자 인증 및 API 인증</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+            <div class="card">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px">관리자 계정</div>
+              <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--gray-600)">admin@geonchi.com</span><span class="badge badge-success">활성</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--gray-600)">sub_admin@geonchi.com</span><span class="badge badge-gray">비활성</span></div>
+              </div>
+              <button class="btn btn-sm btn-secondary mt-3">+ 관리자 추가</button>
+            </div>
+            <div class="card">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px">인증 설정</div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">세션 만료 시간 (분)</div><input class="input input-sm" value="60"></div>
+              <div><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">최대 로그인 시도</div><input class="input input-sm" value="5"></div>
+            </div>
+          </div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px">API 키 관리</div>
+          <table class="tbl">
+            <thead><tr><th>키 이름</th><th>접두사</th><th>생성일</th><th>마지막 사용</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody>
+              <tr><td>Production Key</td><td>geonchi_prod_***</td><td>2026.03.01</td><td>2026.03.25</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">재생성</button> <button class="btn btn-sm btn-danger">폐기</button></td></tr>
+              <tr><td>Test Key</td><td>geonchi_test_***</td><td>2026.03.10</td><td>2026.03.24</td><td><span class="badge badge-success">활성</span></td><td><button class="btn btn-sm btn-secondary">재생성</button> <button class="btn btn-sm btn-danger">폐기</button></td></tr>
+            </tbody>
+          </table>
+          <button class="btn btn-sm btn-primary mt-3">+ 새 API 키 생성</button>
+        </div>
+
+        <!-- 서비스 설정 -->
+        <div class="admin-page" id="page-service">
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px">서비스 설정</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+            <div class="card">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px">API 설정</div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">요청 제한 (req/min)</div><input class="input input-sm" value="100"></div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">응답 타임아웃 (초)</div><input class="input input-sm" value="30"></div>
+              <div><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">최대 파일 크기 (MB)</div><input class="input input-sm" value="50"></div>
+            </div>
+            <div class="card">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px">엔드포인트 상태</div>
+              <div style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--gray-600)">POST /api/dxf/upload</span><span class="badge badge-success">정상</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--gray-600)">POST /api/mass/generate</span><span class="badge badge-success">정상</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--gray-600)">POST /api/validate</span><span class="badge badge-success">정상</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--gray-600)">POST /api/ai/predict</span><span class="badge badge-warn">지연</span></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+            <div class="card">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px">로깅 설정</div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">로그 레벨</div><select class="input input-sm"><option>INFO</option><option>WARN</option><option>ERROR</option><option>DEBUG</option></select></div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">로그 보존 기간 (일)</div><input class="input input-sm" value="90"></div>
+              <div><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">로그 파일 최대 크기 (MB)</div><input class="input input-sm" value="500"></div>
+            </div>
+            <div class="card">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px">오류처리 설정</div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">오류 알림 이메일</div><input class="input input-sm" value="admin@geonchi.com"></div>
+              <div style="margin-bottom:8px"><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">자동 재시도 횟수</div><input class="input input-sm" value="3"></div>
+              <div><div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">재시도 간격 (초)</div><input class="input input-sm" value="5"></div>
+            </div>
+          </div>
+          <button class="btn btn-primary">설정 저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const titles={dash:'대시보드',users:'사용자 관리',projects:'프로젝트 관리',results:'결과 관리',regs:'건축 규정 관리',ai:'AI 모델 관리',logs:'시스템 로그',auth:'인증 관리',service:'서비스 설정'};
+    function navTo(el,page){
+      document.querySelectorAll('.admin-nav-item').forEach(i=>i.classList.remove('active'));
+      el.classList.add('active');
+      document.querySelectorAll('.admin-page').forEach(p=>p.classList.remove('active'));
+      document.getElementById('page-'+page).classList.add('active');
+      document.getElementById('pageTitle').textContent=titles[page]||page;
+    }
+  </script>
+</body>
+</html>

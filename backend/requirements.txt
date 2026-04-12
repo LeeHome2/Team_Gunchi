@@ -16,6 +16,8 @@ pyproj==3.6.1
 
 # 3D Model Generation
 trimesh==4.0.8
+mapbox-earcut==1.0.2
+networkx>=3.0
 pygltflib==1.16.1
 numpy==1.26.3
 

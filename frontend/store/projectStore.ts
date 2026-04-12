@@ -56,6 +56,73 @@ interface ValidationResult {
   }>
 }
 
+/**
+ * 결과 확인(/editor/result) 페이지로 전달하는 스냅샷.
+ *
+ * - `sitePlan`: Cesium 뷰포트를 탑다운(pitch -90°) 으로 돌린 뒤 캡처한 dataURL.
+ *   나중에 학교 LLM 이미지 생성 기능이 붙으면 이 이미지를 입력으로 넘겨서
+ *   건축 배치도 스타일로 변환할 수 있다.
+ * - `aerialView`: STAGE 6 (이미지 생성 AI) 가 붙기 전까지 `null`. 붙으면
+ *   프롬프트로 생성한 조감도 이미지 URL 을 저장한다.
+ * - `capturedAt`: 스냅샷 찍은 시각 (ISO string).
+ */
+export interface ResultSnapshot {
+  sitePlan: string | null
+  aerialView: string | null
+  capturedAt: string | null
+}
+
+// ── 주차구역 (Parking Zone) ──
+
+export interface ParkingSlotData {
+  id: number
+  slot_type: 'standard' | 'disabled'
+  cx: number
+  cy: number
+  width: number
+  depth: number
+  heading: number
+  polygon: number[][]
+}
+
+export interface ParkingAisleData {
+  polygon: number[][]
+  direction: string
+}
+
+export interface AccessPointData {
+  x: number
+  y: number
+  road_x: number | null
+  road_y: number | null
+  width: number
+}
+
+export interface ParkingZoneData {
+  slots: ParkingSlotData[]
+  aisles: ParkingAisleData[]
+  accessPoint: AccessPointData | null
+  zonePolygon: number[][]
+  zoneCenter: number[]
+  zoneRotation: number
+  zoneWidth: number
+  zoneDepth: number
+  totalSlots: number
+  standardSlots: number
+  disabledSlots: number
+  totalAreaM2: number
+  parkingAreaRatio: number
+  warnings: string[]
+}
+
+export interface ParkingConfig {
+  buildingUse: string
+  grossFloorArea: number
+  ramp: boolean
+  requiredTotal: number | null
+  requiredDisabled: number | null
+}
+
 // 샘플 모델 정보 (기존 - deprecated)
 interface SampleModel {
   id: string
@@ -84,9 +151,38 @@ interface AvailableModel {
     height: number
     depth: number
   }
+  /** 바닥면 Convex Hull (모델 로컬 m, X-Z 평면) — null이면 boundingBox 사각형 fallback */
+  floorPolygon: number[][] | null
+  /** 모델 Y 최솟값 — height = -originYMin * scale 로 바닥 보정 */
+  originYMin: number
+}
+
+// DXF 파싱 후 생성된 매스 모델
+export interface GeneratedMass {
+  id: string
+  fileName: string       // 원본 DXF 파일명
+  label: string          // 표시명
+  glbUrl: string         // 백엔드 GLB URL
+  footprint: number[][]  // 위경도 변환된 footprint
+  centroid: number[]     // 위경도 centroid
+  area: number           // 면적 (m²)
+  height: number         // 건물 높이
+  floors: number         // 층수
+  classification: {
+    total_entities: number
+    class_counts: Record<string, number>
+    average_confidence: number
+  }
+  /** GLB 실제 바운딩 박스 (미터 단위, 백엔드 계산) */
+  boundingBox?: { width: number; depth: number; height: number }
+  createdAt: number      // timestamp
 }
 
 interface ProjectState {
+  // DB 프로젝트 ID (백엔드 연동용)
+  projectId: string | null
+  projectName: string | null
+
   // Cesium Viewer 참조
   viewer: any | null
 
@@ -132,8 +228,25 @@ interface ProjectState {
   // 선택된 블록 수
   selectedBlockCount: number
 
+  // 선택된 블록 상세 정보 (좌표, 면적)
+  selectedBlockInfo: {
+    coordinates: number[][][] // 각 블록의 좌표 배열
+    totalArea: number // 총 면적 (m²)
+    centroid: [number, number] | null // 중심점 [lon, lat]
+  } | null
+
   // 로드할 모델 파일명 (Sidebar에서 설정, CesiumViewer에서 처리)
   modelToLoad: string | null
+
+  // DXF 파싱 후 생성된 매스 GLB URL (Sidebar에서 설정, CesiumViewer에서 로드)
+  massGlbToLoad: string | null
+  // DB 복원 시 매스 GLB에 적용할 저장된 transform (null이면 새 배치)
+  massGlbRestoreTransform: { longitude: number; latitude: number; height: number; rotation: number; scale: number } | null
+  // 현재 뷰포트에 로드된 매스 GLB URL (저장용)
+  loadedMassGlbUrl: string | null
+
+  // 생성된 매스 모델 목록
+  generatedMasses: GeneratedMass[]
 
   // 모델 로딩 중
   isLoadingModel: boolean
@@ -141,14 +254,47 @@ interface ProjectState {
   // 휴먼 스케일 모델 로드 여부
   humanScaleModelLoaded: boolean
 
+  // 주차구역
+  parkingConfig: ParkingConfig
+  parkingZone: ParkingZoneData | null
+  isParkingVisible: boolean
+  isParkingEditing: boolean
+  parkingTransform: { longitude: number; latitude: number; rotation: number }
+
+  // 검토 탭 데이터 (CesiumViewer에서 계산)
+  reviewData: {
+    buildingCoverage: { buildingArea: number; siteArea: number; ratio: number; limit: number; status: 'OK' | 'VIOLATION' } | null
+    setback: { minDistance: number; required: number; status: 'OK' | 'VIOLATION'; details: { type: string; distance: number; required: number; status: 'OK' | 'VIOLATION' }[] } | null
+    isModelInBounds: boolean
+  }
+  sunlightAnalysisState: {
+    isAnalyzing: boolean
+    progress: { currentHour: number; percentComplete: number } | null
+    result: {
+      averageSunlightHours: number
+      minSunlightHours: number
+      maxSunlightHours: number
+      totalPoints: number
+      analysisDate: string
+    } | null
+    showHeatmap: boolean
+    heatmapMode: 'point' | 'cell'
+  }
+
+  // 결과 확인 페이지용 스냅샷
+  resultSnapshot: ResultSnapshot
+
   // 프로젝트 저장/불러오기 함수 참조 (CesiumViewer에서 설정)
   saveProjectFn: ((projectName?: string) => void) | null
   loadProjectFn: ((file: File) => Promise<void>) | null
+  loadFromDbFn: (() => Promise<void>) | null
   isSavingProject: boolean
   isLoadingProject: boolean
   projectError: string | null
 
   // Actions
+  setProjectId: (id: string | null) => void
+  setProjectName: (name: string | null) => void
   setViewer: (viewer: any) => void
   setWorkArea: (workArea: WorkArea | null) => void
   setSite: (site: SiteInfo) => void
@@ -162,19 +308,48 @@ interface ProjectState {
   setError: (error: string | null) => void
   setAvailableModels: (models: AvailableModel[]) => void
   setSelectedBlockCount: (count: number) => void
+  setSelectedBlockInfo: (info: ProjectState['selectedBlockInfo']) => void
   setModelToLoad: (filename: string | null) => void
+  setMassGlbToLoad: (url: string | null, restoreTransform?: { longitude: number; latitude: number; height: number; rotation: number; scale: number } | null) => void
+  setLoadedMassGlbUrl: (url: string | null) => void
+  addGeneratedMass: (mass: GeneratedMass) => void
+  removeGeneratedMass: (id: string) => void
   setIsLoadingModel: (loading: boolean) => void
   setHumanScaleModelLoaded: (loaded: boolean) => void
+  setParkingConfig: (config: Partial<ParkingConfig>) => void
+  setParkingZone: (zone: ParkingZoneData | null) => void
+  setIsParkingVisible: (visible: boolean) => void
+  setIsParkingEditing: (editing: boolean) => void
+  setParkingTransform: (transform: Partial<{ longitude: number; latitude: number; rotation: number }>) => void
+  clearParking: () => void
+  setResultSnapshot: (snapshot: Partial<ResultSnapshot>) => void
+  clearResultSnapshot: () => void
   setSaveProjectFn: (fn: ((projectName?: string) => void) | null) => void
   setLoadProjectFn: (fn: ((file: File) => Promise<void>) | null) => void
+  setLoadFromDbFn: (fn: (() => Promise<void>) | null) => void
   setIsSavingProject: (saving: boolean) => void
   setIsLoadingProject: (loading: boolean) => void
   setProjectError: (error: string | null) => void
+  setReviewData: (data: Partial<ProjectState['reviewData']>) => void
+  setSunlightAnalysisState: (state: Partial<ProjectState['sunlightAnalysisState']>) => void
+  // CesiumViewer에서 설정하는 함수 참조
+  runReviewCheckFn: (() => void) | null
+  setRunReviewCheckFn: (fn: (() => void) | null) => void
+  startSunlightFn: ((date: Date, gridSpacing?: number) => void) | null
+  setStartSunlightFn: (fn: ((date: Date, gridSpacing?: number) => void) | null) => void
+  toggleSunlightHeatmapFn: (() => void) | null
+  setToggleSunlightHeatmapFn: (fn: (() => void) | null) => void
+  clearSunlightFn: (() => void) | null
+  setClearSunlightFn: (fn: (() => void) | null) => void
+  setSunlightHeatmapModeFn: ((mode: 'point' | 'cell') => void) | null
+  setSetSunlightHeatmapModeFn: (fn: ((mode: 'point' | 'cell') => void) | null) => void
   reset: () => void
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
   // 초기 상태
+  projectId: null,
+  projectName: null,
   viewer: null,
   workArea: null,
   site: null,
@@ -194,16 +369,54 @@ export const useProjectStore = create<ProjectState>((set) => ({
   error: null,
   availableModels: [],
   selectedBlockCount: 0,
+  selectedBlockInfo: null,
   modelToLoad: null,
+  massGlbToLoad: null,
+  massGlbRestoreTransform: null,
+  loadedMassGlbUrl: null,
+  generatedMasses: [],
   isLoadingModel: false,
   humanScaleModelLoaded: false,
+  parkingConfig: {
+    buildingUse: '근린생활시설',
+    grossFloorArea: 0,
+    ramp: false,
+    requiredTotal: null,
+    requiredDisabled: null,
+  },
+  parkingZone: null,
+  isParkingVisible: false,
+  isParkingEditing: false,
+  parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+  reviewData: {
+    buildingCoverage: null,
+    setback: null,
+    isModelInBounds: true,
+  },
+  sunlightAnalysisState: {
+    isAnalyzing: false,
+    progress: null,
+    result: null,
+    showHeatmap: false,
+    heatmapMode: 'point' as const,
+  },
+  resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+  runReviewCheckFn: null,
+  startSunlightFn: null,
+  toggleSunlightHeatmapFn: null,
+  clearSunlightFn: null,
+  setSunlightHeatmapModeFn: null,
   saveProjectFn: null,
   loadProjectFn: null,
+  loadFromDbFn: null,
   isSavingProject: false,
   isLoadingProject: false,
   projectError: null,
 
   // Actions
+  setProjectId: (id) => set({ projectId: id }),
+  setProjectName: (name) => set({ projectName: name }),
+
   setViewer: (viewer) => set({ viewer }),
 
   setWorkArea: (workArea) => set({ workArea }),
@@ -233,20 +446,80 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setSelectedBlockCount: (count) => set({ selectedBlockCount: count }),
 
+  setSelectedBlockInfo: (info) => set({ selectedBlockInfo: info }),
+
   setModelToLoad: (filename) => set({ modelToLoad: filename }),
+
+  setMassGlbToLoad: (url, restoreTransform) => set({ massGlbToLoad: url, massGlbRestoreTransform: restoreTransform ?? null }),
+  setLoadedMassGlbUrl: (url: string | null) => set({ loadedMassGlbUrl: url }),
+
+  addGeneratedMass: (mass) =>
+    set((state) => ({ generatedMasses: [...state.generatedMasses, mass] })),
+  removeGeneratedMass: (id) =>
+    set((state) => ({ generatedMasses: state.generatedMasses.filter((m) => m.id !== id) })),
 
   setIsLoadingModel: (loading) => set({ isLoadingModel: loading }),
 
   setHumanScaleModelLoaded: (loaded) => set({ humanScaleModelLoaded: loaded }),
 
+  setParkingConfig: (config) =>
+    set((state) => ({
+      parkingConfig: { ...state.parkingConfig, ...config },
+    })),
+  setParkingZone: (zone) => set({ parkingZone: zone }),
+  setIsParkingVisible: (visible) => set({ isParkingVisible: visible }),
+  setIsParkingEditing: (editing) => set({ isParkingEditing: editing }),
+  setParkingTransform: (transform) =>
+    set((state) => ({
+      parkingTransform: { ...state.parkingTransform, ...transform },
+    })),
+  clearParking: () =>
+    set({
+      parkingZone: null,
+      isParkingVisible: false,
+      isParkingEditing: false,
+      parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingConfig: {
+        buildingUse: '근린생활시설',
+        grossFloorArea: 0,
+        ramp: false,
+        requiredTotal: null,
+        requiredDisabled: null,
+      },
+    }),
+
+  setResultSnapshot: (snapshot) =>
+    set((state) => ({
+      resultSnapshot: { ...state.resultSnapshot, ...snapshot },
+    })),
+  clearResultSnapshot: () =>
+    set({ resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null } }),
+
   setSaveProjectFn: (fn) => set({ saveProjectFn: fn }),
   setLoadProjectFn: (fn) => set({ loadProjectFn: fn }),
+  setLoadFromDbFn: (fn) => set({ loadFromDbFn: fn }),
   setIsSavingProject: (saving) => set({ isSavingProject: saving }),
   setIsLoadingProject: (loading) => set({ isLoadingProject: loading }),
   setProjectError: (error) => set({ projectError: error }),
 
+  setReviewData: (data) =>
+    set((state) => ({
+      reviewData: { ...state.reviewData, ...data },
+    })),
+  setSunlightAnalysisState: (state) =>
+    set((prev) => ({
+      sunlightAnalysisState: { ...prev.sunlightAnalysisState, ...state },
+    })),
+  setRunReviewCheckFn: (fn) => set({ runReviewCheckFn: fn }),
+  setStartSunlightFn: (fn) => set({ startSunlightFn: fn }),
+  setToggleSunlightHeatmapFn: (fn) => set({ toggleSunlightHeatmapFn: fn }),
+  setClearSunlightFn: (fn) => set({ clearSunlightFn: fn }),
+  setSetSunlightHeatmapModeFn: (fn) => set({ setSunlightHeatmapModeFn: fn }),
+
   reset: () =>
     set({
+      projectId: null,
+      projectName: null,
       workArea: null,
       site: null,
       building: null,
@@ -265,11 +538,31 @@ export const useProjectStore = create<ProjectState>((set) => ({
       error: null,
       availableModels: [],
       selectedBlockCount: 0,
+      selectedBlockInfo: null,
       modelToLoad: null,
+      massGlbToLoad: null,
+      massGlbRestoreTransform: null,
+      loadedMassGlbUrl: null,
+      generatedMasses: [],
       isLoadingModel: false,
       humanScaleModelLoaded: false,
+      parkingConfig: {
+        buildingUse: '근린생활시설',
+        grossFloorArea: 0,
+        ramp: false,
+        requiredTotal: null,
+        requiredDisabled: null,
+      },
+      parkingZone: null,
+      isParkingVisible: false,
+      isParkingEditing: false,
+      parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      reviewData: { buildingCoverage: null, setback: null, isModelInBounds: true },
+      sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
+      resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
       saveProjectFn: null,
       loadProjectFn: null,
+      loadFromDbFn: null,
       isSavingProject: false,
       isLoadingProject: false,
       projectError: null,

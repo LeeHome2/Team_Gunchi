@@ -1,0 +1,9 @@
+{
+  "name": "building-cesium-report",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Report generator dependencies (docx-js) for Building Cesium backend",
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
+}

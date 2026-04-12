@@ -49,7 +49,7 @@ export default function ControlPanel() {
             onClick={() => setViewMode('3d')}
             className={`px-3 py-1.5 text-sm rounded ${
               viewMode === '3d'
-                ? 'bg-primary-600 text-white'
+                ? 'bg-primary-600 text-[#fff]'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
@@ -59,7 +59,7 @@ export default function ControlPanel() {
             onClick={() => setViewMode('2d')}
             className={`px-3 py-1.5 text-sm rounded ${
               viewMode === '2d'
-                ? 'bg-primary-600 text-white'
+                ? 'bg-primary-600 text-[#fff]'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >

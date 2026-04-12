@@ -2,7 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
-const MODELS_DIR = 'C:\\Users\\user\\Desktop\\26-1\\house_sample_glb'
+// 모델 디렉토리: 환경변수 → public/models → 절대경로 순으로 탐색
+const PUBLIC_MODELS_DIR = path.join(process.cwd(), 'public', 'models')
+const CUSTOM_MODELS_DIR = process.env.MODELS_DIR || ''
+
+function findModelFile(filename: string): string | null {
+  // 1. public/models/ 디렉토리 확인
+  const publicPath = path.join(PUBLIC_MODELS_DIR, filename)
+  if (fs.existsSync(publicPath)) return publicPath
+
+  // 2. 커스텀 디렉토리 확인 (환경변수 설정 시)
+  if (CUSTOM_MODELS_DIR) {
+    const customPath = path.join(CUSTOM_MODELS_DIR, filename)
+    if (fs.existsSync(customPath)) return customPath
+  }
+
+  return null
+}
 
 export async function GET(
   request: NextRequest,
@@ -16,16 +32,15 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid filename' }, { status: 400 })
     }
 
-    const filePath = path.join(MODELS_DIR, filename)
-
-    // 파일 존재 확인
-    if (!fs.existsSync(filePath)) {
-      return NextResponse.json({ error: 'Model not found' }, { status: 404 })
-    }
-
     // GLB 파일만 허용
     if (!filename.endsWith('.glb')) {
       return NextResponse.json({ error: 'Only GLB files are allowed' }, { status: 400 })
+    }
+
+    const filePath = findModelFile(filename)
+
+    if (!filePath) {
+      return NextResponse.json({ error: 'Model not found' }, { status: 404 })
     }
 
     const fileBuffer = fs.readFileSync(filePath)

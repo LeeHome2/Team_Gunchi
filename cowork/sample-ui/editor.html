@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>편집기 — 건축물 배치 시스템</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body{overflow:hidden;height:100vh;display:flex;flex-direction:column;background:#0e1015}
+
+  /* Editor topbar - dark */
+  .ed-topbar{height:44px;background:#16181f;border-bottom:1px solid #22252e;display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0}
+  .ed-topbar .logo{font-size:13px;font-weight:700;color:#e1e3e8;letter-spacing:-.01em}
+  .ed-topbar .sep{width:1px;height:20px;background:#2a2d36;margin:0 4px}
+  .ed-topbar .proj-name{font-size:12.5px;color:#8b8f9c;font-weight:500}
+  .ed-topbar .nav-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .ed-btn{padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:none;transition:all var(--transition);font-family:inherit;background:#222530;color:#9da1ad}
+  .ed-btn:hover{background:#2a2e3a;color:#c8cbd4}
+  .ed-btn-primary{background:var(--primary);color:#fff}
+  .ed-btn-primary:hover{background:var(--primary-hover)}
+
+  /* Editor body */
+  .editor-body{flex:1;display:flex;overflow:hidden}
+
+  /* Viewport */
+  .viewport-area{flex:1;display:flex;flex-direction:column;min-width:0}
+  .viewport{flex:1;background:#0c0e12;position:relative;overflow:hidden}
+
+  /* Viewport simulated map */
+  .vp-map{position:absolute;inset:0;background:
+    radial-gradient(circle at 30% 40%,#141820 0%,transparent 50%),
+    radial-gradient(circle at 70% 60%,#161b24 0%,transparent 40%),
+    #0e1117;
+  }
+  .vp-grid{position:absolute;inset:0;background-image:
+    linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+  background-size:60px 60px}
+  .vp-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,.08);font-size:14px;letter-spacing:6px;font-weight:500;pointer-events:none;text-transform:uppercase}
+
+  /* Objects on viewport */
+  .obj-boundary{position:absolute;border:1.5px dashed rgba(59,108,240,.45);border-radius:2px}
+  .obj-building{position:absolute;background:rgba(59,108,240,.2);border:1.5px solid rgba(59,108,240,.5);display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.5);font-size:10px;font-weight:500;border-radius:2px}
+  .obj-neighbor{position:absolute;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:1px}
+  .obj-shadow{position:absolute;background:rgba(0,0,0,.25);transform:skewX(-20deg);border-radius:1px}
+
+  /* Floating controls */
+  .float{position:absolute;z-index:10}
+  .vp-ctrl{background:rgba(22,24,31,.9);border:1px solid rgba(255,255,255,.08);border-radius:8px;backdrop-filter:blur(8px);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+  .vp-ctrl-btn{width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#8b8f9c;font-size:13px;transition:color var(--transition)}
+  .vp-ctrl-btn:hover{color:#e1e3e8}
+  .vp-ctrl-btn+.vp-ctrl-btn{border-top:1px solid rgba(255,255,255,.06)}
+
+  /* Map mode switch */
+  .mode-switch{display:flex;gap:1px;background:rgba(22,24,31,.9);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:3px;backdrop-filter:blur(8px)}
+  .mode-btn{padding:5px 10px;font-size:11px;color:#6b7080;cursor:pointer;border-radius:5px;transition:all var(--transition);font-weight:500}
+  .mode-btn.active{background:rgba(255,255,255,.1);color:#e1e3e8}
+  .mode-btn:hover:not(.active){color:#9da1ad}
+
+  /* Cadastral info */
+  .cadastral{background:rgba(22,24,31,.92);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 14px;backdrop-filter:blur(8px);font-size:11px;color:#8b8f9c;line-height:1.7}
+  .cadastral .title{font-weight:600;color:#c8cbd4;margin-bottom:2px;font-size:11.5px}
+
+  /* Time slider */
+  .time-bar{position:absolute;bottom:10px;left:12px;right:12px;background:rgba(22,24,31,.92);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:8px 14px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(8px)}
+  .time-bar svg{color:#d97706;width:14px;height:14px;flex-shrink:0}
+  .time-bar input[type=range]{flex:1;height:3px;background:rgba(255,255,255,.12);accent-color:#d97706}
+  .time-bar .time-val{font-size:12px;color:#d97706;font-weight:600;min-width:36px}
+  .time-bar .date-val{font-size:11px;color:rgba(255,255,255,.35)}
+
+  /* Statusbar */
+  .statusbar{height:26px;background:#16181f;border-top:1px solid #22252e;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:10.5px;color:#6b7080;flex-shrink:0}
+  .status-dot{width:6px;height:6px;border-radius:50%;background:#16a34a;display:inline-block;margin-right:4px}
+
+  /* ---- SIDEBAR ---- */
+  .sidebar{width:320px;background:#fff;border-left:1px solid var(--gray-200);display:flex;flex-direction:column;flex-shrink:0}
+  .sidebar.collapsed{width:0;overflow:hidden;border:none}
+  .sidebar-tabs{display:flex;border-bottom:1px solid var(--gray-200);flex-shrink:0}
+  .sidebar-tab{flex:1;text-align:center;padding:11px 0;font-size:12px;font-weight:500;color:var(--gray-400);cursor:pointer;border-bottom:2px solid transparent;transition:all var(--transition);letter-spacing:.01em}
+  .sidebar-tab:hover{color:var(--gray-600);background:var(--gray-50)}
+  .sidebar-tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+  .sidebar-body{flex:1;overflow-y:auto;padding:16px}
+  .sb-section{margin-bottom:18px}
+  .sb-title{font-size:13px;font-weight:600;margin-bottom:6px;color:var(--gray-800);letter-spacing:-.01em}
+  .sb-desc{font-size:11.5px;color:var(--gray-400);margin-bottom:10px;line-height:1.6}
+
+  .upload-zone{border:1.5px dashed var(--gray-300);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;transition:all .2s}
+  .upload-zone:hover{border-color:var(--primary);background:var(--primary-light)}
+  .upload-zone .label{font-size:12.5px;color:var(--primary);font-weight:500}
+  .upload-zone .sub{font-size:11px;color:var(--gray-400);margin-top:3px}
+
+  .preview-box{background:var(--gray-50);border:1px dashed var(--gray-200);border-radius:var(--radius);height:90px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--gray-400)}
+  .info-card{background:var(--gray-50);border-radius:var(--radius-sm);padding:10px 12px}
+  .info-row{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
+  .info-row .label{color:var(--gray-500)}
+  .info-row .value{font-weight:600;color:var(--gray-800)}
+
+  .result-banner{text-align:center;padding:10px;border-radius:var(--radius-sm);font-size:13px;font-weight:700;margin-bottom:12px}
+  .result-banner.pass{background:var(--success-light);color:#15803d}
+  .result-banner.fail{background:var(--danger-light);color:#b91c1c}
+  .result-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius-sm);margin-bottom:4px;font-size:12.5px}
+  .result-item.ok{background:#f0fdf4;color:#166534}
+  .result-item.ng{background:#fef2f2;color:#991b1b}
+  .result-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .result-dot.ok{background:#16a34a}
+  .result-dot.ng{background:#dc3b3b}
+  .result-value{margin-left:auto;font-weight:600}
+  .violation-box{background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius-sm);padding:10px 12px;font-size:11.5px;color:#92400e;margin-top:8px;line-height:1.5}
+
+  .layer-list{display:flex;flex-direction:column;gap:4px}
+
+  .export-options{display:flex;gap:8px;margin:14px 0}
+  .export-opt{flex:1;border:1.5px solid var(--gray-200);border-radius:var(--radius);padding:14px;text-align:center;cursor:pointer;transition:all var(--transition)}
+  .export-opt:hover{border-color:var(--primary);background:var(--primary-light)}
+  .export-opt.selected{border-color:var(--primary);background:var(--primary-light)}
+  .export-opt .name{font-size:12.5px;font-weight:600;margin-bottom:2px}
+  .export-opt .desc{font-size:10px;color:var(--gray-500)}
+
+  .tab-panel{display:none}
+  .tab-panel.active{display:block}
+</style>
+</head>
+<body>
+  <!-- Editor Topbar -->
+  <div class="ed-topbar">
+    <span class="logo">건축물 배치</span>
+    <span class="sep"></span>
+    <span class="proj-name">판교 주택 설계 A안</span>
+    <div class="nav-right">
+      <button class="ed-btn" onclick="showToast('프로젝트가 저장되었습니다')">저장</button>
+      <button class="ed-btn-primary ed-btn" onclick="document.getElementById('exportModal').classList.add('show')">내보내기</button>
+      <span class="sep"></span>
+      <a class="ed-btn" href="results.html">결과 관리</a>
+      <a class="ed-btn" href="projects.html">프로젝트 목록</a>
+      <div class="avatar" style="width:26px;height:26px;font-size:11px" onclick="event.stopPropagation()">이</div>
+    </div>
+  </div>
+
+  <!-- Editor Body -->
+  <div class="editor-body">
+    <!-- Viewport -->
+    <div class="viewport-area">
+      <div class="viewport" id="viewport">
+        <div class="vp-map"></div>
+        <div class="vp-grid"></div>
+        <span class="vp-label">Cesium 3D Viewer</span>
+
+        <!-- Mode switch -->
+        <div class="float" style="left:12px;top:12px">
+          <div class="mode-switch">
+            <span class="mode-btn">2D</span>
+            <span class="mode-btn active">3D</span>
+            <span class="mode-btn">위성</span>
+          </div>
+        </div>
+
+        <!-- Zoom controls -->
+        <div class="float" style="left:12px;top:52px">
+          <div class="vp-ctrl">
+            <div class="vp-ctrl-btn">+</div>
+            <div class="vp-ctrl-btn">−</div>
+          </div>
+        </div>
+
+        <!-- Cadastral info -->
+        <div class="float" style="right:12px;top:12px">
+          <div class="cadastral">
+            <div class="title">지적도 정보</div>
+            <div>필지: 분당구 판교동 123-4</div>
+            <div>용도: 제2종 일반주거</div>
+            <div>면적: 300.5 m²</div>
+          </div>
+        </div>
+
+        <!-- Simulated objects -->
+        <div class="obj-boundary" style="left:calc(50% - 100px);top:calc(50% - 80px);width:160px;height:130px"></div>
+        <div class="obj-building" style="left:calc(50% - 70px);top:calc(50% - 60px);width:80px;height:100px">매스</div>
+        <div class="obj-shadow" style="left:calc(50% + 14px);top:calc(50% + 32px);width:55px;height:16px"></div>
+        <div class="obj-neighbor" style="left:calc(50% + 80px);top:calc(50% - 70px);width:48px;height:55px"></div>
+        <div class="obj-neighbor" style="left:calc(50% - 140px);top:calc(50% + 10px);width:38px;height:42px"></div>
+
+        <!-- Time slider -->
+        <div class="time-bar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/></svg>
+          <input type="range" min="6" max="20" value="14" oninput="document.getElementById('timeVal').textContent=this.value+':00'">
+          <span class="time-val" id="timeVal">14:00</span>
+          <span class="date-val">6/21</span>
+        </div>
+      </div>
+      <div class="statusbar">
+        <div>성남시 분당구 · 127.1388°E, 37.4449°N</div>
+        <div><span class="status-dot"></span>연결됨</div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-tabs">
+        <div class="sidebar-tab active" onclick="switchSidebar(0)">토지/DXF</div>
+        <div class="sidebar-tab" onclick="switchSidebar(1)">매스 생성</div>
+        <div class="sidebar-tab" onclick="switchSidebar(2)">규정 검토</div>
+        <div class="sidebar-tab" onclick="switchSidebar(3)">결과</div>
+      </div>
+
+      <div class="sidebar-body">
+        <!-- Tab 0: 업로드 -->
+        <div class="tab-panel active" id="panel-0">
+          <div class="sb-section">
+            <div class="sb-title">CAD 파일 업로드</div>
+            <div class="sb-desc">DXF 도면을 업로드하여 대지 경계를 추출합니다.</div>
+            <div class="upload-zone" style="margin-bottom:8px">
+              <div class="label">파일 선택 또는 드래그</div>
+              <div class="sub">.dxf 형식만 지원</div>
+            </div>
+            <button class="btn btn-sm btn-secondary w-full mb-2">업로드 파일 삭제</button>
+            <button class="btn btn-sm btn-secondary w-full">샘플 데이터로 테스트</button>
+          </div>
+          <div class="sb-section">
+            <div class="sb-title">DXF 미리보기</div>
+            <div class="preview-box">
+              <svg width="90" height="60" viewBox="0 0 100 70" style="opacity:.35">
+                <polygon points="15,60 30,15 60,35 85,20 85,60" fill="none" stroke="var(--primary)" stroke-width="2"/>
+              </svg>
+            </div>
+          </div>
+          <div class="sb-section">
+            <div class="sb-title">부지 정보</div>
+            <button class="btn btn-primary btn-sm w-full mb-3">지도에서 부지 선택</button>
+            <div class="info-card">
+              <div class="info-row"><span class="label">면적</span><span class="value">300.00 m²</span></div>
+              <div class="info-row"><span class="label">중심좌표</span><span class="value">127.1388, 37.4449</span></div>
+              <div class="info-row"><span class="label">용도지역</span><span class="value">제2종 일반주거</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 1: 배치 -->
+        <div class="tab-panel" id="panel-1">
+          <div class="sb-section">
+            <div class="sb-title">건물 매스 설정</div>
+            <div class="slider-group">
+              <div class="slider-label"><span>건물 높이</span><strong id="hVal">30 m</strong></div>
+              <input type="range" min="3" max="100" value="30" oninput="document.getElementById('hVal').textContent=this.value+' m'">
+            </div>
+            <div class="slider-group">
+              <div class="slider-label"><span>층수</span><strong id="fVal">10 층</strong></div>
+              <input type="range" min="1" max="30" value="10" oninput="document.getElementById('fVal').textContent=this.value+' 층'">
+            </div>
+            <div class="info-card mb-3"><div class="info-row"><span class="label">층고</span><span class="value">3.00 m</span></div></div>
+            <button class="btn btn-primary w-full mb-4">3D 매스 생성</button>
+          </div>
+          <div class="sb-section">
+            <div class="sb-title">건물 조작</div>
+            <div class="slider-group">
+              <div class="slider-label"><span>X 이동</span><strong>0 m</strong></div>
+              <input type="range" min="-50" max="50" value="0">
+            </div>
+            <div class="slider-group">
+              <div class="slider-label"><span>Y 이동</span><strong>0 m</strong></div>
+              <input type="range" min="-50" max="50" value="0">
+            </div>
+            <div class="slider-group">
+              <div class="slider-label"><span>회전</span><strong>0°</strong></div>
+              <input type="range" min="0" max="360" value="0">
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-primary btn-sm" style="flex:1">변환 적용</button>
+              <button class="btn btn-secondary btn-sm" style="flex:1">초기화</button>
+            </div>
+          </div>
+          <div class="sb-section" style="border-top:1px solid var(--gray-200);padding-top:14px">
+            <div class="sb-title">레이어</div>
+            <div class="layer-list">
+              <label class="checkbox"><input type="checkbox" checked> 주변 건물 (OSM)</label>
+              <label class="checkbox"><input type="checkbox" checked> 지형 데이터</label>
+              <label class="checkbox"><input type="checkbox" checked> 지적 경계선</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: 검토 -->
+        <div class="tab-panel" id="panel-2">
+          <div class="sb-section">
+            <div class="sb-title">일조 시뮬레이션</div>
+            <div class="sb-desc">시간대별 그림자 변화를 확인합니다.</div>
+            <div class="slider-group">
+              <div class="slider-label"><span>시간</span><strong>14:00</strong></div>
+              <input type="range" min="6" max="20" value="14" style="accent-color:#d97706">
+            </div>
+            <div class="slider-group">
+              <div class="slider-label"><span>날짜</span><strong>6월 21일</strong></div>
+              <input type="range" min="1" max="12" value="6" style="accent-color:#d97706">
+            </div>
+            <button class="btn btn-secondary w-full mb-4">일조 시뮬레이션 실행</button>
+          </div>
+          <div class="sb-section">
+            <div class="sb-title">건축 규정 검토</div>
+            <div class="sb-desc">배치 적합성을 자동 검증합니다.</div>
+            <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:6px">규정 기준값</div>
+            <div class="info-card mb-3">
+              <div class="info-row"><span class="label">건폐율 한도</span><div><input class="input input-sm" value="60" style="width:52px;text-align:right;display:inline-block">%</div></div>
+              <div class="info-row"><span class="label">이격거리</span><div><input class="input input-sm" value="3.0" style="width:52px;text-align:right;display:inline-block">m</div></div>
+              <div class="info-row"><span class="label">높이 제한</span><div><input class="input input-sm" value="30.0" style="width:52px;text-align:right;display:inline-block">m</div></div>
+            </div>
+            <button class="btn btn-primary w-full" onclick="switchSidebar(3)">배치 검토 실행</button>
+          </div>
+        </div>
+
+        <!-- Tab 3: 결과 -->
+        <div class="tab-panel" id="panel-3">
+          <div class="sb-section">
+            <div class="sb-title">분석 결과</div>
+            <div class="result-banner fail">부적합 — 1건 위반</div>
+            <div class="result-item ok"><div class="result-dot ok"></div><span>건폐율</span><span class="result-value">45.0% / 60.0%</span></div>
+            <div class="result-item ok"><div class="result-dot ok"></div><span>이격거리</span><span class="result-value">3.2m / 3.0m</span></div>
+            <div class="result-item ng"><div class="result-dot ng"></div><span>높이 제한</span><span class="result-value">32.0m / 30.0m</span></div>
+            <div class="violation-box">
+              <strong>위반 항목:</strong> 높이 제한 초과 (+2.0m)<br>
+              뷰포트에서 해당 영역이 강조 표시됩니다.
+            </div>
+          </div>
+          <div class="sb-section">
+            <div class="sb-title">일조 분석 요약</div>
+            <div class="info-card">
+              <div class="info-row"><span class="label">하지 (6/21)</span><span class="value">6.2시간</span></div>
+              <div class="info-row"><span class="label">동지 (12/21)</span><span class="value">3.8시간</span></div>
+            </div>
+          </div>
+          <div class="sb-section" style="display:flex;flex-direction:column;gap:6px">
+            <button class="btn btn-primary w-full" onclick="showToast('결과가 저장되었습니다')">결과 저장</button>
+            <button class="btn btn-secondary w-full" onclick="document.getElementById('exportModal').classList.add('show')">PDF 내보내기</button>
+            <button class="btn btn-secondary w-full">이미지 내보내기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 내보내기 모달 -->
+  <div class="modal-overlay" id="exportModal" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="modal">
+      <div class="modal-title">결과 내보내기</div>
+      <div class="modal-sub">분석 결과를 파일로 저장합니다.</div>
+      <div class="export-options">
+        <div class="export-opt selected" onclick="selectExport(this)">
+          <div class="name">PDF 보고서</div>
+          <div class="desc">규정 검토 + 일조 분석</div>
+        </div>
+        <div class="export-opt" onclick="selectExport(this)">
+          <div class="name">이미지 캡처</div>
+          <div class="desc">뷰포트 스크린샷</div>
+        </div>
+        <div class="export-opt" onclick="selectExport(this)">
+          <div class="name">JSON 데이터</div>
+          <div class="desc">프로젝트 전체 데이터</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="document.getElementById('exportModal').classList.remove('show')">취소</button>
+        <button class="btn btn-primary" onclick="document.getElementById('exportModal').classList.remove('show');showToast('내보내기가 완료되었습니다')">내보내기</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script>
+    function switchSidebar(idx){
+      document.querySelectorAll('.sidebar-tab').forEach((t,i)=>{t.classList.toggle('active',i===idx)});
+      document.querySelectorAll('.tab-panel').forEach((p,i)=>{p.classList.toggle('active',i===idx)});
+    }
+    function selectExport(el){document.querySelectorAll('.export-opt').forEach(e=>e.classList.remove('selected'));el.classList.add('selected')}
+    function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
+  </script>
+</body>
+</html>

@@ -15,6 +15,7 @@ import {
   SerializedBuilding,
   SerializedSite,
   SerializedHumanModelTransform,
+  SerializedGeneratedMass,
 } from '@/types/projectFile'
 
 /**
@@ -109,6 +110,8 @@ export function createProjectFile(params: {
   showBuildingLine: boolean
   hiddenBuildingIds: string[]
   loadedModelFilename: string | null
+  generatedMasses: SerializedGeneratedMass[]
+  activeMassGlbUrl: string | null
   currentTime: Date
   projectName?: string
 }): ProjectFile {
@@ -128,6 +131,8 @@ export function createProjectFile(params: {
     showBuildingLine,
     hiddenBuildingIds,
     loadedModelFilename,
+    generatedMasses,
+    activeMassGlbUrl,
     currentTime,
     projectName,
   } = params
@@ -157,6 +162,8 @@ export function createProjectFile(params: {
     hiddenBuildingIds,
 
     loadedModel: loadedModelFilename ? { filename: loadedModelFilename } : null,
+    generatedMasses,
+    activeMassGlbUrl,
     humanModelTransform,
   }
 }

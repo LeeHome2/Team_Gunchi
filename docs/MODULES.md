@@ -35,38 +35,47 @@
 **파일**: `frontend/components/CesiumViewer.tsx`
 **담당 기능**:
 - Cesium 뷰어 초기화
-- 3D 건물 렌더링
-- 마우스 드래그 이동/회전
-- 일조 시뮬레이션
+- 3D 건물/주차구역 렌더링
+- 좌클릭 드래그 이동 (건물, 주차, 휴먼 모델)
+- 휠클릭 드래그 회전 (건물, 주차구역)
+- 바운더리 체크 (모델 영역 내 배치 확인)
+- 일조 분석 상태 → store 동기화
+- 검토 데이터 계산 (건폐율, 이격거리)
+- 뷰포트 헤더 (프로젝트명 + 선택지역 표시)
 
-**의존성**: `projectStore.ts`
+**의존성**: `projectStore.ts`, `useCesiumViewer`, `useBuildingLine`, `useSunlightAnalysis`, `useBlockSelection`, `useCadastral`, `useOsmBuildings`, `useParkingZone`, `useProjectPersistence`
 
 **주요 함수**:
 | 함수명 | 설명 |
 |--------|------|
-| `initCesium()` | Cesium 뷰어 초기화 |
-| `updateBuildingMass()` | 건물 위치/회전 업데이트 |
+| `loadSampleModel()` | 샘플 3D 모델 로드 |
+| `loadMassGlb()` | DXF 기반 매스 GLB 로드 |
+| `getSelectedBlocksCenter()` | 선택 블록 중심점 계산 |
+| `checkModelInBounds()` | 모델 코너 영역 내 포함 검사 |
+| `pointToSegmentDist()` | 점-선분 최소 거리 (이격거리 계산) |
 | `handleTimeChange()` | 일조 시간 변경 |
+| `reviewCheck()` | 건폐율/이격거리 계산 → store |
 
 ---
 
 ### Module B: UI Controls (Sidebar)
 **파일**: `frontend/components/Sidebar.tsx`
 **담당 기능**:
-- DXF 업로드 UI
-- 건물 설정 (높이, 층수)
-- 이동/회전 컨트롤
-- 검토 결과 표시
+- 1. 업로드 탭: DXF 업로드, 샘플 도면 로드
+- 2. 매스 탭: 샘플 모델 로드, 높이/회전/스케일 조절, 휴먼 스케일 모델
+- 3. 주차 탭: ParkingZonePanel 컴포넌트
+- 4. 검토 탭: 건폐율/이격거리/영역 배치 결과, 일조 분석 컨트롤
 
-**의존성**: `projectStore.ts`, `api.ts`
+**의존성**: `projectStore.ts`, `api.ts`, `ParkingZonePanel`
 
 **주요 함수**:
 | 함수명 | 설명 |
 |--------|------|
 | `handleFileUpload()` | DXF 파일 업로드 |
-| `handleLoadSample()` | 샘플 데이터 로드 |
-| `handleGenerateMass()` | 3D 매스 생성 요청 |
-| `handleValidate()` | 규정 검토 요청 |
+| `handleLoadSample()` | 샘플 DXF 도면 로드 |
+| `handleRemoveModel()` | 로드된 모델 제거 |
+| `runReviewCheckFn()` | 검토 실행 (store 함수 호출) |
+| `startSunlightFn()` | 일조 분석 시작 (store 함수 호출) |
 
 ---
 
@@ -82,7 +91,14 @@
 | `viewer` | Cesium.Viewer | 뷰어 참조 |
 | `site` | SiteInfo | 대지 정보 |
 | `building` | BuildingInfo | 건물 정보 |
-| `validation` | ValidationResult | 검토 결과 |
+| `modelTransform` | Transform | 모델 위치/회전/스케일 |
+| `selectedBlockInfo` | BlockInfo | 선택 블록 좌표/면적 |
+| `parkingZone` | ParkingZoneData | 주차구역 데이터 |
+| `parkingTransform` | Transform | 주차구역 이동/회전 |
+| `reviewData` | ReviewData | 건폐율/이격거리 검토 결과 |
+| `sunlightAnalysisState` | SunlightState | 일조 분석 상태/결과 |
+| `runReviewCheckFn` | Function | 검토 실행 함수 (CesiumViewer 등록) |
+| `startSunlightFn` | Function | 일조 분석 함수 (CesiumViewer 등록) |
 
 ---
 
@@ -112,7 +128,9 @@
 | `useCadastral` | `useCadastral.ts` | 지적도 WFS 데이터 로드/표시 |
 | `useBlockSelection` | `useBlockSelection.ts` | 지적 블록 선택 관리 |
 | `useBuildingLine` | `useBuildingLine.ts` | 건축선 분석/시각화 |
+| `useSunlightAnalysis` | `useSunlightAnalysis.ts` | 일조 분석 히트맵 생성/표시 |
 | `useOsmBuildings` | `useOsmBuildings.ts` | OSM 건물 타일셋 숨김 관리 |
+| `useParkingZone` | `useParkingZone.ts` | 주차구역 엔티티 렌더링 (parkingTransform 적용) |
 | `useProjectPersistence` | `useProjectPersistence.ts` | 프로젝트 저장/불러오기 |
 
 ---
@@ -362,4 +380,13 @@ http://localhost:3002
 - [x] OSM 건물 숨김 (useOsmBuildings)
 - [x] 프로젝트 저장/불러오기 (useProjectPersistence)
 - [x] 휴먼 스케일 모델 배치
-- [x] 3D 모델 로드 및 배치
+- [x] 3D 샘플 모델 로드 및 배치
+- [x] DXF → 매스 GLB 변환 (mm/cm/m 단위 자동 감지)
+- [x] 건물 모델 좌클릭 드래그 이동 (60fps, React 상태 우회)
+- [x] 건물 모델 휠클릭 드래그 회전
+- [x] 주차구역 자동 레이아웃 생성 (useParkingZone)
+- [x] 주차구역 드래그 이동/휠클릭 회전 (parkingTransform)
+- [x] 검토 탭: 건폐율/이격거리/영역배치 실시간 검토
+- [x] 일조 분석 히트맵 (검토 탭으로 통합)
+- [x] 뷰포트 헤더 (프로젝트명 + 선택지역 주소)
+- [x] 로그인 페이지 (test/test 하드코딩)

@@ -14,6 +14,7 @@ import {
   downloadProjectFile,
   readProjectFile,
 } from '@/lib/projectSerializer'
+import { saveProjectState, loadProjectState } from '@/lib/api'
 import type { CesiumViewer, SelectedBlock } from '@/types/cesium'
 import type { BuildingLineResult } from '@/lib/buildingLine'
 
@@ -50,6 +51,7 @@ interface UseProjectPersistenceReturn {
   lastError: string | null
   saveProject: (projectName?: string) => void
   loadProject: (file: File) => Promise<void>
+  loadFromDb: () => Promise<void>
   clearError: () => void
 }
 
@@ -84,8 +86,8 @@ export function useProjectPersistence(
   const [isLoading, setIsLoading] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
 
-  // === 프로젝트 저장 ===
-  const saveProject = useCallback((projectName?: string) => {
+  // === 프로젝트 저장 (DB 우선, 폴백: JSON 파일) ===
+  const saveProject = useCallback(async (projectName?: string) => {
     const viewer = viewerRef.current
     if (!viewer) {
       setLastError('뷰어가 초기화되지 않았습니다')
@@ -120,17 +122,31 @@ export function useProjectPersistence(
         showBuildingLine: getShowBuildingLine(),
         hiddenBuildingIds: getHiddenBuildingIds(),
         loadedModelFilename: getLoadedModelFilename(),
+        generatedMasses: store.generatedMasses,
+        activeMassGlbUrl: store.loadedMassGlbUrl || null,
         currentTime: getCurrentTime(),
         projectName,
       })
 
-      // 파일명 생성
+      // DB에 저장 시도 (projectId가 있는 경우)
+      const projectId = store.projectId
+      if (projectId) {
+        try {
+          await saveProjectState(projectId, projectFile as any)
+          console.log('프로젝트 DB 저장 완료:', projectId)
+          return // DB 저장 성공 → 완료
+        } catch (dbError) {
+          console.warn('DB 저장 실패, JSON 파일로 폴백:', dbError)
+        }
+      }
+
+      // 폴백: JSON 파일 다운로드 (projectId 없거나 DB 저장 실패)
       const filename = projectName
         ? `${projectName.replace(/[^a-z0-9가-힣]/gi, '_')}.json`
         : `project_${new Date().toISOString().slice(0, 10)}.json`
 
       downloadProjectFile(projectFile, filename)
-      console.log('프로젝트 저장 완료:', filename)
+      console.log('프로젝트 파일 저장 완료:', filename)
     } catch (error) {
       console.error('프로젝트 저장 오류:', error)
       setLastError(error instanceof Error ? error.message : '프로젝트 저장에 실패했습니다')
@@ -150,118 +166,120 @@ export function useProjectPersistence(
     getCurrentTime,
   ])
 
-  // === 프로젝트 불러오기 ===
-  const loadProject = useCallback(async (file: File) => {
+  // === 프로젝트 상태 복원 (공통 로직) ===
+  const restoreProjectState = useCallback(async (projectFile: ProjectFile) => {
     const viewer = viewerRef.current
-    if (!viewer) {
-      setLastError('뷰어가 초기화되지 않았습니다')
-      return
+    if (!viewer) throw new Error('뷰어가 초기화되지 않았습니다')
+
+    const Cesium = (window as any).Cesium
+
+    // 1. 카메라 위치 복원
+    console.log('카메라 복원 중...')
+    viewer.camera.setView({
+      destination: new Cesium.Cartesian3(
+        projectFile.camera.position.x,
+        projectFile.camera.position.y,
+        projectFile.camera.position.z
+      ),
+      orientation: {
+        heading: projectFile.camera.heading,
+        pitch: projectFile.camera.pitch,
+        roll: projectFile.camera.roll,
+      },
+    })
+
+    // 2. 시간 복원
+    console.log('시간 복원 중...')
+    const restoredTime = new Date(projectFile.currentTime.isoString)
+    viewer.clock.currentTime = Cesium.JulianDate.fromDate(restoredTime)
+    setCurrentTime(restoredTime)
+
+    // 3. 스토어 상태 복원
+    console.log('스토어 상태 복원 중...')
+    const {
+      setWorkArea,
+      setModelTransform,
+      setBuilding,
+      setSite,
+      setHumanScaleModelLoaded,
+    } = useProjectStore.getState()
+
+    if (projectFile.workArea) setWorkArea(projectFile.workArea)
+    setModelTransform(projectFile.modelTransform)
+    if (projectFile.building) setBuilding(projectFile.building)
+    if (projectFile.site) setSite(projectFile.site)
+
+    // 4. 지적도 복원
+    console.log('지적도 복원 중...')
+    await restoreCadastral(projectFile.cadastralData)
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    // 5. 블록 선택 복원
+    console.log('블록 선택 복원 중...')
+    await restoreBlockSelection(projectFile.selectedBlocks)
+
+    // 6. 건축선 복원
+    console.log('건축선 복원 중...')
+    await restoreBuildingLine(
+      projectFile.buildingLineResult,
+      projectFile.showBuildingLine
+    )
+
+    // 7-a. 생성된 매스 모델 복원
+    if (projectFile.generatedMasses && projectFile.generatedMasses.length > 0) {
+      console.log('매스 모델 목록 복원 중...', projectFile.generatedMasses.length, '개')
+      const store = useProjectStore.getState()
+      // 기존 매스 목록 비우고 저장된 목록으로 교체
+      for (const mass of projectFile.generatedMasses) {
+        // 이미 같은 ID가 있으면 스킵
+        if (!store.generatedMasses.find(m => m.id === mass.id)) {
+          store.addGeneratedMass(mass)
+        }
+      }
     }
 
-    setIsLoading(true)
-    setLastError(null)
-
-    try {
-      const projectFile = await readProjectFile(file)
-      const Cesium = (window as any).Cesium
-
-      // === 복원 순서 ===
-      // 순서가 중요함 - 시각적 아티팩트 방지
-
-      // 1. 카메라 위치 복원 (즉시)
-      console.log('카메라 복원 중...')
-      viewer.camera.setView({
-        destination: new Cesium.Cartesian3(
-          projectFile.camera.position.x,
-          projectFile.camera.position.y,
-          projectFile.camera.position.z
-        ),
-        orientation: {
-          heading: projectFile.camera.heading,
-          pitch: projectFile.camera.pitch,
-          roll: projectFile.camera.roll,
-        },
-      })
-
-      // 2. 시간 복원 (그림자용)
-      console.log('시간 복원 중...')
-      const restoredTime = new Date(projectFile.currentTime.isoString)
-      viewer.clock.currentTime = Cesium.JulianDate.fromDate(restoredTime)
-      setCurrentTime(restoredTime)
-
-      // 3. 프로젝트 스토어 상태 복원
-      console.log('스토어 상태 복원 중...')
-      const {
-        setWorkArea,
-        setModelTransform,
-        setBuilding,
-        setSite,
-        setHumanScaleModelLoaded,
-        setSelectedBlockCount,
-      } = useProjectStore.getState()
-
-      if (projectFile.workArea) {
-        setWorkArea(projectFile.workArea)
-      }
-      setModelTransform(projectFile.modelTransform)
-      if (projectFile.building) {
-        setBuilding(projectFile.building)
-      }
-      if (projectFile.site) {
-        setSite(projectFile.site)
-      }
-
-      // 4. 지적도 데이터 복원 (폴리라인 생성 필요)
-      console.log('지적도 복원 중...')
-      await restoreCadastral(projectFile.cadastralData)
-
-      // 지적도 렌더링 완료 대기
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      // 5. 블록 선택 복원 (폴리곤 엔티티 생성)
-      console.log('블록 선택 복원 중...')
-      await restoreBlockSelection(projectFile.selectedBlocks)
-
-      // 6. 건축선 복원 (선택된 블록 필요)
-      console.log('건축선 복원 중...')
-      await restoreBuildingLine(
-        projectFile.buildingLineResult,
-        projectFile.showBuildingLine
-      )
-
-      // 7. 로드된 모델 복원 (있는 경우)
-      if (projectFile.loadedModel?.filename) {
-        console.log('모델 복원 중...')
-        await loadModel(projectFile.loadedModel.filename)
-      }
-
-      // 8. 휴먼 스케일 모델 복원
-      setHumanScaleModelLoaded(projectFile.humanScaleModelLoaded)
-
-      // 8-1. 휴먼 모델 위치 복원
-      if (projectFile.humanScaleModelLoaded && projectFile.humanModelTransform) {
-        console.log('휴먼 모델 위치 복원 중...')
-        // 휴먼 모델이 로드된 후 위치 설정을 위해 약간 대기
+    // 7-b. 배치된 매스 GLB 복원 (building/site 정보가 있고 매스가 있으면)
+    if (projectFile.activeMassGlbUrl || (projectFile.building && projectFile.generatedMasses?.length)) {
+      const massUrl = projectFile.activeMassGlbUrl
+        || projectFile.generatedMasses?.find(m => m.glbUrl)?.glbUrl
+      if (massUrl) {
+        console.log('매스 GLB 복원 중:', massUrl)
+        // 저장된 transform 정보를 함께 전달 (위치, 각도, 스케일 복원용)
+        const savedTransform = projectFile.modelTransform
         setTimeout(() => {
-          if (projectFile.humanModelTransform) {
-            restoreHumanModelPosition(projectFile.humanModelTransform)
-          }
+          useProjectStore.getState().setMassGlbToLoad(massUrl, {
+            longitude: savedTransform.longitude,
+            latitude: savedTransform.latitude,
+            height: savedTransform.height,
+            rotation: savedTransform.rotation,
+            scale: savedTransform.scale,
+          })
         }, 500)
       }
-
-      // 9. 숨긴 OSM 건물 복원 (마지막에 스타일 적용)
-      console.log('숨긴 건물 복원 중...')
-      restoreHiddenBuildings(projectFile.hiddenBuildingIds)
-
-      // 최종 렌더
-      viewer.scene.requestRender()
-      console.log('프로젝트 복원 완료')
-    } catch (error) {
-      console.error('프로젝트 불러오기 오류:', error)
-      setLastError(error instanceof Error ? error.message : '프로젝트 불러오기에 실패했습니다')
-    } finally {
-      setIsLoading(false)
     }
+
+    // 7-c. 샘플 모델 복원 (있는 경우)
+    if (projectFile.loadedModel?.filename) {
+      console.log('샘플 모델 복원 중...')
+      await loadModel(projectFile.loadedModel.filename)
+    }
+
+    // 8. 휴먼 스케일 모델 복원
+    setHumanScaleModelLoaded(projectFile.humanScaleModelLoaded)
+    if (projectFile.humanScaleModelLoaded && projectFile.humanModelTransform) {
+      setTimeout(() => {
+        if (projectFile.humanModelTransform) {
+          restoreHumanModelPosition(projectFile.humanModelTransform)
+        }
+      }, 500)
+    }
+
+    // 9. 숨긴 OSM 건물 복원
+    console.log('숨긴 건물 복원 중...')
+    restoreHiddenBuildings(projectFile.hiddenBuildingIds)
+
+    viewer.scene.requestRender()
+    console.log('프로젝트 복원 완료')
   }, [
     viewerRef,
     setCurrentTime,
@@ -273,6 +291,59 @@ export function useProjectPersistence(
     restoreHiddenBuildings,
   ])
 
+  // === 프로젝트 불러오기 (JSON 파일) ===
+  const loadProject = useCallback(async (file: File) => {
+    if (!viewerRef.current) {
+      setLastError('뷰어가 초기화되지 않았습니다')
+      return
+    }
+
+    setIsLoading(true)
+    setLastError(null)
+
+    try {
+      const projectFile = await readProjectFile(file)
+      await restoreProjectState(projectFile)
+    } catch (error) {
+      console.error('프로젝트 불러오기 오류:', error)
+      setLastError(error instanceof Error ? error.message : '프로젝트 불러오기에 실패했습니다')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [viewerRef, restoreProjectState])
+
+  // === DB에서 프로젝트 불러오기 ===
+  const loadFromDb = useCallback(async () => {
+    if (!viewerRef.current) {
+      setLastError('뷰어가 초기화되지 않았습니다')
+      return
+    }
+
+    const projectId = useProjectStore.getState().projectId
+    if (!projectId) {
+      setLastError('프로젝트가 선택되지 않았습니다')
+      return
+    }
+
+    setIsLoading(true)
+    setLastError(null)
+
+    try {
+      const stateData = await loadProjectState(projectId)
+      if (!stateData) {
+        console.log('DB에 저장된 상태 없음')
+        return
+      }
+      await restoreProjectState(stateData as ProjectFile)
+      console.log('DB에서 프로젝트 복원 완료:', projectId)
+    } catch (error) {
+      console.error('DB 프로젝트 불러오기 오류:', error)
+      setLastError(error instanceof Error ? error.message : '프로젝트 불러오기에 실패했습니다')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [viewerRef, restoreProjectState])
+
   const clearError = useCallback(() => {
     setLastError(null)
   }, [])
@@ -283,6 +354,7 @@ export function useProjectPersistence(
     lastError,
     saveProject,
     loadProject,
+    loadFromDb,
     clearError,
   }
 }

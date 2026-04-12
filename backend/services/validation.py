@@ -212,6 +212,47 @@ def validate_placement(
     )
 
 
+def validate_parking(
+    required_total: int,
+    provided_total: int,
+    parking_area_m2: float,
+    site_area_m2: float,
+) -> Dict[str, Any]:
+    """
+    주차 규정 검토.
+
+    Returns:
+        {
+            "required": int,
+            "provided": int,
+            "is_sufficient": bool,
+            "parking_area_m2": float,
+            "parking_ratio_pct": float,
+            "status": "OK" | "VIOLATION",
+            "message": str,
+        }
+    """
+    is_sufficient = provided_total >= required_total
+    ratio = (parking_area_m2 / site_area_m2) * 100 if site_area_m2 > 0 else 0.0
+
+    status = "OK" if is_sufficient else "VIOLATION"
+    message = (
+        f"주차 기준 충족 ({provided_total}/{required_total}대)"
+        if is_sufficient
+        else f"주차 기준 미달 ({provided_total}/{required_total}대)"
+    )
+
+    return {
+        "required": required_total,
+        "provided": provided_total,
+        "is_sufficient": is_sufficient,
+        "parking_area_m2": round(parking_area_m2, 2),
+        "parking_ratio_pct": round(ratio, 1),
+        "status": status,
+        "message": message,
+    }
+
+
 def validate_with_zone(
     site_footprint: List[List[float]],
     building_footprint: List[List[float]],

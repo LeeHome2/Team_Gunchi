@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { useProjectStore } from '@/store/projectStore'
-import { uploadDxf, generateMass, validatePlacement } from '@/lib/api'
+import { uploadDxf } from '@/lib/api'
+import AnalysisModal, { AnalysisResult } from '@/components/AnalysisModal'
+import ParkingZonePanel from '@/components/ParkingZonePanel'
 
 /**
  * 사이드바 컴포넌트
@@ -22,11 +24,19 @@ export default function Sidebar() {
     workArea,
     availableModels,
     selectedBlockCount,
+    selectedBlockInfo,
     isLoadingModel,
     humanScaleModelLoaded,
+    generatedMasses,
+    reviewData,
+    sunlightAnalysisState,
+    runReviewCheckFn,
+    startSunlightFn,
+    toggleSunlightHeatmapFn,
+    clearSunlightFn,
+    setSunlightHeatmapModeFn,
     setSite,
     setBuilding,
-    setModelUrl,
     setValidation,
     setLoading,
     setError,
@@ -37,33 +47,43 @@ export default function Sidebar() {
     setHumanScaleModelLoaded,
   } = useProjectStore()
 
-  const [height, setHeight] = useState(30)
-  const [floors, setFloors] = useState(10)
-  const [activeTab, setActiveTab] = useState<'upload' | 'mass' | 'validate'>('upload')
+  const [activeTab, setActiveTab] = useState<'upload' | 'mass' | 'validate' | 'parking'>('upload')
+  const [sunlightDate, setSunlightDate] = useState(() => {
+    const d = new Date(); d.setHours(12, 0, 0, 0); return d
+  })
 
-  // 매스 이동/회전
-  const [offsetX, setOffsetX] = useState(0) // 미터 단위
-  const [offsetY, setOffsetY] = useState(0) // 미터 단위
-  const [rotation, setRotation] = useState(0) // 도 단위
+  // Analysis modal state
+  const [analysisFile, setAnalysisFile] = useState<File | null>(null)
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false)
+  // 샘플 도면 fetch 진행 중인 파일명
+  const [sampleLoading, setSampleLoading] = useState<string | null>(null)
 
-  // 샘플 데이터 로드 (테스트용)
-  const handleLoadSample = () => {
-    // 성남시 좌표 기준 샘플 대지 (약 300m² 사각형)
-    const sampleSite = {
-      fileId: 'sample',
-      footprint: [
-        [127.1385, 37.4447],
-        [127.1390, 37.4447],
-        [127.1390, 37.4451],
-        [127.1385, 37.4451],
-      ],
-      area: 300,
-      centroid: [127.13875, 37.4449],
+  // 생성된 매스 모델을 선택하여 Cesium에 배치
+  const handlePlaceMass = (mass: typeof generatedMasses[0]) => {
+    if (selectedBlockCount === 0) {
+      setError('먼저 영역 선택 버튼으로 블록을 선택해주세요.')
+      return
     }
-    setSite(sampleSite)
-    setActiveTab('mass')
-    setError(null) // 이전 에러 클리어
-    console.log('샘플 대지 데이터가 로드되었습니다.')
+    if (!mass.glbUrl) {
+      setError('GLB 모델 URL이 없습니다.')
+      return
+    }
+    // building 정보 설정 후 매스 GLB 로드 트리거
+    setBuilding({
+      height: mass.height,
+      floors: mass.floors,
+      footprint: mass.footprint,
+      position: mass.centroid,
+    })
+    setSite({
+      fileId: mass.id,
+      footprint: mass.footprint,
+      area: mass.area,
+      centroid: mass.centroid,
+    })
+    setTimeout(() => {
+      useProjectStore.getState().setMassGlbToLoad(mass.glbUrl)
+    }, 0)
   }
 
   // 3D 샘플 모델 로드 (스토어를 통해 CesiumViewer에서 처리)
@@ -153,88 +173,131 @@ export default function Sidebar() {
   }
 
   // DXF 파일 업로드
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setLoading(true)
+    // Open analysis modal instead of directly uploading
+    setAnalysisFile(file)
+    setShowAnalysisModal(true)
+  }
+
+  // 샘플 도면 로드 — public/samples/ 의 DXF를 받아와서 업로드와 동일한 AnalysisModal
+  // 파이프라인으로 통과시켜 시각화합니다. AI 서버가 연결되기 전에도 백엔드 mock
+  // 분류기 + 실제 매스 생성을 거쳐 동일한 모달 UX를 체험할 수 있습니다.
+  const handleLoadSampleDxf = async (filename: string, label: string) => {
     try {
-      const result = await uploadDxf(file)
-      if (result.success) {
-        setSite({
-          fileId: result.file_id,
-          footprint: result.site.footprint,
-          area: result.site.area_sqm,
-          centroid: result.site.centroid,
-          bounds: result.site.bounds,
-        })
-        setActiveTab('mass')
+      setSampleLoading(filename)
+      setError(null)
+      const res = await fetch(`/samples/${filename}`)
+      if (!res.ok) {
+        throw new Error(`샘플 파일을 불러오지 못했습니다 (${res.status})`)
       }
-    } catch (error) {
-      console.error('업로드 실패:', error)
-      setError('파일 업로드에 실패했습니다.')
+      const blob = await res.blob()
+      const file = new File([blob], filename, { type: 'application/dxf' })
+      setAnalysisFile(file)
+      setShowAnalysisModal(true)
+    } catch (e: any) {
+      console.error('샘플 로드 실패:', e)
+      setError(e?.message || '샘플 도면을 불러오지 못했습니다.')
     } finally {
-      setLoading(false)
+      setSampleLoading(null)
     }
   }
 
-  // 매스 생성
-  const handleGenerateMass = async () => {
-    if (!site?.footprint) {
-      setError('먼저 DXF 파일을 업로드하세요.')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const result = await generateMass({
-        footprint: site.footprint,
-        height,
-        floors,
-        position: site.centroid,
-      })
-
-      if (result.success) {
-        setBuilding({
-          height,
-          floors,
-          footprint: site.footprint,
-          position: site.centroid,
-        })
-        setModelUrl(result.model_url)
-        setActiveTab('validate')
+  // Handle analysis modal completion — 생성된 매스를 목록에 추가 (즉시 배치 X)
+  const handleAnalysisComplete = (result: AnalysisResult) => {
+    if (result.projectId) {
+      useProjectStore.getState().setProjectId(result.projectId)
+      // URL에 projectId 반영 (새로고침 시에도 프로젝트 유지)
+      const url = new URL(window.location.href)
+      if (!url.searchParams.get('projectId')) {
+        url.searchParams.set('projectId', result.projectId)
+        window.history.replaceState({}, '', url.toString())
       }
-    } catch (error) {
-      console.error('매스 생성 실패:', error)
-      setError('매스 생성에 실패했습니다.')
-    } finally {
-      setLoading(false)
     }
+
+    // DXF 로컬 좌표를 위경도로 변환
+    let footprint = result.site.footprint
+    let centroid = result.site.centroid
+    const bounds = result.site.bounds
+    const anchor: [number, number] | null = selectedBlockInfo?.centroid
+      ? selectedBlockInfo.centroid
+      : workArea
+        ? [workArea.longitude, workArea.latitude]
+        : null
+
+    // footprint이 너무 작으면 bounds 사각형으로 대체
+    if (footprint.length >= 3 && bounds?.min_x != null) {
+      const xs = footprint.map((c: number[]) => c[0])
+      const ys = footprint.map((c: number[]) => c[1])
+      const fpArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))
+      const bArea = (bounds.max_x - bounds.min_x) * (bounds.max_y - bounds.min_y)
+      if (fpArea < bArea * 0.1 && bArea > 10) {
+        footprint = [
+          [bounds.min_x, bounds.min_y], [bounds.max_x, bounds.min_y],
+          [bounds.max_x, bounds.max_y], [bounds.min_x, bounds.max_y],
+        ]
+        centroid = [(bounds.min_x + bounds.max_x) / 2, (bounds.min_y + bounds.max_y) / 2]
+      }
+    }
+
+    // 위경도 판별 후 변환
+    if (footprint.length > 0 && anchor) {
+      const xs = footprint.map(c => c[0])
+      const ys = footprint.map(c => c[1])
+      const minX = Math.min(...xs), maxX = Math.max(...xs)
+      const minY = Math.min(...ys), maxY = Math.max(...ys)
+      const isLonLat = minX >= 124 && maxX <= 133 && minY >= 33 && maxY <= 39
+        && (maxX - minX) < 0.05 && (maxY - minY) < 0.05
+
+      if (!isLonLat) {
+        const latRad = anchor[1] * Math.PI / 180
+        const mPerDegLon = 111320 * Math.cos(latRad)
+        const mPerDegLat = 111320
+        const cx = xs.reduce((a, b) => a + b, 0) / xs.length
+        const cy = ys.reduce((a, b) => a + b, 0) / ys.length
+        footprint = footprint.map(([x, y]) => [
+          anchor[0] + (x - cx) / mPerDegLon,
+          anchor[1] + (y - cy) / mPerDegLat,
+        ])
+        centroid = [anchor[0], anchor[1]]
+      }
+    }
+
+    // 생성된 매스 모델을 목록에 추가
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const glbUrl = result.glbUrl ? `${API_URL}${result.glbUrl}` : ''
+    const fileName = analysisFile?.name || 'unknown.dxf'
+
+    useProjectStore.getState().addGeneratedMass({
+      id: result.fileId || Date.now().toString(),
+      fileName,
+      label: fileName.replace(/\.dxf$/i, '').replace(/_/g, ' '),
+      glbUrl,
+      footprint,
+      centroid,
+      area: result.site.area_sqm,
+      height: 9,
+      floors: 3,
+      classification: {
+        total_entities: result.classification.total_entities,
+        class_counts: result.classification.class_counts,
+        average_confidence: result.classification.average_confidence,
+      },
+      boundingBox: result.boundingBox || undefined,
+      createdAt: Date.now(),
+    })
+
+    // 모달 닫고 매스 탭으로
+    setShowAnalysisModal(false)
+    setAnalysisFile(null)
+    setActiveTab('mass')
+    setError(null)
   }
 
-  // 배치 검토
-  const handleValidate = async () => {
-    if (!site?.footprint || !building?.footprint) {
-      setError('대지와 건물 정보가 필요합니다.')
-      return
-    }
 
-    setLoading(true)
-    try {
-      const result = await validatePlacement({
-        site_footprint: site.footprint,
-        building_footprint: building.footprint,
-        building_height: building.height,
-      })
-
-      setValidation(result)
-    } catch (error) {
-      console.error('검토 실패:', error)
-      setError('배치 검토에 실패했습니다.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  // 배치 검토 — CesiumViewer에서 runReviewCheckFn으로 처리
 
   return (
     <div className="sidebar">
@@ -261,6 +324,16 @@ export default function Sidebar() {
           2. 매스
         </button>
         <button
+          onClick={() => setActiveTab('parking')}
+          className={`flex-1 py-3 text-sm font-medium ${
+            activeTab === 'parking'
+              ? 'text-primary-600 border-b-2 border-primary-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          3. 주차
+        </button>
+        <button
           onClick={() => setActiveTab('validate')}
           className={`flex-1 py-3 text-sm font-medium ${
             activeTab === 'validate'
@@ -268,7 +341,7 @@ export default function Sidebar() {
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          3. 검토
+          4. 검토
         </button>
       </div>
 
@@ -312,19 +385,150 @@ export default function Sidebar() {
               </label>
             </div>
 
-            {/* 샘플 데이터 로드 버튼 */}
+            {/* 샘플 도면 (실제 DXF로 분석 파이프라인 시연) */}
             <div className="border-t pt-4">
-              <p className="text-sm text-gray-500 mb-2">DXF 파일이 없으신가요?</p>
-              <button
-                onClick={handleLoadSample}
-                className="btn-secondary w-full"
-              >
-                샘플 데이터로 테스트
-              </button>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-medium text-sm">샘플 도면으로 시연</h4>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                  AI 연결 전 데모
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                DXF가 없으면 아래 샘플 도면으로 파싱 → 분류 → 3D 매스 생성 전체 과정을 확인할 수 있습니다.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { file: 'arquitectura.dxf', label: '건축 도면', sub: 'Arquitectura · 2.5MB' },
+                  { file: 'trabajo_final.dxf', label: '종합 설계', sub: 'Trabajo Final · 1.5MB' },
+                  { file: 'casa_velacion_1.dxf', label: '전기 설비 1', sub: 'Casa Velación · 540KB' },
+                  { file: 'casa_velacion_2.dxf', label: '전기 설비 2', sub: 'Casa Velación · 734KB' },
+                ].map((s) => {
+                  const busy = sampleLoading === s.file
+                  return (
+                    <button
+                      key={s.file}
+                      onClick={() => handleLoadSampleDxf(s.file, s.label)}
+                      disabled={!!sampleLoading}
+                      className={`flex flex-col items-start gap-0.5 rounded-lg border p-2 text-left transition-colors ${
+                        busy
+                          ? 'border-purple-400 bg-purple-50 cursor-wait'
+                          : sampleLoading
+                          ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+                          : 'border-gray-200 hover:border-purple-400 hover:bg-purple-50'
+                      }`}
+                    >
+                      <span className="text-sm font-medium text-gray-800">
+                        {s.label}
+                        {busy && ' …'}
+                      </span>
+                      <span className="text-[11px] text-gray-500">{s.sub}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
+            {/* 대지 정보 */}
+            {site && (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-medium mb-2">대지 정보</h4>
+                <div className="space-y-1 text-sm">
+                  <p>면적: <span className="font-medium">{site.area?.toFixed(2)} m²</span></p>
+                  <p>중심: [{site.centroid?.[0].toFixed(6)}, {site.centroid?.[1].toFixed(6)}]</p>
+                </div>
+              </div>
+            )}
+
+            {/* 선택된 블록 정보 */}
+            {selectedBlockInfo && (
+              <div className="bg-blue-50 rounded-lg p-4">
+                <h4 className="font-medium mb-2">선택 블록 정보</h4>
+                <div className="space-y-1 text-sm">
+                  <p>블록 수: <span className="font-medium">{selectedBlockInfo.coordinates.length}개</span></p>
+                  <p>총 면적: <span className="font-medium">{selectedBlockInfo.totalArea.toFixed(2)} m²</span></p>
+                  {selectedBlockInfo.centroid && (
+                    <p>중심: [{selectedBlockInfo.centroid[0].toFixed(6)}, {selectedBlockInfo.centroid[1].toFixed(6)}]</p>
+                  )}
+                  <details className="mt-2">
+                    <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
+                      블록 좌표 보기
+                    </summary>
+                    <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+                      {selectedBlockInfo.coordinates.map((coords, i) => (
+                        <div key={i} className="bg-white rounded p-2 text-xs text-gray-600">
+                          <p className="font-medium text-gray-700 mb-1">블록 {i + 1} ({coords.length}개 꼭짓점)</p>
+                          {coords.map((c, j) => (
+                            <p key={j}>[{c[0].toFixed(6)}, {c[1].toFixed(6)}]</p>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 매스 설정 탭 */}
+        {activeTab === 'mass' && (
+          <div className="space-y-4">
+            <h3 className="font-semibold text-lg">건물 매스 설정</h3>
+
+            {/* 생성된 매스 모델 목록 */}
+            {generatedMasses.length > 0 && (
+              <div className="border-b pb-4">
+                <h4 className="font-medium mb-2">생성된 매스 모델</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {generatedMasses.map((mass) => (
+                    <div
+                      key={mass.id}
+                      className="rounded-lg border border-gray-200 p-3 bg-white"
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="font-medium text-sm text-gray-800 truncate flex-1">
+                          {mass.label}
+                        </p>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 ml-2 shrink-0">
+                          {mass.classification.total_entities}개 엔티티
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-0.5 mb-2">
+                        <p>면적: {mass.area.toFixed(1)} m² · {mass.floors}층 · {mass.height}m</p>
+                        <p>신뢰도: {(mass.classification.average_confidence * 100).toFixed(0)}%</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handlePlaceMass(mass)}
+                          disabled={selectedBlockCount === 0 || isLoadingModel}
+                          className={`flex-1 text-sm py-1.5 rounded-lg font-medium transition-colors ${
+                            selectedBlockCount === 0
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : isLoadingModel
+                                ? 'bg-gray-100 text-gray-400 cursor-wait'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                          }`}
+                        >
+                          영역에 배치
+                        </button>
+                        <button
+                          onClick={() => useProjectStore.getState().removeGeneratedMass(mass.id)}
+                          className="px-2 py-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                          title="삭제"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 3D 샘플 모델 로드 */}
-            <div className="border-t pt-4">
+            <div className="border-b pb-4">
               <h4 className="font-medium mb-2">3D 샘플 모델</h4>
               {selectedBlockCount > 0 ? (
                 <div className="bg-green-50 rounded-lg p-2 mb-3">
@@ -517,226 +721,6 @@ export default function Sidebar() {
               )}
             </div>
 
-            {/* 대지 정보 */}
-            {site && (
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-medium mb-2">대지 정보</h4>
-                <div className="space-y-1 text-sm">
-                  <p>면적: <span className="font-medium">{site.area?.toFixed(2)} m²</span></p>
-                  <p>중심: [{site.centroid?.[0].toFixed(6)}, {site.centroid?.[1].toFixed(6)}]</p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 매스 설정 탭 */}
-        {activeTab === 'mass' && (
-          <div className="space-y-4">
-            <h3 className="font-semibold text-lg">건물 매스 설정</h3>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                건물 높이 (m)
-              </label>
-              <input
-                type="number"
-                value={height}
-                onChange={(e) => setHeight(Number(e.target.value))}
-                min={1}
-                max={100}
-                className="input-field"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                층수
-              </label>
-              <input
-                type="number"
-                value={floors}
-                onChange={(e) => setFloors(Number(e.target.value))}
-                min={1}
-                max={30}
-                className="input-field"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                층고 (m)
-              </label>
-              <p className="text-sm text-gray-600">{(height / floors).toFixed(2)}</p>
-            </div>
-
-            <button
-              onClick={handleGenerateMass}
-              disabled={!site}
-              className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              3D 매스 생성
-            </button>
-
-            {/* 카메라 이동 버튼 */}
-            {site?.centroid && (
-              <button
-                onClick={() => {
-                  const state = useProjectStore.getState()
-                  const viewer = state.viewer
-                  const Cesium = (window as any).Cesium
-
-                  if (!viewer || !Cesium) {
-                    setError('Viewer가 로드되지 않았습니다.')
-                    return
-                  }
-
-                  viewer.camera.flyTo({
-                    destination: Cesium.Cartesian3.fromDegrees(
-                      site.centroid![0],
-                      site.centroid![1],
-                      200
-                    ),
-                    orientation: {
-                      heading: 0,
-                      pitch: Cesium.Math.toRadians(-45),
-                      roll: 0,
-                    },
-                    duration: 1.5,
-                  })
-                }}
-                className="btn-secondary w-full"
-              >
-                건물 위치로 이동
-              </button>
-            )}
-
-            {/* 매스 이동/회전 컨트롤 */}
-            {building && (
-              <div className="border-t pt-4 mt-4 space-y-3">
-                <h4 className="font-medium text-sm">매스 이동/회전</h4>
-
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">
-                    X 이동: {offsetX}m
-                  </label>
-                  <input
-                    type="range"
-                    min={-50}
-                    max={50}
-                    value={offsetX}
-                    onChange={(e) => setOffsetX(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">
-                    Y 이동: {offsetY}m
-                  </label>
-                  <input
-                    type="range"
-                    min={-50}
-                    max={50}
-                    value={offsetY}
-                    onChange={(e) => setOffsetY(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">
-                    회전: {rotation}°
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={360}
-                    value={rotation}
-                    onChange={(e) => setRotation(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                <button
-                  onClick={() => {
-                    // 변환 적용
-                    const viewer = useProjectStore.getState().viewer
-                    const Cesium = (window as any).Cesium
-                    if (!viewer || !Cesium || !site?.footprint) return
-
-                    // 기존 건물 제거
-                    const existing = viewer.entities.getById('building-mass')
-                    if (existing) viewer.entities.remove(existing)
-
-                    // 중심점 기준 이동/회전 계산
-                    const centroid = site.centroid || [127.1388, 37.4449]
-                    const latRad = centroid[1] * Math.PI / 180
-                    const metersPerDegLon = 111320 * Math.cos(latRad)
-                    const metersPerDegLat = 111320
-
-                    // 회전 변환 함수
-                    const rotatePoint = (x: number, y: number, angle: number, cx: number, cy: number) => {
-                      const rad = angle * Math.PI / 180
-                      const cos = Math.cos(rad)
-                      const sin = Math.sin(rad)
-                      const nx = cos * (x - cx) - sin * (y - cy) + cx
-                      const ny = sin * (x - cx) + cos * (y - cy) + cy
-                      return [nx, ny]
-                    }
-
-                    // footprint 변환 (이동 + 회전)
-                    const transformedFootprint = site.footprint.map((coord: number[]) => {
-                      // 1. 미터 단위로 이동
-                      const movedLon = coord[0] + (offsetX / metersPerDegLon)
-                      const movedLat = coord[1] + (offsetY / metersPerDegLat)
-
-                      // 2. 중심점 기준 회전
-                      const [rotLon, rotLat] = rotatePoint(
-                        movedLon, movedLat, rotation,
-                        centroid[0] + (offsetX / metersPerDegLon),
-                        centroid[1] + (offsetY / metersPerDegLat)
-                      )
-
-                      return [rotLon, rotLat]
-                    })
-
-                    // 새 건물 추가
-                    const positions = transformedFootprint.flatMap((c: number[]) => [c[0], c[1]])
-                    viewer.entities.add({
-                      id: 'building-mass',
-                      name: '건물 매스',
-                      polygon: {
-                        hierarchy: Cesium.Cartesian3.fromDegreesArray(positions),
-                        height: 0,
-                        extrudedHeight: height,
-                        material: Cesium.Color.CORNFLOWERBLUE.withAlpha(0.8),
-                        outline: true,
-                        outlineColor: Cesium.Color.WHITE,
-                        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-                        extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-                      },
-                    })
-
-                    console.log('매스 변환 적용:', { offsetX, offsetY, rotation })
-                  }}
-                  className="btn-primary w-full"
-                >
-                  변환 적용
-                </button>
-
-                <button
-                  onClick={() => {
-                    setOffsetX(0)
-                    setOffsetY(0)
-                    setRotation(0)
-                  }}
-                  className="btn-secondary w-full"
-                >
-                  초기화
-                </button>
-              </div>
-            )}
           </div>
         )}
 
@@ -746,108 +730,236 @@ export default function Sidebar() {
             <h3 className="font-semibold text-lg">건축 규정 검토</h3>
 
             <button
-              onClick={handleValidate}
-              disabled={!building}
+              onClick={() => runReviewCheckFn?.()}
+              disabled={!loadedModelEntity || selectedBlockCount === 0}
               className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
               배치 검토 실행
             </button>
 
-            {/* 검토 결과 */}
-            {validation && (
-              <div className="space-y-3">
-                {/* 전체 판정 */}
-                <div
-                  className={`p-3 rounded-lg ${
-                    validation.is_valid
-                      ? 'bg-green-50 border border-green-200'
-                      : 'bg-red-50 border border-red-200'
-                  }`}
-                >
-                  <p
-                    className={`font-semibold ${
-                      validation.is_valid ? 'text-green-700' : 'text-red-700'
-                    }`}
-                  >
-                    {validation.is_valid ? '적합' : '부적합'}
-                  </p>
+            {/* 건폐율 */}
+            {reviewData.buildingCoverage && (
+              <div className={`rounded-lg p-3 ${reviewData.buildingCoverage.status === 'OK' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium">건폐율</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.buildingCoverage.status === 'OK' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {reviewData.buildingCoverage.status === 'OK' ? '적합' : '초과'}
+                  </span>
                 </div>
-
-                {/* 건폐율 */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-medium">건폐율</span>
-                    <span
-                      className={
-                        validation.building_coverage.status === 'OK'
-                          ? 'validation-ok'
-                          : 'validation-error'
-                      }
-                    >
-                      {validation.building_coverage.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    {validation.building_coverage.value}% / {validation.building_coverage.limit}%
-                  </p>
+                <div className="text-2xl font-bold text-gray-800 mb-1">
+                  {reviewData.buildingCoverage.ratio}%
+                  <span className="text-sm font-normal text-gray-500 ml-1">/ {reviewData.buildingCoverage.limit}%</span>
                 </div>
-
-                {/* 이격거리 */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-medium">이격거리</span>
-                    <span
-                      className={
-                        validation.setback.status === 'OK'
-                          ? 'validation-ok'
-                          : 'validation-error'
-                      }
-                    >
-                      {validation.setback.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    {validation.setback.min_distance_m}m / {validation.setback.required_m}m
-                  </p>
+                <div className="text-xs text-gray-500 space-y-0.5">
+                  <p>건축면적: {reviewData.buildingCoverage.buildingArea.toFixed(1)} m²</p>
+                  <p>대지면적: {reviewData.buildingCoverage.siteArea.toFixed(1)} m²</p>
                 </div>
-
-                {/* 높이 */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-medium">높이 제한</span>
-                    <span
-                      className={
-                        validation.height.status === 'OK'
-                          ? 'validation-ok'
-                          : 'validation-error'
-                      }
-                    >
-                      {validation.height.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    {validation.height.value_m}m / {validation.height.limit_m}m
-                  </p>
+                {/* 프로그레스 바 */}
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full transition-all ${reviewData.buildingCoverage.status === 'OK' ? 'bg-green-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(reviewData.buildingCoverage.ratio / reviewData.buildingCoverage.limit * 100, 100)}%` }}
+                  />
                 </div>
-
-                {/* 위반 사항 */}
-                {validation.violations.length > 0 && (
-                  <div className="bg-red-50 rounded-lg p-3">
-                    <p className="text-sm font-medium text-red-700 mb-2">위반 사항</p>
-                    <ul className="space-y-1">
-                      {validation.violations.map((v: any, i: number) => (
-                        <li key={i} className="text-sm text-red-600">
-                          • {v.message}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             )}
+
+            {/* 이격거리 */}
+            {reviewData.setback && (
+              <div className={`rounded-lg p-3 ${reviewData.setback.status === 'OK' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium">이격거리</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.setback.status === 'OK' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {reviewData.setback.status === 'OK' ? '적합' : '위반'}
+                  </span>
+                </div>
+                <div className="text-2xl font-bold text-gray-800 mb-1">
+                  {reviewData.setback.minDistance}m
+                  <span className="text-sm font-normal text-gray-500 ml-1">/ 최소 {reviewData.setback.required}m</span>
+                </div>
+                {reviewData.setback.details.map((d, i) => (
+                  <div key={i} className="flex justify-between text-xs text-gray-600 mt-1">
+                    <span>{d.type}</span>
+                    <span className={d.status === 'OK' ? 'text-green-600' : 'text-red-600'}>{d.distance}m / {d.required}m</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 영역 내 배치 */}
+            {reviewData.buildingCoverage && (
+              <div className={`rounded-lg p-3 ${reviewData.isModelInBounds ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">영역 내 배치</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.isModelInBounds ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {reviewData.isModelInBounds ? '적합' : '영역 초과'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* 전체 판정 */}
+            {reviewData.buildingCoverage && (
+              <div className={`p-4 rounded-lg text-center ${
+                reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
+                  ? 'bg-green-100 border-2 border-green-300'
+                  : 'bg-red-100 border-2 border-red-300'
+              }`}>
+                <p className={`text-lg font-bold ${
+                  reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
+                    ? 'text-green-700' : 'text-red-700'
+                }`}>
+                  {reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
+                    ? '종합: 적합' : '종합: 부적합'}
+                </p>
+              </div>
+            )}
+
+            {/* 일조 분석 */}
+            <div className="border-t pt-4">
+              <h3 className="font-semibold text-base mb-3">일조 분석</h3>
+
+              <div className="space-y-2 mb-3">
+                <div>
+                  <label className="text-xs text-gray-600">날짜</label>
+                  <input
+                    type="date"
+                    value={sunlightDate.toISOString().split('T')[0]}
+                    onChange={(e) => {
+                      const d = new Date(e.target.value)
+                      d.setHours(sunlightDate.getHours())
+                      setSunlightDate(d)
+                    }}
+                    className="input-field text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600">시간: {sunlightDate.getHours()}시</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="23"
+                    value={sunlightDate.getHours()}
+                    onChange={(e) => {
+                      const d = new Date(sunlightDate)
+                      d.setHours(parseInt(e.target.value))
+                      setSunlightDate(d)
+                    }}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={() => startSunlightFn?.(sunlightDate, 2)}
+                disabled={sunlightAnalysisState.isAnalyzing || !startSunlightFn}
+                className={`w-full py-2 px-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  sunlightAnalysisState.isAnalyzing
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-500 hover:bg-blue-600 text-white'
+                }`}
+              >
+                {sunlightAnalysisState.isAnalyzing ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                    분석 중...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                    일조 분석 시작
+                  </>
+                )}
+              </button>
+
+              {/* 진행률 */}
+              {sunlightAnalysisState.isAnalyzing && sunlightAnalysisState.progress && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+                    <span>{sunlightAnalysisState.progress.currentHour}시 분석 중</span>
+                    <span>{sunlightAnalysisState.progress.percentComplete}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${sunlightAnalysisState.progress.percentComplete}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* 분석 결과 */}
+              {sunlightAnalysisState.result && !sunlightAnalysisState.isAnalyzing && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-medium text-gray-700">분석 결과</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => toggleSunlightHeatmapFn?.()} className={`px-2 py-1 text-xs rounded ${sunlightAnalysisState.showHeatmap ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {sunlightAnalysisState.showHeatmap ? '히트맵 숨김' : '히트맵 표시'}
+                      </button>
+                      <button onClick={() => clearSunlightFn?.()} className="px-2 py-1 text-xs bg-red-100 text-red-600 rounded hover:bg-red-200">초기화</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-blue-50 rounded p-2 text-center">
+                      <div className="text-blue-600 font-medium">평균</div>
+                      <div className="text-gray-800 font-bold">{sunlightAnalysisState.result.averageSunlightHours.toFixed(1)}h</div>
+                    </div>
+                    <div className="bg-red-50 rounded p-2 text-center">
+                      <div className="text-red-600 font-medium">최소</div>
+                      <div className="text-gray-800 font-bold">{sunlightAnalysisState.result.minSunlightHours}h</div>
+                    </div>
+                    <div className="bg-green-50 rounded p-2 text-center">
+                      <div className="text-green-600 font-medium">최대</div>
+                      <div className="text-gray-800 font-bold">{sunlightAnalysisState.result.maxSunlightHours}h</div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">{sunlightAnalysisState.result.totalPoints}개 포인트 | {sunlightAnalysisState.result.analysisDate}</div>
+                  {/* 히트맵 범례 */}
+                  <div className="pt-2 border-t border-gray-100">
+                    <div className="text-xs text-gray-600 mb-1">범례 (일조시간)</div>
+                    <div className="flex h-3 rounded overflow-hidden">
+                      <div className="flex-1 bg-red-500" />
+                      <div className="flex-1 bg-orange-500" />
+                      <div className="flex-1 bg-yellow-500" />
+                      <div className="flex-1 bg-lime-500" />
+                      <div className="flex-1 bg-green-500" />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                      <span>0h</span><span>13h</span>
+                    </div>
+                  </div>
+                  {/* 히트맵 모드 */}
+                  <div className="flex gap-2">
+                    <button onClick={() => setSunlightHeatmapModeFn?.('point')} className={`flex-1 py-1 text-xs rounded ${sunlightAnalysisState.heatmapMode === 'point' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}>포인트</button>
+                    <button onClick={() => setSunlightHeatmapModeFn?.('cell')} className={`flex-1 py-1 text-xs rounded ${sunlightAnalysisState.heatmapMode === 'cell' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}>셀</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+        {/* 주차구역 탭 */}
+        {activeTab === 'parking' && (
+          <ParkingZonePanel />
+        )}
       </div>
+
+      {/* Analysis Modal */}
+      <AnalysisModal
+        isOpen={showAnalysisModal}
+        onClose={() => {
+          setShowAnalysisModal(false)
+          setAnalysisFile(null)
+        }}
+        onComplete={handleAnalysisComplete}
+        file={analysisFile}
+        anchorLonLat={
+          selectedBlockInfo?.centroid
+            ? selectedBlockInfo.centroid
+            : workArea
+              ? [workArea.longitude, workArea.latitude]
+              : undefined
+        }
+      />
     </div>
   )
 }

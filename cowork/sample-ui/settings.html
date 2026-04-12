@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>환경 설정 — 건축물 배치 시스템</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .page-body{max-width:720px;margin:0 auto;padding:28px 24px}
+  .page-title{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+  .page-sub{font-size:12.5px;color:var(--gray-500);margin-bottom:24px}
+  .settings-nav{display:flex;gap:4px;border-bottom:1px solid var(--gray-200);margin-bottom:24px}
+  .settings-nav .tab{padding:10px 16px;font-size:13px;font-weight:500;color:var(--gray-500);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all var(--transition)}
+  .settings-nav .tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+  .settings-nav .tab:hover:not(.active){color:var(--gray-700)}
+  .section{margin-bottom:28px}
+  .section-title{font-size:14px;font-weight:600;margin-bottom:4px;letter-spacing:-.01em}
+  .section-desc{font-size:12px;color:var(--gray-500);margin-bottom:14px}
+  .field-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--gray-100)}
+  .field-row:last-child{border-bottom:none}
+  .field-label{font-size:13px;font-weight:500;color:var(--gray-700)}
+  .field-hint{font-size:11px;color:var(--gray-400);margin-top:2px}
+  .field-value{font-size:13px;color:var(--gray-500)}
+  .toggle{width:40px;height:22px;background:var(--gray-300);border-radius:11px;position:relative;cursor:pointer;transition:background var(--transition)}
+  .toggle.on{background:var(--primary)}
+  .toggle::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:left var(--transition);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+  .toggle.on::after{left:20px}
+  .settings-panel{display:none}
+  .settings-panel.active{display:block}
+  .danger-zone{border:1px solid var(--danger);border-radius:var(--radius-lg);padding:16px;margin-top:20px}
+  .danger-zone .section-title{color:var(--danger)}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-logo">건축물 배치 시스템</div>
+    <span class="topbar-badge">Cesium 3D</span>
+    <div class="topbar-nav">
+      <a class="nav-link" href="projects.html">내 프로젝트</a>
+      <a class="nav-link active" href="settings.html">설정</a>
+      <div class="avatar-menu">
+        <div class="avatar" onclick="this.nextElementSibling.classList.toggle('show')">이</div>
+        <div class="avatar-dropdown">
+          <a href="#">내 정보</a>
+          <a href="login.html" style="color:var(--danger)">로그아웃</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-body">
+    <div class="page-title">환경 설정</div>
+    <div class="page-sub">로그인, 계정, 서비스 환경을 관리합니다.</div>
+
+    <div class="settings-nav" id="settingsNav">
+      <div class="tab active" onclick="switchSettings(0)">로그인 설정</div>
+      <div class="tab" onclick="switchSettings(1)">계정 설정</div>
+      <div class="tab" onclick="switchSettings(2)">서비스 설정</div>
+    </div>
+
+    <!-- 로그인 설정 -->
+    <div class="settings-panel active" id="sp-0">
+      <div class="section">
+        <div class="section-title">로그인 방식</div>
+        <div class="section-desc">로그인 및 보안 관련 설정을 관리합니다.</div>
+        <div class="card">
+          <div class="field-row">
+            <div><div class="field-label">이메일 로그인</div><div class="field-hint">이메일과 비밀번호로 로그인</div></div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">Google 소셜 로그인</div><div class="field-hint">Google 계정으로 빠른 로그인</div></div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">자동 로그인 유지</div><div class="field-hint">브라우저를 닫아도 로그인 상태 유지</div></div>
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">보안</div>
+        <div class="card">
+          <div class="field-row">
+            <div><div class="field-label">2단계 인증</div><div class="field-hint">로그인 시 추가 인증 요구</div></div>
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">마지막 로그인</div><div class="field-hint">2026.03.26 14:22 · 192.168.1.1</div></div>
+            <span class="field-value"></span>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-secondary" onclick="showToast('비밀번호가 변경되었습니다')">비밀번호 변경</button>
+    </div>
+
+    <!-- 계정 설정 -->
+    <div class="settings-panel" id="sp-1">
+      <div class="section">
+        <div class="section-title">기본 정보</div>
+        <div class="section-desc">계정 프로필 정보를 수정합니다.</div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">이름</label>
+            <input class="input" value="이호민">
+          </div>
+          <div class="form-group">
+            <label class="form-label">이메일</label>
+            <input class="input" value="homin@test.com" disabled style="background:var(--gray-50);color:var(--gray-500)">
+            <div style="font-size:11px;color:var(--gray-400);margin-top:3px">이메일은 변경할 수 없습니다.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">소속</label>
+            <input class="input" placeholder="소속 (선택)">
+          </div>
+        </div>
+        <button class="btn btn-primary mt-3" onclick="showToast('프로필이 저장되었습니다')">저장</button>
+      </div>
+      <div class="danger-zone">
+        <div class="section-title">계정 삭제</div>
+        <div style="font-size:12px;color:var(--gray-600);margin:6px 0 12px">계정을 삭제하면 모든 프로젝트와 분석 결과가 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</div>
+        <button class="btn btn-danger btn-sm">계정 영구 삭제</button>
+      </div>
+    </div>
+
+    <!-- 서비스 설정 -->
+    <div class="settings-panel" id="sp-2">
+      <div class="section">
+        <div class="section-title">지도 설정</div>
+        <div class="section-desc">3D 뷰포트 기본 동작을 설정합니다.</div>
+        <div class="card">
+          <div class="field-row">
+            <div><div class="field-label">기본 뷰 모드</div><div class="field-hint">에디터 진입 시 기본 카메라 모드</div></div>
+            <select class="input input-sm" style="width:100px"><option>3D</option><option>2D</option></select>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">위성 이미지</div><div class="field-hint">뷰포트에 위성 배경 표시</div></div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">지형 데이터</div><div class="field-hint">Cesium World Terrain 활성화</div></div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">주변 건물 자동 로드</div><div class="field-hint">OSM Buildings 기본 표시</div></div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">알림 설정</div>
+        <div class="card">
+          <div class="field-row">
+            <div><div class="field-label">규정 검토 완료 알림</div><div class="field-hint">검토 결과를 이메일로 발송</div></div>
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="field-row">
+            <div><div class="field-label">자동 저장 간격</div><div class="field-hint">프로젝트 자동 저장 주기</div></div>
+            <select class="input input-sm" style="width:100px"><option>5분</option><option>10분</option><option>30분</option><option>사용 안 함</option></select>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="showToast('설정이 저장되었습니다')">설정 저장</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script>
+    function switchSettings(idx){
+      document.querySelectorAll('.settings-nav .tab').forEach((t,i)=>{t.classList.toggle('active',i===idx)});
+      document.querySelectorAll('.settings-panel').forEach((p,i)=>{p.classList.toggle('active',i===idx)});
+    }
+    function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
+    document.addEventListener('click',e=>{if(!e.target.closest('.avatar-menu'))document.querySelectorAll('.avatar-dropdown').forEach(d=>d.classList.remove('show'))})
+  </script>
+</body>
+</html>
