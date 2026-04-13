@@ -15,6 +15,18 @@ interface Project {
   status?: string
 }
 
+// 세션에서 현재 로그인된 사용자 정보 가져오기
+function getCurrentUser(): { user_id?: string; name?: string; email?: string } | null {
+  if (typeof window === 'undefined') return null
+  const stored = sessionStorage.getItem('geonchi_user')
+  if (!stored) return null
+  try {
+    return JSON.parse(stored)
+  } catch {
+    return null
+  }
+}
+
 export default function ProjectsPage() {
   const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
@@ -29,7 +41,8 @@ export default function ProjectsPage() {
     setLoading(true)
     setError(null)
     try {
-      const result = await listProjects(0, 100)
+      const user = getCurrentUser()
+      const result = await listProjects(0, 100, user?.user_id)
       setProjects(result?.projects || result || [])
     } catch (err: any) {
       setError(err?.message || '프로젝트를 불러올 수 없습니다.')
@@ -47,7 +60,8 @@ export default function ProjectsPage() {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const proj = await createProject(newName, newAddress || undefined)
+      const user = getCurrentUser()
+      const proj = await createProject(newName, newAddress || undefined, user?.user_id)
       setShowCreate(false)
       setNewName('')
       setNewAddress('')

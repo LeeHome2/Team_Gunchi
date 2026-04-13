@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AuthShell from '@/components/AuthShell'
+import { signup } from '@/lib/api'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -40,17 +41,22 @@ export default function SignupPage() {
 
     setLoading(true)
     try {
-      // TODO: call real /api/auth/signup once backend supports it
-      await new Promise((r) => setTimeout(r, 500))
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem(
-          'geonchi_user',
-          JSON.stringify({ email: form.email, name: form.name })
-        )
+      const result = await signup(form.name, form.email, form.password)
+
+      if (result.success && result.user_id) {
+        sessionStorage.setItem('geonchi_user', JSON.stringify({
+          user_id: result.user_id,
+          email: result.email,
+          name: result.name,
+          role: 'user',
+        }))
+        router.push('/projects')
+        return
       }
-      router.push('/projects')
+
+      setError(result.message || '회원가입에 실패했습니다.')
     } catch (err: any) {
-      setError(err?.message || '회원가입에 실패했습니다.')
+      setError(err?.message || '서버에 연결할 수 없습니다.')
     } finally {
       setLoading(false)
     }

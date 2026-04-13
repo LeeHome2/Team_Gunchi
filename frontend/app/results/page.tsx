@@ -13,6 +13,18 @@ interface Project {
   status?: string
 }
 
+// 세션에서 현재 로그인된 사용자 정보 가져오기
+function getCurrentUser(): { user_id?: string } | null {
+  if (typeof window === 'undefined') return null
+  const stored = sessionStorage.getItem('geonchi_user')
+  if (!stored) return null
+  try {
+    return JSON.parse(stored)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Results index — list of recent projects with their compliance scores.
  * Clicking a project navigates to /results/[id].
@@ -25,7 +37,8 @@ export default function ResultsIndexPage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const result = await listProjects(0, 50)
+        const user = getCurrentUser()
+        const result = await listProjects(0, 50, user?.user_id)
         setProjects(result?.projects || result || [])
       } catch (err: any) {
         setError(err?.message || '프로젝트를 불러올 수 없습니다.')

@@ -49,6 +49,18 @@ export interface ModelResult {
 
 // ============= API Functions =============
 
+// 세션에서 현재 로그인된 사용자 정보 가져오기
+function getCurrentUser(): { user_id?: string } | null {
+  if (typeof window === 'undefined') return null
+  const stored = sessionStorage.getItem('geonchi_user')
+  if (!stored) return null
+  try {
+    return JSON.parse(stored)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Create a project in the backend DB
  * Returns the project ID for subsequent API calls
@@ -56,10 +68,11 @@ export interface ModelResult {
 export async function createProject(fileName: string): Promise<string | null> {
   try {
     const projectName = fileName.replace(/\.dxf$/i, '')
+    const user = getCurrentUser()
     const response = await fetch(`${API_URL}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: projectName }),
+      body: JSON.stringify({ name: projectName, user_id: user?.user_id }),
     })
 
     if (response.ok) {

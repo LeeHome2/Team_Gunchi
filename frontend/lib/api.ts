@@ -4,6 +4,58 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+/* ============================================================================
+ * Auth API
+ * ==========================================================================*/
+
+export interface AuthUser {
+  user_id: string
+  name: string
+  email: string
+}
+
+/**
+ * 회원가입
+ */
+export async function signup(name: string, email: string, password: string): Promise<{
+  success: boolean
+  user_id?: string
+  name?: string
+  email?: string
+  message?: string
+}> {
+  const response = await fetch(`${API_URL}/api/auth/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password }),
+  })
+
+  return response.json()
+}
+
+/**
+ * 로그인
+ */
+export async function login(email: string, password: string): Promise<{
+  success: boolean
+  user_id?: string
+  name?: string
+  email?: string
+  message?: string
+}> {
+  const response = await fetch(`${API_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+
+  return response.json()
+}
+
+/* ============================================================================
+ * DXF & Mass API
+ * ==========================================================================*/
+
 /**
  * DXF 파일 업로드
  */
@@ -80,11 +132,11 @@ export async function validatePlacement(params: {
  * 프로젝트 생성
  * DXF 업로드 전에 호출하여 project_id를 발급받습니다.
  */
-export async function createProject(name: string, address?: string) {
+export async function createProject(name: string, address?: string, user_id?: string) {
   const response = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, address }),
+    body: JSON.stringify({ name, address, user_id }),
   })
 
   if (!response.ok) {
@@ -98,8 +150,11 @@ export async function createProject(name: string, address?: string) {
 /**
  * 프로젝트 목록 조회
  */
-export async function listProjects(skip = 0, limit = 50) {
-  const response = await fetch(`${API_URL}/api/projects?skip=${skip}&limit=${limit}`)
+export async function listProjects(skip = 0, limit = 50, user_id?: string) {
+  const params = new URLSearchParams({ skip: String(skip), limit: String(limit) })
+  if (user_id) params.set('user_id', user_id)
+
+  const response = await fetch(`${API_URL}/api/projects?${params}`)
 
   if (!response.ok) {
     const error = await response.json()

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AuthShell from '@/components/AuthShell'
+import { login } from '@/lib/api'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -23,9 +24,10 @@ export default function LoginPage() {
 
     setLoading(true)
 
-    // 하드코딩 로그인: test / test
+    // 개발용 하드코딩 로그인: test / test
     if (email === 'test' && password === 'test') {
       sessionStorage.setItem('geonchi_user', JSON.stringify({
+        user_id: 'dev-test-user',
         email: 'test@geonchi.ai',
         name: '테스트 사용자',
         role: 'user',
@@ -34,19 +36,38 @@ export default function LoginPage() {
       return
     }
 
-    // 이메일 형식 로그인 (기존 호환)
-    if (email.includes('@')) {
-      sessionStorage.setItem('geonchi_user', JSON.stringify({
-        email,
-        name: email.split('@')[0],
-        role: 'user',
-      }))
-      window.location.href = '/projects'
-      return
+    // 백엔드 API 로그인 시도
+    try {
+      const result = await login(email, password)
+
+      if (result.success && result.user_id) {
+        sessionStorage.setItem('geonchi_user', JSON.stringify({
+          user_id: result.user_id,
+          email: result.email,
+          name: result.name,
+          role: 'user',
+        }))
+        window.location.href = '/projects'
+        return
+      }
+
+      setError(result.message || '아이디 또는 비밀번호가 올바르지 않습니다.')
+    } catch (err) {
+      // API 서버 연결 실패 시 이메일 형식이면 개발 모드로 허용
+      if (email.includes('@')) {
+        sessionStorage.setItem('geonchi_user', JSON.stringify({
+          user_id: `dev-${email}`,
+          email,
+          name: email.split('@')[0],
+          role: 'user',
+        }))
+        window.location.href = '/projects'
+        return
+      }
+      setError('서버에 연결할 수 없습니다.')
     }
 
     setLoading(false)
-    setError('아이디 또는 비밀번호가 올바르지 않습니다.')
   }
 
   return (
