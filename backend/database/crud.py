@@ -24,6 +24,7 @@ from .models import (
 def create_project(
     db: Session,
     name: str,
+    user_id: Optional[UUID] = None,
     address: Optional[str] = None,
     longitude: Optional[float] = None,
     latitude: Optional[float] = None,
@@ -32,6 +33,7 @@ def create_project(
     """Create a new project"""
     project = Project(
         name=name,
+        user_id=user_id,
         address=address,
         longitude=longitude,
         latitude=latitude,
@@ -40,6 +42,14 @@ def create_project(
     db.add(project)
     db.commit()
     db.refresh(project)
+
+    # Update user's project count
+    if user_id:
+        user = get_user(db, user_id)
+        if user:
+            user.project_count = db.query(Project).filter(Project.user_id == user_id).count()
+            db.commit()
+
     return project
 
 
@@ -48,9 +58,19 @@ def get_project(db: Session, project_id: UUID) -> Optional[Project]:
     return db.query(Project).filter(Project.id == project_id).first()
 
 
-def get_all_projects(db: Session, skip: int = 0, limit: int = 100) -> List[Project]:
-    """Get all projects with pagination"""
-    return db.query(Project).offset(skip).limit(limit).all()
+def get_all_projects(db: Session, skip: int = 0, limit: int = 100, user_id: Optional[UUID] = None) -> List[Project]:
+    """Get all projects with pagination, optionally filtered by user"""
+    query = db.query(Project)
+    if user_id:
+        query = query.filter(Project.user_id == user_id)
+    return query.order_by(desc(Project.created_at)).offset(skip).limit(limit).all()
+
+
+def get_projects_by_user(db: Session, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Project]:
+    """Get all projects for a specific user"""
+    return db.query(Project).filter(
+        Project.user_id == user_id
+    ).order_by(desc(Project.created_at)).offset(skip).limit(limit).all()
 
 
 def update_project(
@@ -529,10 +549,20 @@ def get_user(db: Session, user_id: UUID) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
 
 
+def get_user_by_email(db: Session, email: str) -> Optional[User]:
+    """Get user by email address"""
+    return db.query(User).filter(User.email == email).first()
+
+
 def create_user(
-    db: Session, name: str, email: str, status: str = "pending"
+    db: Session,
+    name: str,
+    email: str,
+    password_hash: Optional[str] = None,
+    status: str = "active"
 ) -> User:
-    user = User(name=name, email=email, status=status)
+    """Create a new user"""
+    user = User(name=name, email=email, password_hash=password_hash, status=status)
     db.add(user)
     db.commit()
     db.refresh(user)

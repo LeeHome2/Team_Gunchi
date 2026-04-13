@@ -33,7 +33,11 @@ from api.models import (
     ParkingRequirementResponse,
     ParkingLayoutRequest,
     ParkingLayoutResponse,
+    SignupRequest,
+    LoginRequest,
+    AuthResponse,
 )
+import hashlib
 from services.report_runner import (
     generate_report_docx,
     ReportGenerationError,
@@ -106,15 +110,23 @@ async def create_project_endpoint(
 
     DXF 업로드 전에 호출하여 project_id를 발급받습니다.
     이후 모든 API 호출에 이 project_id를 포함시킵니다.
+    user_id가 제공되면 해당 사용자의 프로젝트로 생성됩니다.
     """
     try:
+        import uuid as uuid_module
+        user_uuid = None
+        if request.user_id:
+            user_uuid = uuid_module.UUID(request.user_id)
+
         project = crud.create_project(
             db=db,
             name=request.name,
+            user_id=user_uuid,
             address=request.address,
         )
         return {
             "id": str(project.id),
+            "user_id": str(project.user_id) if project.user_id else None,
             "name": project.name,
             "address": project.address,
             "status": "created",
@@ -129,15 +141,26 @@ async def create_project_endpoint(
 async def list_projects_endpoint(
     skip: int = 0,
     limit: int = 50,
+    user_id: str = None,
     db: Session = Depends(get_db)
 ):
-    """프로젝트 목록 조회"""
+    """
+    프로젝트 목록 조회
+
+    user_id가 제공되면 해당 사용자의 프로젝트만 반환합니다.
+    """
     try:
-        projects = crud.get_all_projects(db, skip=skip, limit=limit)
+        import uuid as uuid_module
+        user_uuid = None
+        if user_id:
+            user_uuid = uuid_module.UUID(user_id)
+
+        projects = crud.get_all_projects(db, skip=skip, limit=limit, user_id=user_uuid)
         return {
             "projects": [
                 {
                     "id": str(p.id),
+                    "user_id": str(p.user_id) if p.user_id else None,
                     "name": p.name,
                     "address": p.address,
                     "zone_type": p.zone_type,
@@ -385,6 +408,131 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+
+# ============================================================================
+# AUTH ENDPOINTS
+# ============================================================================
+
+def hash_password(password: str) -> str:
+    """Simple password hashing (use bcrypt in production)"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+@app.post("/api/auth/signup", response_model=AuthResponse)
+async def signup(request: SignupRequest, db: Session = Depends(get_db)):
+    """
+    회원가입
+
+    새 사용자 계정을 생성합니다.
+    """
+    try:
+        # Check if email already exists
+        existing_user = crud.get_user_by_email(db, request.email)
+        if existing_user:
+            return AuthResponse(
+                success=False,
+                message="이미 등록된 이메일입니다"
+            )
+
+        # Create new user
+        password_hash = hash_password(request.password)
+        user = crud.create_user(
+            db=db,
+            name=request.name,
+            email=request.email,
+            password_hash=password_hash,
+            status="active"
+        )
+
+        logger.info(f"New user registered: {user.email}")
+        return AuthResponse(
+            success=True,
+            user_id=str(user.id),
+            name=user.name,
+            email=user.email,
+            message="회원가입이 완료되었습니다"
+        )
+    except Exception as e:
+        logger.error(f"Signup failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
+    """
+    로그인
+
+    이메일과 비밀번호로 로그인합니다.
+    """
+    try:
+        user = crud.get_user_by_email(db, request.email)
+
+        if not user:
+            return AuthResponse(
+                success=False,
+                message="등록되지 않은 이메일입니다"
+            )
+
+        # Check password
+        password_hash = hash_password(request.password)
+        if user.password_hash != password_hash:
+            return AuthResponse(
+                success=False,
+                message="비밀번호가 일치하지 않습니다"
+            )
+
+        # Check status
+        if user.status != "active":
+            return AuthResponse(
+                success=False,
+                message=f"계정이 {user.status} 상태입니다"
+            )
+
+        # Update last login
+        from datetime import datetime
+        user.last_login_at = datetime.utcnow()
+        db.commit()
+
+        logger.info(f"User logged in: {user.email}")
+        return AuthResponse(
+            success=True,
+            user_id=str(user.id),
+            name=user.name,
+            email=user.email,
+            message="로그인 성공"
+        )
+    except Exception as e:
+        logger.error(f"Login failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/auth/me")
+async def get_current_user(user_id: str, db: Session = Depends(get_db)):
+    """
+    현재 사용자 정보 조회
+    """
+    try:
+        import uuid as uuid_module
+        user_uuid = uuid_module.UUID(user_id)
+        user = crud.get_user(db, user_uuid)
+
+        if not user:
+            raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+        return {
+            "id": str(user.id),
+            "name": user.name,
+            "email": user.email,
+            "status": user.status,
+            "project_count": user.project_count,
+            "joined_at": user.joined_at.isoformat() if user.joined_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/upload-dxf")

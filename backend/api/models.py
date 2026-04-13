@@ -6,10 +6,35 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 
+# ─── 인증 (Auth) ───────────────────────────────────────────
+class SignupRequest(BaseModel):
+    """회원가입 요청"""
+    name: str = Field(..., description="사용자 이름")
+    email: str = Field(..., description="이메일")
+    password: str = Field(..., description="비밀번호", min_length=4)
+
+
+class LoginRequest(BaseModel):
+    """로그인 요청"""
+    email: str = Field(..., description="이메일")
+    password: str = Field(..., description="비밀번호")
+
+
+class AuthResponse(BaseModel):
+    """인증 응답"""
+    success: bool
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    message: Optional[str] = None
+
+
+# ─── 프로젝트 ───────────────────────────────────────────────
 class ProjectCreate(BaseModel):
     """프로젝트 생성 요청"""
     name: str = Field(..., description="프로젝트 이름")
     address: Optional[str] = Field(None, description="주소")
+    user_id: Optional[str] = Field(None, description="소유자 ID")
 
 
 class ProjectResponse(BaseModel):

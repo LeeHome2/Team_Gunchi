@@ -23,6 +23,12 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[Optional[UUID]] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )  # 프로젝트 소유자
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     address: Mapped[Optional[str]] = mapped_column(String(500))
     longitude: Mapped[Optional[float]] = mapped_column(Float)
@@ -38,6 +44,7 @@ class Project(Base):
     )
 
     # Relationships
+    user: Mapped[Optional["User"]] = relationship(back_populates="projects")
     dxf_files: Mapped[List["DxfFile"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     generated_models: Mapped[List["GeneratedModel"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     validation_results: Mapped[List["ValidationResult"]] = relationship(back_populates="project", cascade="all, delete-orphan")
@@ -47,6 +54,7 @@ class Project(Base):
     __table_args__ = (
         Index("idx_project_name", "name"),
         Index("idx_project_created", "created_at"),
+        Index("idx_project_user", "user_id"),
     )
 
 
@@ -269,11 +277,15 @@ class User(Base):
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255))  # 비밀번호 해시
     # "active" | "pending" | "suspended"
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     project_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Relationships
+    projects: Mapped[List["Project"]] = relationship(back_populates="user")
 
     __table_args__ = (
         Index("idx_users_status", "status"),
