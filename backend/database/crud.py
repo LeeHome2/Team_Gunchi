@@ -518,8 +518,10 @@ def list_users(
     if status:
         q = q.filter(User.status == status)
     if query:
-        like = f"%{query}%"
-        q = q.filter((User.name.ilike(like)) | (User.email.ilike(like)))
+        # LIKE 와일드카드 문자 이스케이프 (SQL Injection 방지)
+        escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped_query}%"
+        q = q.filter((User.name.ilike(like, escape="\\")) | (User.email.ilike(like, escape="\\")))
     return q.order_by(desc(User.joined_at)).limit(limit).all()
 
 
