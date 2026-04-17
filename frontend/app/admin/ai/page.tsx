@@ -73,8 +73,7 @@ export default function AdminAiPage() {
     setResult(null)
     appendLog(`POST ${aiUrl}/classify — 테스트 요청 전송`)
     try {
-      const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const res = await fetch(`${API}/api/classify`, {
+      const res = await fetch(`/api/classify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

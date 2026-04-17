@@ -7,7 +7,8 @@
 
 import type { SunlightAnalysisResult, SunlightPoint } from './sunlightAnalysis'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Next.js rewrites가 /api/* → FastAPI로 프록시하므로 상대경로 사용
+const API_URL = ''
 
 // ─── 타입 정의 ───
 

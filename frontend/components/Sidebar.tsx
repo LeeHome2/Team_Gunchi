@@ -268,8 +268,7 @@ export default function Sidebar() {
     }
 
     // 생성된 매스 모델을 목록에 추가
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-    const glbUrl = result.glbUrl ? `${API_URL}${result.glbUrl}` : ''
+    const glbUrl = result.glbUrl || ''
     const fileName = analysisFile?.name || 'unknown.dxf'
 
     useProjectStore.getState().addGeneratedMass({

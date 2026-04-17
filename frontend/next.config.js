@@ -70,6 +70,26 @@ const nextConfig = {
   env: {
     CESIUM_BASE_URL: '/cesium',
   },
+
+  // API 프록시: /api/* → FastAPI 백엔드 (같은 서버 localhost:8000)
+  // 이렇게 하면 프론트엔드에서 IP를 몰라도 됨
+  async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
+      },
+      {
+        source: '/health',
+        destination: `${backendUrl}/health`,
+      },
+      {
+        source: '/models/:path*',
+        destination: `${backendUrl}/models/:path*`,
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

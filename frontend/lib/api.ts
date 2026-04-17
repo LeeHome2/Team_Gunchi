@@ -2,7 +2,8 @@
  * Backend API 클라이언트
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Next.js rewrites가 /api/* → FastAPI로 프록시하므로 상대경로 사용
+const API_URL = ''
 
 /* ============================================================================
  * Auth API

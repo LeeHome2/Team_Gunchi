@@ -12,7 +12,7 @@ export default function SettingsPage() {
   const [apiUrl, setApiUrl] = useState('')
 
   useEffect(() => {
-    setApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+    setApiUrl(window.location.origin)
     ;(async () => {
       try {
         const res = await healthCheck()

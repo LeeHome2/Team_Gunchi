@@ -80,7 +80,6 @@ function EditorContent() {
     }
 
     if (needsLoad) {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       getProject(urlProjectId)
         .then((proj) => {
           if (proj?.name) {
@@ -96,7 +95,7 @@ function EditorContent() {
                   id: m.id,
                   fileName: m.file_path?.split('/').pop() || 'model.glb',
                   label: m.model_type || '저장된 모델',
-                  glbUrl: m.file_path ? `${API_URL}/models/${m.file_path.split('/').pop()}` : '',
+                  glbUrl: m.file_path ? `/models/${m.file_path.split('/').pop()}` : '',
                   footprint: [],
                   centroid: proj.longitude && proj.latitude ? [proj.longitude, proj.latitude] : [],
                   area: 0,
