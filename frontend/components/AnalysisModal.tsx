@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   createProject,
   uploadAndParseDxf,
@@ -91,11 +91,15 @@ export default function AnalysisModal({
   const [modelResult, setModelResult] = useState<ModelResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
+  const isRunningRef = useRef(false)
 
   // ============= Main Analysis Effect =============
 
   useEffect(() => {
     if (!isOpen || !file) return
+    // React Strict Mode에서 effect 중복 실행 방지
+    if (isRunningRef.current) return
+    isRunningRef.current = true
 
     const runAnalysis = async () => {
       try {
@@ -175,10 +179,17 @@ export default function AnalysisModal({
           err instanceof Error ? err.message : '분석 중 오류가 발생했습니다.'
         setError(errorMessage)
         console.error('Analysis error:', err)
+      } finally {
+        isRunningRef.current = false
       }
     }
 
     runAnalysis()
+
+    return () => {
+      // cleanup — 모달이 닫히거나 file이 바뀌면 다음 실행 허용
+      isRunningRef.current = false
+    }
   }, [isOpen, file])
 
   // ============= Handlers =============

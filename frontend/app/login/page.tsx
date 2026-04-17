@@ -24,19 +24,7 @@ export default function LoginPage() {
 
     setLoading(true)
 
-    // 개발용 하드코딩 로그인: test / test
-    if (email === 'test' && password === 'test') {
-      sessionStorage.setItem('geonchi_user', JSON.stringify({
-        user_id: 'dev-test-user',
-        email: 'test@geonchi.ai',
-        name: '테스트 사용자',
-        role: 'user',
-      }))
-      window.location.href = '/projects'
-      return
-    }
-
-    // 백엔드 API 로그인 시도
+    // 백엔드 API 로그인
     try {
       const result = await login(email, password)
 
@@ -53,18 +41,7 @@ export default function LoginPage() {
 
       setError(result.message || '아이디 또는 비밀번호가 올바르지 않습니다.')
     } catch (err) {
-      // API 서버 연결 실패 시 이메일 형식이면 개발 모드로 허용
-      if (email.includes('@')) {
-        sessionStorage.setItem('geonchi_user', JSON.stringify({
-          user_id: `dev-${email}`,
-          email,
-          name: email.split('@')[0],
-          role: 'user',
-        }))
-        window.location.href = '/projects'
-        return
-      }
-      setError('서버에 연결할 수 없습니다.')
+      setError('서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.')
     }
 
     setLoading(false)

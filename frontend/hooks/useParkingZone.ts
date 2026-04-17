@@ -2,33 +2,48 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useProjectStore } from '@/store/projectStore'
-import type { ParkingZoneData } from '@/store/projectStore'
+import type {
+  ParkingZoneData,
+  ParkingEntranceData,
+  ParkingPathData,
+} from '@/store/projectStore'
 
 /**
- * Cesium 뷰어 위에 주차구역(슬롯·차로·진입로·구역 경계)을
- * 2D 폴리곤 오버레이로 시각화하는 훅.
+ * Cesium 뷰어 위에 주차 오브젝트를 렌더링하는 훅.
  *
- * 좌표 변환:
- *   백엔드 배치 알고리즘은 로컬 미터(m) 좌표를 반환한다.
- *   이 훅에서 modelTransform.longitude/latitude 기준으로
- *   미터 → 경위도 변환 후 Cesium GroundPrimitive(PolygonGraphics)로 렌더링한다.
+ * 렌더링 대상:
+ *   1) 주차영역 (슬롯, 차로, 구역 경계, 라벨) — parkingTransform 적용
+ *   2) 입구 오브젝트 — entranceTransform 적용 (독립 이동/회전)
+ *   3) 경로 (입구→주차영역) — 두 변환 모두 반영
+ *
+ * 모든 좌표는 로컬 m 기준이며,
+ * modelTransform + 개별 transform으로 경위도 변환합니다.
  */
 export function useParkingZone() {
   const viewer = useProjectStore((s) => s.viewer)
   const parkingZone = useProjectStore((s) => s.parkingZone)
+  const parkingEntrance = useProjectStore((s) => s.parkingEntrance)
+  const parkingPath = useProjectStore((s) => s.parkingPath)
   const isParkingVisible = useProjectStore((s) => s.isParkingVisible)
   const modelTransform = useProjectStore((s) => s.modelTransform)
   const parkingTransform = useProjectStore((s) => s.parkingTransform)
+  const entranceTransform = useProjectStore((s) => s.entranceTransform)
 
-  // Cesium Entity ID 목록 (cleanup 용)
   const entityIdsRef = useRef<string[]>([])
 
-  // parkingTransform ref (드래그 중 실시간 접근용)
+  // 드래그 중 실시간 접근용 ref
   const parkingTransformRef = useRef(parkingTransform)
   parkingTransformRef.current = parkingTransform
+  const entranceTransformRef = useRef(entranceTransform)
+  entranceTransformRef.current = entranceTransform
 
-  // ── 좌표 변환: 로컬 m → 경위도 (parkingTransform offset 적용) ──
-  const toLatLon = useCallback(
+  // 주차영역 중심 (회전축으로 사용)
+  const zoneCenterRef = useRef<[number, number]>([0, 0])
+  // 입구 중심 (회전축으로 사용)
+  const entranceCenterRef = useRef<[number, number]>([0, 0])
+
+  // ── 좌표 변환 (주차영역용) — zoneCenter 기준 시계방향 회전 ──
+  const toLatLonParking = useCallback(
     (localX: number, localY: number): [number, number] => {
       const originLon = modelTransform.longitude
       const originLat = modelTransform.latitude
@@ -36,13 +51,17 @@ export function useParkingZone() {
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
 
-      // parkingTransform rotation 적용 (로컬 좌표 회전)
       const pt = parkingTransformRef.current
+      const [cx, cy] = zoneCenterRef.current
       const rotRad = (pt.rotation * Math.PI) / 180
       const cos = Math.cos(rotRad)
       const sin = Math.sin(rotRad)
-      const rx = localX * cos - localY * sin
-      const ry = localX * sin + localY * cos
+
+      // 중심 기준으로 상대 좌표 계산 → 시계방향 회전 → 복원
+      const dx = localX - cx
+      const dy = localY - cy
+      const rx = dx * cos + dy * sin + cx  // 시계방향: +sin
+      const ry = -dx * sin + dy * cos + cy // 시계방향: -sin
 
       const lon = originLon + rx / mPerDegLon + pt.longitude
       const lat = originLat + ry / mPerDegLat + pt.latitude
@@ -51,9 +70,37 @@ export function useParkingZone() {
     [modelTransform.longitude, modelTransform.latitude],
   )
 
-  // ── 폴리곤 좌표 배열 → Cesium Cartesian3 배열 ─────────
+  // ── 좌표 변환 (입구용) — entrance center 기준 시계방향 회전 ──
+  const toLatLonEntrance = useCallback(
+    (localX: number, localY: number): [number, number] => {
+      const originLon = modelTransform.longitude
+      const originLat = modelTransform.latitude
+      const latRad = (originLat * Math.PI) / 180
+      const mPerDegLat = 111_320
+      const mPerDegLon = 111_320 * Math.cos(latRad)
+
+      const et = entranceTransformRef.current
+      const [cx, cy] = entranceCenterRef.current
+      const rotRad = (et.rotation * Math.PI) / 180
+      const cos = Math.cos(rotRad)
+      const sin = Math.sin(rotRad)
+
+      // 중심 기준으로 상대 좌표 계산 → 시계방향 회전 → 복원
+      const dx = localX - cx
+      const dy = localY - cy
+      const rx = dx * cos + dy * sin + cx
+      const ry = -dx * sin + dy * cos + cy
+
+      const lon = originLon + rx / mPerDegLon + et.longitude
+      const lat = originLat + ry / mPerDegLat + et.latitude
+      return [lon, lat]
+    },
+    [modelTransform.longitude, modelTransform.latitude],
+  )
+
+  // 폴리곤 → Cesium Cartesian3
   const polygonToPositions = useCallback(
-    (polygon: number[][]) => {
+    (polygon: number[][], toLatLon: (x: number, y: number) => [number, number]) => {
       const Cesium = (window as any).Cesium
       if (!Cesium) return []
       return polygon.map(([x, y]) => {
@@ -61,10 +108,10 @@ export function useParkingZone() {
         return Cesium.Cartesian3.fromDegrees(lon, lat)
       })
     },
-    [toLatLon],
+    [],
   )
 
-  // ── 모든 주차 엔티티 제거 ──────────────────────────────
+  // ── 클리어 ──
   const clearEntities = useCallback(() => {
     if (!viewer) return
     for (const id of entityIdsRef.current) {
@@ -74,57 +121,65 @@ export function useParkingZone() {
     entityIdsRef.current = []
   }, [viewer])
 
-  // ── 주차구역 렌더링 ───────────────────────────────────
-  const render = useCallback(
-    (zone: ParkingZoneData) => {
+  // 높이 상수 (2D + 약간의 높이)
+  const ZONE_HEIGHT = 0.3
+  const ENTRANCE_HEIGHT = 0.5
+  const PATH_HEIGHT = 0.4
+
+  // ── 주차영역 렌더링 ──
+  const renderZone = useCallback(
+    (zone: ParkingZoneData, ids: string[]) => {
       if (!viewer) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
-      clearEntities()
-      const ids: string[] = []
+      // 회전 중심을 존 중심으로 설정
+      if (zone.zoneCenter.length === 2) {
+        zoneCenterRef.current = [zone.zoneCenter[0], zone.zoneCenter[1]]
+      }
 
-      // 1. 구역 경계 (반투명 네이비)
+      // 1. 구역 경계
       const zoneId = '_parking_zone_boundary'
       viewer.entities.add({
         id: zoneId,
         polygon: {
           hierarchy: new Cesium.PolygonHierarchy(
-            polygonToPositions(zone.zonePolygon),
+            polygonToPositions(zone.zonePolygon, toLatLonParking),
           ),
           material: Cesium.Color.fromCssColorString('#1e3a5f').withAlpha(0.15),
           outline: true,
           outlineColor: Cesium.Color.fromCssColorString('#3b82f6'),
           outlineWidth: 2,
-          classificationType: Cesium.ClassificationType.TERRAIN,
+          height: ZONE_HEIGHT,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
         },
       })
       ids.push(zoneId)
 
-      // 2. 차로 (반투명 그레이 폴리곤 + 중심 통행 라인)
+      // 2. 차로
       zone.aisles.forEach((aisle, i) => {
         const id = `_parking_aisle_${i}`
         viewer.entities.add({
           id,
           polygon: {
             hierarchy: new Cesium.PolygonHierarchy(
-              polygonToPositions(aisle.polygon),
+              polygonToPositions(aisle.polygon, toLatLonParking),
             ),
             material: Cesium.Color.fromCssColorString('#94a3b8').withAlpha(0.3),
-            classificationType: Cesium.ClassificationType.TERRAIN,
+            height: ZONE_HEIGHT,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
           },
         })
         ids.push(id)
 
-        // 차로 중심 통행 라인 (화살표 느낌의 대시 라인)
+        // 차로 중심선
         if (aisle.polygon.length >= 4) {
           const lineId = `_parking_aisle_line_${i}`
-          // 차로 폴리곤의 중심선 계산 (상하 or 좌우 중심)
           const p = aisle.polygon
           const midStart = [(p[0][0] + p[3][0]) / 2, (p[0][1] + p[3][1]) / 2]
           const midEnd = [(p[1][0] + p[2][0]) / 2, (p[1][1] + p[2][1]) / 2]
-          const [sLon, sLat] = toLatLon(midStart[0], midStart[1])
-          const [eLon, eLat] = toLatLon(midEnd[0], midEnd[1])
+          const [sLon, sLat] = toLatLonParking(midStart[0], midStart[1])
+          const [eLon, eLat] = toLatLonParking(midEnd[0], midEnd[1])
           viewer.entities.add({
             id: lineId,
             polyline: {
@@ -149,9 +204,8 @@ export function useParkingZone() {
         const id = `_parking_slot_${slot.id}`
         const color =
           slot.slot_type === 'disabled'
-            ? Cesium.Color.fromCssColorString('#facc15').withAlpha(0.55) // 장애인: 노랑
-            : Cesium.Color.fromCssColorString('#60a5fa').withAlpha(0.50) // 일반: 파랑
-
+            ? Cesium.Color.fromCssColorString('#facc15').withAlpha(0.55)
+            : Cesium.Color.fromCssColorString('#60a5fa').withAlpha(0.50)
         const outlineColor =
           slot.slot_type === 'disabled'
             ? Cesium.Color.fromCssColorString('#ca8a04')
@@ -161,76 +215,22 @@ export function useParkingZone() {
           id,
           polygon: {
             hierarchy: new Cesium.PolygonHierarchy(
-              polygonToPositions(slot.polygon),
+              polygonToPositions(slot.polygon, toLatLonParking),
             ),
             material: color,
             outline: true,
             outlineColor,
             outlineWidth: 1,
-            classificationType: Cesium.ClassificationType.TERRAIN,
+            height: ZONE_HEIGHT,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
           },
         })
         ids.push(id)
       })
 
-      // 4. 진입로 (빨간 점 + 라벨)
-      if (zone.accessPoint) {
-        const [lon, lat] = toLatLon(zone.accessPoint.x, zone.accessPoint.y)
-        const apId = '_parking_access_point'
-        viewer.entities.add({
-          id: apId,
-          position: Cesium.Cartesian3.fromDegrees(lon, lat, 1.0),
-          point: {
-            pixelSize: 12,
-            color: Cesium.Color.fromCssColorString('#ef4444'),
-            outlineColor: Cesium.Color.WHITE,
-            outlineWidth: 2,
-            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-          label: {
-            text: '진입로',
-            font: '12px sans-serif',
-            fillColor: Cesium.Color.WHITE,
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 2,
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            pixelOffset: new Cesium.Cartesian2(0, -20),
-            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        })
-        ids.push(apId)
-
-        // 진입로 → 도로 연결선
-        if (zone.accessPoint.road_x != null && zone.accessPoint.road_y != null) {
-          const [rLon, rLat] = toLatLon(
-            zone.accessPoint.road_x,
-            zone.accessPoint.road_y,
-          )
-          const lineId = '_parking_access_line'
-          viewer.entities.add({
-            id: lineId,
-            polyline: {
-              positions: [
-                Cesium.Cartesian3.fromDegrees(lon, lat),
-                Cesium.Cartesian3.fromDegrees(rLon, rLat),
-              ],
-              width: 4,
-              material: new Cesium.PolylineDashMaterialProperty({
-                color: Cesium.Color.fromCssColorString('#ef4444'),
-                dashLength: 12,
-              }),
-              clampToGround: true,
-            },
-          })
-          ids.push(lineId)
-        }
-      }
-
-      // 5. 구역 중심 라벨
+      // 4. 구역 라벨
       if (zone.zoneCenter.length === 2) {
-        const [cLon, cLat] = toLatLon(zone.zoneCenter[0], zone.zoneCenter[1])
+        const [cLon, cLat] = toLatLonParking(zone.zoneCenter[0], zone.zoneCenter[1])
         const labelId = '_parking_zone_label'
         viewer.entities.add({
           id: labelId,
@@ -248,30 +248,381 @@ export function useParkingZone() {
         })
         ids.push(labelId)
       }
+    },
+    [viewer, polygonToPositions, toLatLonParking],
+  )
+
+  // ── 입구 오브젝트 렌더링 ──
+  const renderEntrance = useCallback(
+    (entrance: ParkingEntranceData, ids: string[]) => {
+      if (!viewer) return
+      const Cesium = (window as any).Cesium
+      if (!Cesium) return
+
+      // 회전 중심을 입구 중심으로 설정
+      entranceCenterRef.current = [entrance.cx, entrance.cy]
+
+      // 입구 폴리곤 (주황/빨강 계열)
+      const entId = '_parking_entrance'
+      viewer.entities.add({
+        id: entId,
+        polygon: {
+          hierarchy: new Cesium.PolygonHierarchy(
+            polygonToPositions(entrance.polygon, toLatLonEntrance),
+          ),
+          material: Cesium.Color.fromCssColorString('#f97316').withAlpha(0.7),
+          outline: true,
+          outlineColor: Cesium.Color.fromCssColorString('#c2410c'),
+          outlineWidth: 2,
+          height: ENTRANCE_HEIGHT,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+        },
+      })
+      ids.push(entId)
+
+      // 입구 라벨
+      const [eLon, eLat] = toLatLonEntrance(entrance.cx, entrance.cy)
+      const entLabelId = '_parking_entrance_label'
+      viewer.entities.add({
+        id: entLabelId,
+        position: Cesium.Cartesian3.fromDegrees(eLon, eLat, 1.5),
+        label: {
+          text: '🅿 입구',
+          font: 'bold 13px sans-serif',
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.fromCssColorString('#c2410c'),
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      })
+      ids.push(entLabelId)
+
+      // 입구 방향 화살표 (입구 앞쪽 작은 삼각형)
+      const headRad = (entrance.heading * Math.PI) / 180
+      const arrowLen = entrance.depth * 0.8
+      const arrowTipX = entrance.cx + Math.sin(headRad) * arrowLen
+      const arrowTipY = entrance.cy + Math.cos(headRad) * arrowLen
+      const [tLon, tLat] = toLatLonEntrance(arrowTipX, arrowTipY)
+      const arrowId = '_parking_entrance_arrow'
+      viewer.entities.add({
+        id: arrowId,
+        polyline: {
+          positions: [
+            Cesium.Cartesian3.fromDegrees(eLon, eLat),
+            Cesium.Cartesian3.fromDegrees(tLon, tLat),
+          ],
+          width: 4,
+          material: new Cesium.PolylineArrowMaterialProperty(
+            Cesium.Color.fromCssColorString('#f97316'),
+          ),
+          clampToGround: true,
+        },
+      })
+      ids.push(arrowId)
+    },
+    [viewer, polygonToPositions, toLatLonEntrance],
+  )
+
+  // ── 경로 렌더링 ──
+  const renderPath = useCallback(
+    (path: ParkingPathData, ids: string[]) => {
+      if (!viewer || path.points.length < 2) return
+      const Cesium = (window as any).Cesium
+      if (!Cesium) return
+
+      // 경로는 모델 원점 기준 로컬 좌표 → 주차 변환 없이 직접 변환
+      // (경로는 이미 절대 로컬 좌표)
+      const originLon = modelTransform.longitude
+      const originLat = modelTransform.latitude
+      const latRad = (originLat * Math.PI) / 180
+      const mPerDegLat = 111_320
+      const mPerDegLon = 111_320 * Math.cos(latRad)
+
+      const positions = path.points.map(([x, y]) => {
+        const lon = originLon + x / mPerDegLon
+        const lat = originLat + y / mPerDegLat
+        return Cesium.Cartesian3.fromDegrees(lon, lat)
+      })
+
+      const pathColor = path.isValid
+        ? Cesium.Color.fromCssColorString('#10b981') // 초록 (유효)
+        : Cesium.Color.fromCssColorString('#ef4444') // 빨강 (무효)
+
+      // 경로 라인
+      const pathId = '_parking_path'
+      viewer.entities.add({
+        id: pathId,
+        polyline: {
+          positions,
+          width: 5,
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: pathColor.withAlpha(0.8),
+            dashLength: 12,
+          }),
+          clampToGround: true,
+        },
+      })
+      ids.push(pathId)
+
+      // 경로 길이 라벨 (중간 지점)
+      const midIdx = Math.floor(path.points.length / 2)
+      const [mx, my] = path.points[midIdx]
+      const mLon = originLon + mx / mPerDegLon
+      const mLat = originLat + my / mPerDegLat
+      const pathLabelId = '_parking_path_label'
+      viewer.entities.add({
+        id: pathLabelId,
+        position: Cesium.Cartesian3.fromDegrees(mLon, mLat, 2),
+        label: {
+          text: `${path.length.toFixed(1)}m`,
+          font: '12px sans-serif',
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: pathColor,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -12),
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      })
+      ids.push(pathLabelId)
+    },
+    [viewer, modelTransform.longitude, modelTransform.latitude],
+  )
+
+  // ── 전체 렌더 (외부 호출용 — 드래그 중 실시간) ──
+  const render = useCallback(
+    (zone: ParkingZoneData) => {
+      if (!viewer) return
+      clearEntities()
+      const ids: string[] = []
+      renderZone(zone, ids)
+
+      const entrance = useProjectStore.getState().parkingEntrance
+      if (entrance) renderEntrance(entrance, ids)
+
+      const path = useProjectStore.getState().parkingPath
+      if (path) renderPath(path, ids)
 
       entityIdsRef.current = ids
     },
-    [viewer, clearEntities, polygonToPositions, toLatLon],
+    [viewer, clearEntities, renderZone, renderEntrance, renderPath],
   )
 
-  // ── 상태 변화에 따른 렌더 / 클리어 ────────────────────
+  // ── 회전/이동 중 기존 엔티티 위치만 인플레이스 업데이트 (삭제/재생성 없이 빠른 업데이트) ──
+  const updatePositionsInPlace = useCallback(
+    (zone: ParkingZoneData) => {
+      if (!viewer) return
+      const Cesium = (window as any).Cesium
+      if (!Cesium) return
+
+      // 존 중심 갱신
+      if (zone.zoneCenter.length === 2) {
+        zoneCenterRef.current = [zone.zoneCenter[0], zone.zoneCenter[1]]
+      }
+
+      // 1. 구역 경계 업데이트
+      const boundaryEnt = viewer.entities.getById('_parking_zone_boundary')
+      if (boundaryEnt && boundaryEnt.polygon) {
+        boundaryEnt.polygon.hierarchy = new Cesium.PolygonHierarchy(
+          polygonToPositions(zone.zonePolygon, toLatLonParking),
+        )
+      }
+
+      // 2. 차로 업데이트
+      zone.aisles.forEach((aisle, i) => {
+        const aisleEnt = viewer.entities.getById(`_parking_aisle_${i}`)
+        if (aisleEnt && aisleEnt.polygon) {
+          aisleEnt.polygon.hierarchy = new Cesium.PolygonHierarchy(
+            polygonToPositions(aisle.polygon, toLatLonParking),
+          )
+        }
+        // 차로 중심선
+        if (aisle.polygon.length >= 4) {
+          const lineEnt = viewer.entities.getById(`_parking_aisle_line_${i}`)
+          if (lineEnt && lineEnt.polyline) {
+            const p = aisle.polygon
+            const midStart = [(p[0][0] + p[3][0]) / 2, (p[0][1] + p[3][1]) / 2]
+            const midEnd = [(p[1][0] + p[2][0]) / 2, (p[1][1] + p[2][1]) / 2]
+            const [sLon, sLat] = toLatLonParking(midStart[0], midStart[1])
+            const [eLon, eLat] = toLatLonParking(midEnd[0], midEnd[1])
+            lineEnt.polyline.positions = new Cesium.ConstantProperty([
+              Cesium.Cartesian3.fromDegrees(sLon, sLat),
+              Cesium.Cartesian3.fromDegrees(eLon, eLat),
+            ])
+          }
+        }
+      })
+
+      // 3. 슬롯 업데이트
+      zone.slots.forEach((slot) => {
+        const slotEnt = viewer.entities.getById(`_parking_slot_${slot.id}`)
+        if (slotEnt && slotEnt.polygon) {
+          slotEnt.polygon.hierarchy = new Cesium.PolygonHierarchy(
+            polygonToPositions(slot.polygon, toLatLonParking),
+          )
+        }
+      })
+
+      // 4. 구역 라벨 업데이트
+      if (zone.zoneCenter.length === 2) {
+        const labelEnt = viewer.entities.getById('_parking_zone_label')
+        if (labelEnt) {
+          const [cLon, cLat] = toLatLonParking(zone.zoneCenter[0], zone.zoneCenter[1])
+          labelEnt.position = new Cesium.ConstantPositionProperty(
+            Cesium.Cartesian3.fromDegrees(cLon, cLat, 1.0),
+          )
+        }
+      }
+
+      // 5. 입구 업데이트
+      const entrance = useProjectStore.getState().parkingEntrance
+      if (entrance) {
+        entranceCenterRef.current = [entrance.cx, entrance.cy]
+
+        const entEnt = viewer.entities.getById('_parking_entrance')
+        if (entEnt && entEnt.polygon) {
+          entEnt.polygon.hierarchy = new Cesium.PolygonHierarchy(
+            polygonToPositions(entrance.polygon, toLatLonEntrance),
+          )
+        }
+
+        const entLabelEnt = viewer.entities.getById('_parking_entrance_label')
+        if (entLabelEnt) {
+          const [eLon, eLat] = toLatLonEntrance(entrance.cx, entrance.cy)
+          entLabelEnt.position = new Cesium.ConstantPositionProperty(
+            Cesium.Cartesian3.fromDegrees(eLon, eLat, 1.5),
+          )
+        }
+
+        // 화살표
+        const arrowEnt = viewer.entities.getById('_parking_entrance_arrow')
+        if (arrowEnt && arrowEnt.polyline) {
+          const headRad = (entrance.heading * Math.PI) / 180
+          const arrowLen = entrance.depth * 0.8
+          const arrowTipX = entrance.cx + Math.sin(headRad) * arrowLen
+          const arrowTipY = entrance.cy + Math.cos(headRad) * arrowLen
+          const [eLon, eLat] = toLatLonEntrance(entrance.cx, entrance.cy)
+          const [tLon, tLat] = toLatLonEntrance(arrowTipX, arrowTipY)
+          arrowEnt.polyline.positions = new Cesium.ConstantProperty([
+            Cesium.Cartesian3.fromDegrees(eLon, eLat),
+            Cesium.Cartesian3.fromDegrees(tLon, tLat),
+          ])
+        }
+      }
+    },
+    [viewer, polygonToPositions, toLatLonParking, toLatLonEntrance],
+  )
+
+  // ── 입구만 인플레이스 업데이트 (회전/이동 중) ──
+  const updateEntranceInPlace = useCallback(
+    () => {
+      if (!viewer) return
+      const Cesium = (window as any).Cesium
+      if (!Cesium) return
+
+      const entrance = useProjectStore.getState().parkingEntrance
+      if (!entrance) return
+
+      entranceCenterRef.current = [entrance.cx, entrance.cy]
+
+      const entEnt = viewer.entities.getById('_parking_entrance')
+      if (entEnt && entEnt.polygon) {
+        entEnt.polygon.hierarchy = new Cesium.PolygonHierarchy(
+          polygonToPositions(entrance.polygon, toLatLonEntrance),
+        )
+      }
+
+      const entLabelEnt = viewer.entities.getById('_parking_entrance_label')
+      if (entLabelEnt) {
+        const [eLon, eLat] = toLatLonEntrance(entrance.cx, entrance.cy)
+        entLabelEnt.position = new Cesium.ConstantPositionProperty(
+          Cesium.Cartesian3.fromDegrees(eLon, eLat, 1.5),
+        )
+      }
+
+      const arrowEnt = viewer.entities.getById('_parking_entrance_arrow')
+      if (arrowEnt && arrowEnt.polyline) {
+        const headRad = (entrance.heading * Math.PI) / 180
+        const arrowLen = entrance.depth * 0.8
+        const arrowTipX = entrance.cx + Math.sin(headRad) * arrowLen
+        const arrowTipY = entrance.cy + Math.cos(headRad) * arrowLen
+        const [eLon, eLat] = toLatLonEntrance(entrance.cx, entrance.cy)
+        const [tLon, tLat] = toLatLonEntrance(arrowTipX, arrowTipY)
+        arrowEnt.polyline.positions = new Cesium.ConstantProperty([
+          Cesium.Cartesian3.fromDegrees(eLon, eLat),
+          Cesium.Cartesian3.fromDegrees(tLon, tLat),
+        ])
+      }
+    },
+    [viewer, polygonToPositions, toLatLonEntrance],
+  )
+
+  // 입구만 리렌더 (드래그 중 — 경로 포함 전체 재생성)
+  const renderEntranceOnly = useCallback(
+    () => {
+      if (!viewer) return
+      const Cesium = (window as any).Cesium
+      if (!Cesium) return
+
+      // 기존 입구 + 경로 엔티티만 제거
+      const entriesToRemove = entityIdsRef.current.filter(
+        (id) => id.startsWith('_parking_entrance') || id.startsWith('_parking_path'),
+      )
+      for (const id of entriesToRemove) {
+        const ent = viewer.entities.getById(id)
+        if (ent) viewer.entities.remove(ent)
+      }
+      entityIdsRef.current = entityIdsRef.current.filter(
+        (id) => !id.startsWith('_parking_entrance') && !id.startsWith('_parking_path'),
+      )
+
+      const ids: string[] = []
+      const entrance = useProjectStore.getState().parkingEntrance
+      if (entrance) renderEntrance(entrance, ids)
+
+      const path = useProjectStore.getState().parkingPath
+      if (path) renderPath(path, ids)
+
+      entityIdsRef.current = [...entityIdsRef.current, ...ids]
+    },
+    [viewer, renderEntrance, renderPath],
+  )
+
+  // ── 상태 변화에 따른 렌더 / 클리어 ──
   useEffect(() => {
     if (!viewer) return
     if (isParkingVisible && parkingZone) {
-      render(parkingZone)
+      clearEntities()
+      const ids: string[] = []
+      renderZone(parkingZone, ids)
+      if (parkingEntrance) renderEntrance(parkingEntrance, ids)
+      if (parkingPath) renderPath(parkingPath, ids)
+      entityIdsRef.current = ids
     } else {
       clearEntities()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewer, parkingZone, isParkingVisible, parkingTransform])
+  }, [viewer, parkingZone, parkingEntrance, parkingPath, isParkingVisible, parkingTransform, entranceTransform])
 
-  // 컴포넌트 언마운트 시 클리어
+  // 언마운트 시 클리어
   useEffect(() => {
-    return () => {
-      clearEntities()
-    }
+    return () => { clearEntities() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return { clearEntities, render }
+  return {
+    clearEntities,
+    render,
+    renderEntranceOnly,
+    /** 회전/이동 중 엔티티 삭제 없이 위치만 빠르게 업데이트 */
+    updatePositionsInPlace,
+    /** 입구만 인플레이스 업데이트 */
+    updateEntranceInPlace,
+    /** CesiumViewer에서 드래그/회전 중 직접 업데이트할 수 있는 ref */
+    parkingTransformRef,
+    entranceTransformRef,
+  }
 }

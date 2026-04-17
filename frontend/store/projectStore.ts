@@ -115,12 +115,40 @@ export interface ParkingZoneData {
   warnings: string[]
 }
 
+/** 주차 입구 오브젝트 (독립 이동/회전) */
+export interface ParkingEntranceData {
+  /** 로컬 좌표 중심 (m) */
+  cx: number
+  cy: number
+  /** 입구 너비 (m, 기본 6m) */
+  width: number
+  /** 입구 깊이 (m, 기본 3m) */
+  depth: number
+  /** 입구 방향 (도) */
+  heading: number
+  /** 입구 폴리곤 (로컬 m) */
+  polygon: number[][]
+}
+
+/** A* 경로 탐색 결과 */
+export interface ParkingPathData {
+  /** 경로 노드들 (로컬 m 좌표) */
+  points: number[][]
+  /** 경로 전체 길이 (m) */
+  length: number
+  /** 경로 유효 여부 (영역 내) */
+  isValid: boolean
+}
+
+export type ParkingLayoutPattern = 'perpendicular' | 'parallel'
+
 export interface ParkingConfig {
   buildingUse: string
   grossFloorArea: number
   ramp: boolean
   requiredTotal: number | null
   requiredDisabled: number | null
+  layoutPattern: ParkingLayoutPattern
 }
 
 // 샘플 모델 정보 (기존 - deprecated)
@@ -260,6 +288,11 @@ interface ProjectState {
   isParkingVisible: boolean
   isParkingEditing: boolean
   parkingTransform: { longitude: number; latitude: number; rotation: number }
+  // 주차 입구 (독립 오브젝트)
+  parkingEntrance: ParkingEntranceData | null
+  entranceTransform: { longitude: number; latitude: number; rotation: number }
+  // 경로 탐색 결과
+  parkingPath: ParkingPathData | null
 
   // 검토 탭 데이터 (CesiumViewer에서 계산)
   reviewData: {
@@ -321,6 +354,9 @@ interface ProjectState {
   setIsParkingVisible: (visible: boolean) => void
   setIsParkingEditing: (editing: boolean) => void
   setParkingTransform: (transform: Partial<{ longitude: number; latitude: number; rotation: number }>) => void
+  setParkingEntrance: (entrance: ParkingEntranceData | null) => void
+  setEntranceTransform: (transform: Partial<{ longitude: number; latitude: number; rotation: number }>) => void
+  setParkingPath: (path: ParkingPathData | null) => void
   clearParking: () => void
   setResultSnapshot: (snapshot: Partial<ResultSnapshot>) => void
   clearResultSnapshot: () => void
@@ -383,11 +419,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
     ramp: false,
     requiredTotal: null,
     requiredDisabled: null,
+    layoutPattern: 'perpendicular' as ParkingLayoutPattern,
   },
   parkingZone: null,
   isParkingVisible: false,
   isParkingEditing: false,
   parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+  parkingEntrance: null,
+  entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
+  parkingPath: null,
   reviewData: {
     buildingCoverage: null,
     setback: null,
@@ -473,18 +513,28 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((state) => ({
       parkingTransform: { ...state.parkingTransform, ...transform },
     })),
+  setParkingEntrance: (entrance) => set({ parkingEntrance: entrance }),
+  setEntranceTransform: (transform) =>
+    set((state) => ({
+      entranceTransform: { ...state.entranceTransform, ...transform },
+    })),
+  setParkingPath: (path) => set({ parkingPath: path }),
   clearParking: () =>
     set({
       parkingZone: null,
       isParkingVisible: false,
       isParkingEditing: false,
       parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingEntrance: null,
+      entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingPath: null,
       parkingConfig: {
         buildingUse: '근린생활시설',
         grossFloorArea: 0,
         ramp: false,
         requiredTotal: null,
         requiredDisabled: null,
+        layoutPattern: 'perpendicular' as ParkingLayoutPattern,
       },
     }),
 
@@ -552,11 +602,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
         ramp: false,
         requiredTotal: null,
         requiredDisabled: null,
+        layoutPattern: 'perpendicular' as ParkingLayoutPattern,
       },
       parkingZone: null,
       isParkingVisible: false,
       isParkingEditing: false,
       parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingEntrance: null,
+      entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingPath: null,
       reviewData: { buildingCoverage: null, setback: null, isModelInBounds: true },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
       resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },

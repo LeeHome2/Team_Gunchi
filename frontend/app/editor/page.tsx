@@ -64,8 +64,22 @@ function EditorContent() {
   // URL에서 projectId 읽어서 프로젝트 정보 로드
   useEffect(() => {
     const urlProjectId = searchParams.get('projectId')
-    if (urlProjectId && urlProjectId !== storeProjectId) {
+    const urlName = searchParams.get('name')
+    if (!urlProjectId) return
+
+    // projectId가 다르거나 projectName이 아직 없으면 로드
+    const needsLoad = urlProjectId !== storeProjectId || !storeProjectName
+
+    if (urlProjectId !== storeProjectId) {
       setProjectId(urlProjectId)
+    }
+
+    // URL에 name이 있으면 즉시 표시 (API 응답 전에도 프로젝트 이름 보이도록)
+    if (urlName && !storeProjectName) {
+      setStoreProjectName(urlName)
+    }
+
+    if (needsLoad) {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       getProject(urlProjectId)
         .then((proj) => {
@@ -109,6 +123,10 @@ function EditorContent() {
         })
         .catch((err) => {
           console.warn('프로젝트 정보 로드 실패:', err)
+          // API 실패 시 URL name을 fallback으로 사용
+          if (urlName && !useProjectStore.getState().projectName) {
+            setStoreProjectName(urlName)
+          }
         })
     }
   }, [searchParams])
@@ -388,10 +406,7 @@ function EditorContent() {
               </button>
               <span className="text-sm text-white/60">
                 {storeProjectName ? (
-                  <>
-                    <span className="text-white font-medium">{storeProjectName}</span>
-                    <span className="ml-2 text-white/40">— 3D 뷰포트</span>
-                  </>
+                  <span className="text-white font-medium">{storeProjectName}</span>
                 ) : (
                   '3D 뷰포트'
                 )}

@@ -59,7 +59,11 @@ const nextConfig = {
 
   // 이미지 도메인 허용
   images: {
-    domains: ['localhost'],
+    remotePatterns: [
+      { protocol: 'http', hostname: 'localhost' },
+      { protocol: 'http', hostname: '*.amazonaws.com' },
+      { protocol: 'http', hostname: '*.compute.amazonaws.com' },
+    ],
   },
 
   // 환경 변수

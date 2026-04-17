@@ -376,6 +376,18 @@ def get_latest_sunlight_analysis(db: Session, project_id: UUID) -> Optional[Sunl
     ).order_by(desc(SunlightAnalysis.created_at)).first()
 
 
+def delete_sunlight_analysis(db: Session, analysis_id: UUID) -> bool:
+    """Delete a sunlight analysis by ID. Returns True if deleted."""
+    analysis = db.query(SunlightAnalysis).filter(
+        SunlightAnalysis.id == analysis_id
+    ).first()
+    if not analysis:
+        return False
+    db.delete(analysis)
+    db.commit()
+    return True
+
+
 # ============================================================================
 # PLACEMENT OPTIMIZATION CRUD
 # ============================================================================

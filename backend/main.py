@@ -28,7 +28,6 @@ from api.models import (
     MassGenerateResponse,
     ValidationRequest,
     ValidationResponse,
-    ReportRequest,
     ParkingRequirementRequest,
     ParkingRequirementResponse,
     ParkingLayoutRequest,
@@ -38,10 +37,6 @@ from api.models import (
     AuthResponse,
 )
 import hashlib
-from services.report_runner import (
-    generate_report_docx,
-    ReportGenerationError,
-)
 from database.config import get_db, init_db
 from database import crud
 from services import log_buffer
@@ -84,12 +79,14 @@ logger.info(f"CORS allowed origins: {cors_origins}")
 # Admin routes (/api/admin/*)
 app.include_router(admin_router)
 
-# 디렉토리 생성 (main.py 기준 절대 경로로 설정하여 실행 위치에 무관하게 동작)
+# 디렉토리 생성 (환경변수 오버라이드 가능, 기본값은 main.py 기준 절대 경로)
 _BACKEND_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = _BACKEND_DIR / "uploads"
-MODELS_DIR = _BACKEND_DIR / "models"
-UPLOAD_DIR.mkdir(exist_ok=True)
-MODELS_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(_BACKEND_DIR / "uploads")))
+MODELS_DIR = Path(os.getenv("MODELS_DIR", str(_BACKEND_DIR / "models")))
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+logger.info(f"Upload dir: {UPLOAD_DIR}")
+logger.info(f"Models dir: {MODELS_DIR}")
 
 # Static files for generated models
 app.mount("/models", StaticFiles(directory=str(MODELS_DIR)), name="models")
@@ -222,6 +219,10 @@ async def get_project_endpoint(
             {
                 "id": str(v.id),
                 "is_valid": v.is_valid,
+                "building_coverage": v.building_coverage,
+                "setback": v.setback,
+                "height_check": v.height_check,
+                "violations": v.violations,
                 "zone_type": v.zone_type,
                 "created_at": v.created_at.isoformat() if v.created_at else None,
             }
@@ -363,17 +364,26 @@ async def startup_event():
         init_db()
         logger.info("Database initialized successfully")
 
-        # 간단 마이그레이션: state_data 컬럼이 없으면 추가 (SQLite)
+        # 간단 마이그레이션: state_data 컬럼이 없으면 추가 (SQLite + PostgreSQL 호환)
         try:
-            from database.config import engine
+            from database.config import engine, DATABASE_URL
+            import sqlalchemy
+            _is_sqlite = DATABASE_URL.startswith("sqlite")
             with engine.connect() as conn:
-                import sqlalchemy
-                result = conn.execute(sqlalchemy.text("PRAGMA table_info(projects)"))
-                columns = [row[1] for row in result.fetchall()]
-                if 'state_data' not in columns:
-                    conn.execute(sqlalchemy.text("ALTER TABLE projects ADD COLUMN state_data JSON"))
+                if _is_sqlite:
+                    result = conn.execute(sqlalchemy.text("PRAGMA table_info(projects)"))
+                    columns = [row[1] for row in result.fetchall()]
+                    if 'state_data' not in columns:
+                        conn.execute(sqlalchemy.text("ALTER TABLE projects ADD COLUMN state_data JSON"))
+                        conn.commit()
+                        logger.info("Added state_data column to projects table (SQLite)")
+                else:
+                    # PostgreSQL: ADD COLUMN IF NOT EXISTS
+                    conn.execute(sqlalchemy.text(
+                        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS state_data JSON"
+                    ))
                     conn.commit()
-                    logger.info("Added state_data column to projects table")
+                    logger.info("Ensured state_data column exists (PostgreSQL)")
         except Exception as mig_err:
             logger.warning(f"Migration check failed: {mig_err}")
 
@@ -671,8 +681,8 @@ async def generate_mass(
                 y = (lat - centroid[1]) * meters_per_deg_lat
                 footprint_meters.append([x, y])
 
-            print(f"Footprint converted: {request.footprint} -> {footprint_meters}")
-            print(f"Building size: {max(p[0] for p in footprint_meters) - min(p[0] for p in footprint_meters):.1f}m x {max(p[1] for p in footprint_meters) - min(p[1] for p in footprint_meters):.1f}m")
+            logger.debug(f"Footprint converted: {request.footprint} -> {footprint_meters}")
+            logger.debug(f"Building size: {max(p[0] for p in footprint_meters) - min(p[0] for p in footprint_meters):.1f}m x {max(p[1] for p in footprint_meters) - min(p[1] for p in footprint_meters):.1f}m")
 
             success = create_building_gltf(
                 footprint=footprint_meters,
@@ -948,35 +958,115 @@ async def classify_layers(
     return mock_result
 
 
-@app.post("/api/report")
-async def generate_report(request: ReportRequest):
-    """
-    결과 보고서 (.docx) 생성.
+# NOTE: /api/report (docx 보고서) 엔드포인트 삭제됨 — Node.js 의존성 제거
 
-    요청 본문 스키마: backend/services/REPORT_SCHEMA.md 참고.
-    응답: 생성된 docx 파일을 스트리밍으로 반환.
-    """
+
+# ============================================================================
+# SUNLIGHT ANALYSIS ENDPOINTS
+# ============================================================================
+
+
+@app.post("/api/projects/{project_id}/sunlight-analysis")
+async def save_sunlight_analysis_endpoint(
+    project_id: str,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    """일조 분석 결과 저장"""
     try:
-        payload = request.model_dump(exclude_none=False)
-        out_path = generate_report_docx(payload)
-    except ReportGenerationError as exc:
-        logger.exception("report generation failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        import uuid as uuid_module
+        from datetime import date as date_type
 
-    project_name = (request.project.name if request.project else None) or "report"
-    safe_name = "".join(
-        c if c.isalnum() or c in ("-", "_") else "_" for c in project_name
-    )
-    download_name = f"{safe_name}_report.docx"
+        project_uuid = uuid_module.UUID(project_id)
 
-    return FileResponse(
-        path=out_path,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "wordprocessingml.document"
-        ),
-        filename=download_name,
-    )
+        # 포인트 데이터에서 통계 계산
+        points = payload.get("points", [])
+        hours_list = [p.get("sunlightHours", 0) for p in points]
+
+        analysis = crud.save_sunlight_analysis(
+            db=db,
+            project_id=project_uuid,
+            analysis_date=date_type.fromisoformat(payload.get("analysisDate", date_type.today().isoformat())),
+            grid_spacing=payload.get("gridSpacing", 2.0),
+            total_points=len(points),
+            avg_sunlight_hours=sum(hours_list) / len(hours_list) if hours_list else 0,
+            min_sunlight_hours=min(hours_list) if hours_list else 0,
+            max_sunlight_hours=max(hours_list) if hours_list else 0,
+            points_data=points,
+        )
+
+        return {
+            "success": True,
+            "analysisId": str(analysis.id),
+            "message": "저장 완료",
+        }
+    except Exception as e:
+        logger.error(f"Failed to save sunlight analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/projects/{project_id}/sunlight-analysis")
+async def get_sunlight_analysis_endpoint(
+    project_id: str,
+    date: str = None,
+    db: Session = Depends(get_db)
+):
+    """일조 분석 결과 조회 (최신 또는 날짜 지정)"""
+    try:
+        import uuid as uuid_module
+        project_uuid = uuid_module.UUID(project_id)
+
+        if date:
+            # 특정 날짜 분석 조회
+            analyses = crud.get_sunlight_analyses_by_project(db, project_uuid)
+            analysis = next(
+                (a for a in analyses if a.analysis_date.isoformat() == date),
+                None
+            )
+        else:
+            analysis = crud.get_latest_sunlight_analysis(db, project_uuid)
+
+        if not analysis:
+            raise HTTPException(status_code=404, detail="일조 분석 결과가 없습니다")
+
+        return {
+            "analysisId": str(analysis.id),
+            "analysisDate": analysis.analysis_date.isoformat(),
+            "gridSpacing": analysis.grid_spacing,
+            "totalPoints": analysis.total_points,
+            "avgSunlightHours": analysis.avg_sunlight_hours,
+            "minSunlightHours": analysis.min_sunlight_hours,
+            "maxSunlightHours": analysis.max_sunlight_hours,
+            "points": analysis.points_data or [],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get sunlight analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/projects/{project_id}/sunlight-analysis/{analysis_id}")
+async def delete_sunlight_analysis_endpoint(
+    project_id: str,
+    analysis_id: str,
+    db: Session = Depends(get_db)
+):
+    """일조 분석 결과 삭제"""
+    try:
+        import uuid as uuid_module
+        analysis_uuid = uuid_module.UUID(analysis_id)
+
+        deleted = crud.delete_sunlight_analysis(db, analysis_uuid)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다")
+
+        return {"success": True, "message": "삭제 완료"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete sunlight analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================

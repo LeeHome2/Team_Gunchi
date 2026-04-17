@@ -7,6 +7,8 @@
 
 import type { SunlightAnalysisResult, SunlightPoint } from './sunlightAnalysis'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 // ─── 타입 정의 ───
 
 export interface SaveSunlightRequest {
@@ -59,7 +61,7 @@ export async function saveSunlightAnalysis(
       })),
     }
 
-    const response = await fetch(`/api/projects/${projectId}/sunlight-analysis`, {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/sunlight-analysis`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
@@ -107,7 +109,7 @@ export async function loadSunlightAnalysis(
   try {
     const url = date
       ? `/api/projects/${projectId}/sunlight-analysis?date=${date}`
-      : `/api/projects/${projectId}/sunlight-analysis`
+      : `${API_URL}/api/projects/${projectId}/sunlight-analysis`
 
     const response = await fetch(url)
 

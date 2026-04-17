@@ -46,12 +46,12 @@ export default function CesiumViewer() {
   const {
     site, building, workArea, modelUrl, projectName,
     loadedModelEntity, modelTransform, selectedModel,
-    parkingZone, isParkingVisible, parkingTransform,
+    parkingZone, isParkingVisible, parkingTransform, entranceTransform,
     setViewer, setModelTransform, setSelectedModel, setLoadedModelEntity,
     setWorkArea, setAvailableModels, setSelectedBlockCount, setSelectedBlockInfo,
     modelToLoad, setModelToLoad, massGlbToLoad, setMassGlbToLoad, isLoadingModel, setIsLoadingModel,
     humanScaleModelLoaded, setHumanScaleModelLoaded,
-    setParkingTransform,
+    setParkingTransform, setEntranceTransform,
     setReviewData, setSunlightAnalysisState,
     setRunReviewCheckFn, setStartSunlightFn, setToggleSunlightHeatmapFn, setClearSunlightFn, setSetSunlightHeatmapModeFn,
     setSaveProjectFn, setLoadProjectFn, setLoadFromDbFn, setIsSavingProject, setIsLoadingProject, setProjectError,
@@ -90,7 +90,12 @@ export default function CesiumViewer() {
   const isParkingDraggingRef = useRef(false)
   const isParkingRotatingRef = useRef(false)
   const parkingDragStartRef = useRef<{ offsetLon: number; offsetLat: number } | null>(null)
-  const parkingTransformRef = useRef(parkingTransform)
+  // NOTE: parkingTransformRef/entranceTransformRef는 useParkingZone hook에서 공유받아 사용
+  // (parkingHookTransformRef / entranceHookTransformRef)
+  // 입구 드래그/회전 Refs
+  const isEntranceDraggingRef = useRef(false)
+  const isEntranceRotatingRef = useRef(false)
+  const entranceDragStartRef = useRef<{ offsetLon: number; offsetLat: number } | null>(null)
 
   // === 뷰포트 상태 복원 함수 ===
   const restoreViewportState = useCallback((viewer: any) => {
@@ -223,7 +228,14 @@ export default function CesiumViewer() {
   const osmBuildings = useOsmBuildings(viewerRef, osmTilesetRef, isLoaded)
 
   // === 주차구역 (Hook) ===
-  const { render: renderParking } = useParkingZone()
+  const {
+    render: renderParking,
+    renderEntranceOnly,
+    updatePositionsInPlace: updateParkingInPlace,
+    updateEntranceInPlace,
+    parkingTransformRef: parkingHookTransformRef,
+    entranceTransformRef: entranceHookTransformRef,
+  } = useParkingZone()
 
   // === 샘플 모델 관련 ===
   const availableModels = useProjectStore((state) => state.availableModels)
@@ -262,10 +274,7 @@ export default function CesiumViewer() {
     modelTransformRef.current = modelTransform
   }, [modelTransform])
 
-  // parkingTransform 변경 시 ref 업데이트
-  useEffect(() => {
-    parkingTransformRef.current = parkingTransform
-  }, [parkingTransform])
+  // parkingTransformRef/entranceTransformRef는 useParkingZone hook에서 store와 자동 동기화됨
 
   // === 모델 위치/회전/스케일 업데이트 ===
   useEffect(() => {
@@ -1170,14 +1179,24 @@ export default function CesiumViewer() {
           offsetLat: humanModelTransformRef.current.latitude - clickLat,
         }
       }
+      // 입구 드래그 (entrance 엔티티 — parking보다 먼저 검사)
+      else if (entityId && typeof entityId === 'string' && entityId.startsWith('_parking_entrance')) {
+        isEntranceDraggingRef.current = true
+        viewer.scene.screenSpaceCameraController.enableRotate = false
+        viewer.scene.screenSpaceCameraController.enableTranslate = false
+        entranceDragStartRef.current = {
+          offsetLon: entranceHookTransformRef.current.longitude - clickLon,
+          offsetLat: entranceHookTransformRef.current.latitude - clickLat,
+        }
+      }
       // 주차구역 드래그
       else if (entityId && typeof entityId === 'string' && entityId.startsWith('_parking_')) {
         isParkingDraggingRef.current = true
         viewer.scene.screenSpaceCameraController.enableRotate = false
         viewer.scene.screenSpaceCameraController.enableTranslate = false
         parkingDragStartRef.current = {
-          offsetLon: parkingTransformRef.current.longitude - clickLon,
-          offsetLat: parkingTransformRef.current.latitude - clickLat,
+          offsetLon: parkingHookTransformRef.current.longitude - clickLon,
+          offsetLat: parkingHookTransformRef.current.latitude - clickLat,
         }
       }
     }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
@@ -1189,6 +1208,10 @@ export default function CesiumViewer() {
       const entityId = pickedObject.id?.id
       if (entityId === 'loaded-3d-model') {
         isModelRotatingRef.current = true
+        viewer.scene.screenSpaceCameraController.enableRotate = false
+        viewer.scene.screenSpaceCameraController.enableTilt = false
+      } else if (entityId && typeof entityId === 'string' && entityId.startsWith('_parking_entrance')) {
+        isEntranceRotatingRef.current = true
         viewer.scene.screenSpaceCameraController.enableRotate = false
         viewer.scene.screenSpaceCameraController.enableTilt = false
       } else if (entityId && typeof entityId === 'string' && entityId.startsWith('_parking_')) {
@@ -1283,6 +1306,56 @@ export default function CesiumViewer() {
         return
       }
 
+      // 입구 드래그 (이동) — entranceTransform 업데이트 후 re-render
+      if (isEntranceDraggingRef.current && entranceDragStartRef.current && cartesian) {
+        const currentPos = Cesium.Cartographic.fromCartesian(cartesian)
+        const mouseLon = Cesium.Math.toDegrees(currentPos.longitude)
+        const mouseLat = Cesium.Math.toDegrees(currentPos.latitude)
+
+        entranceHookTransformRef.current = {
+          ...entranceHookTransformRef.current,
+          longitude: mouseLon + entranceDragStartRef.current.offsetLon,
+          latitude: mouseLat + entranceDragStartRef.current.offsetLat,
+        }
+
+        updateEntranceInPlace()
+        viewer.scene.requestRender()
+        return
+      }
+
+      // 입구 회전 (entrance center 기준)
+      if (isEntranceRotatingRef.current && cartesian) {
+        const mousePos = Cesium.Cartographic.fromCartesian(cartesian)
+        const mouseLon = Cesium.Math.toDegrees(mousePos.longitude)
+        const mouseLat = Cesium.Math.toDegrees(mousePos.latitude)
+
+        // 입구 중심 = modelTransform 원점 + entranceCenter(m→deg) + entranceTransform offset
+        const mt = modelTransformRef.current
+        const et = entranceHookTransformRef.current
+        const latRad = (mt.latitude * Math.PI) / 180
+        const mPerDegLon = 111_320 * Math.cos(latRad)
+        const mPerDegLat = 111_320
+        const entrance = useProjectStore.getState().parkingEntrance
+        const ecx = entrance?.cx ?? 0
+        const ecy = entrance?.cy ?? 0
+        const originLon = mt.longitude + ecx / mPerDegLon + et.longitude
+        const originLat = mt.latitude + ecy / mPerDegLat + et.latitude
+
+        const deltaLon = mouseLon - originLon
+        const deltaLat = mouseLat - originLat
+        const angleRad = Math.atan2(deltaLon, deltaLat)
+        const angleDeg = Cesium.Math.toDegrees(angleRad)
+
+        entranceHookTransformRef.current = {
+          ...entranceHookTransformRef.current,
+          rotation: (-angleDeg + 360) % 360,
+        }
+
+        updateEntranceInPlace()
+        viewer.scene.requestRender()
+        return
+      }
+
       // 주차구역 드래그 (이동) — parkingTransform offset 업데이트 후 re-render
       if (isParkingDraggingRef.current && parkingDragStartRef.current && cartesian) {
         const currentPos = Cesium.Cartographic.fromCartesian(cartesian)
@@ -1293,47 +1366,55 @@ export default function CesiumViewer() {
         const newLat = mouseLat + parkingDragStartRef.current.offsetLat
 
         // ref 업데이트
-        parkingTransformRef.current = {
-          ...parkingTransformRef.current,
+        parkingHookTransformRef.current = {
+          ...parkingHookTransformRef.current,
           longitude: newLon,
           latitude: newLat,
         }
 
-        // 주차구역 전체 re-render (엔티티가 많으므로 직접 조작보다 re-render가 간단)
-        const currentParkingZone = useProjectStore.getState().parkingZone
-        if (currentParkingZone) {
-          renderParking(currentParkingZone)
+        // 주차구역 인플레이스 업데이트 (엔티티 삭제/재생성 없이 빠른 위치 업데이트)
+        const currentParkingZoneDrag = useProjectStore.getState().parkingZone
+        if (currentParkingZoneDrag) {
+          updateParkingInPlace(currentParkingZoneDrag)
         }
 
         viewer.scene.requestRender()
         return
       }
 
-      // 주차구역 회전 — parkingTransform rotation 업데이트
+      // 주차구역 회전 — parkingTransform rotation 업데이트 (zoneCenter 기준)
       if (isParkingRotatingRef.current && cartesian) {
         const mousePos = Cesium.Cartographic.fromCartesian(cartesian)
         const mouseLon = Cesium.Math.toDegrees(mousePos.longitude)
         const mouseLat = Cesium.Math.toDegrees(mousePos.latitude)
 
-        // 주차구역 중심 = modelTransform 원점 + parkingTransform offset
-        const originLon = modelTransformRef.current.longitude + parkingTransformRef.current.longitude
-        const originLat = modelTransformRef.current.latitude + parkingTransformRef.current.latitude
+        // 주차구역 중심 = modelTransform 원점 + zoneCenter(m→deg) + parkingTransform offset
+        const mt = modelTransformRef.current
+        const pt = parkingHookTransformRef.current
+        const latRad = (mt.latitude * Math.PI) / 180
+        const mPerDegLon = 111_320 * Math.cos(latRad)
+        const mPerDegLat = 111_320
+        const zone = useProjectStore.getState().parkingZone
+        const zcx = zone?.zoneCenter?.[0] ?? 0
+        const zcy = zone?.zoneCenter?.[1] ?? 0
+        const originLon = mt.longitude + zcx / mPerDegLon + pt.longitude
+        const originLat = mt.latitude + zcy / mPerDegLat + pt.latitude
 
         const deltaLon = mouseLon - originLon
         const deltaLat = mouseLat - originLat
 
         const angleRad = Math.atan2(deltaLon, deltaLat)
         const angleDeg = Cesium.Math.toDegrees(angleRad)
-        const newRotation = (angleDeg + 360) % 360
+        const newRotation = (-angleDeg + 360) % 360
 
-        parkingTransformRef.current = {
-          ...parkingTransformRef.current,
+        parkingHookTransformRef.current = {
+          ...parkingHookTransformRef.current,
           rotation: newRotation,
         }
 
-        const currentParkingZone = useProjectStore.getState().parkingZone
-        if (currentParkingZone) {
-          renderParking(currentParkingZone)
+        const currentParkingZoneRot = useProjectStore.getState().parkingZone
+        if (currentParkingZoneRot) {
+          updateParkingInPlace(currentParkingZoneRot)
         }
 
         viewer.scene.requestRender()
@@ -1420,13 +1501,20 @@ export default function CesiumViewer() {
         viewer.scene.screenSpaceCameraController.enableRotate = true
         viewer.scene.screenSpaceCameraController.enableTranslate = true
       }
+      if (isEntranceDraggingRef.current) {
+        isEntranceDraggingRef.current = false
+        entranceDragStartRef.current = null
+        viewer.scene.screenSpaceCameraController.enableRotate = true
+        viewer.scene.screenSpaceCameraController.enableTranslate = true
+        const et = entranceHookTransformRef.current
+        setEntranceTransform({ longitude: et.longitude, latitude: et.latitude })
+      }
       if (isParkingDraggingRef.current) {
         isParkingDraggingRef.current = false
         parkingDragStartRef.current = null
         viewer.scene.screenSpaceCameraController.enableRotate = true
         viewer.scene.screenSpaceCameraController.enableTranslate = true
-        // 드래그 종료 시 store 동기화
-        const pt = parkingTransformRef.current
+        const pt = parkingHookTransformRef.current
         setParkingTransform({ longitude: pt.longitude, latitude: pt.latitude })
       }
     }, Cesium.ScreenSpaceEventType.LEFT_UP)
@@ -1441,18 +1529,24 @@ export default function CesiumViewer() {
         const t = modelTransformRef.current
         setModelTransform({ rotation: t.rotation })
       }
+      if (isEntranceRotatingRef.current) {
+        isEntranceRotatingRef.current = false
+        viewer.scene.screenSpaceCameraController.enableRotate = true
+        viewer.scene.screenSpaceCameraController.enableTilt = true
+        const et = entranceHookTransformRef.current
+        setEntranceTransform({ rotation: et.rotation })
+      }
       if (isParkingRotatingRef.current) {
         isParkingRotatingRef.current = false
         viewer.scene.screenSpaceCameraController.enableRotate = true
         viewer.scene.screenSpaceCameraController.enableTilt = true
-        // 회전 종료 시 store 동기화
-        const pt = parkingTransformRef.current
+        const pt = parkingHookTransformRef.current
         setParkingTransform({ rotation: pt.rotation })
       }
     }, Cesium.ScreenSpaceEventType.MIDDLE_UP)
 
     return () => handler.destroy()
-  }, [isLoaded, setModelTransform, setParkingTransform, updateHumanModelPosition, renderParking])
+  }, [isLoaded, setModelTransform, setParkingTransform, setEntranceTransform, updateHumanModelPosition, renderParking, renderEntranceOnly, updateParkingInPlace, updateEntranceInPlace])
 
   // === 시간 변경 (일조 시뮬레이션) ===
   const handleTimeChange = useCallback((date: Date) => {

@@ -213,6 +213,8 @@ export default function Sidebar() {
       const url = new URL(window.location.href)
       if (!url.searchParams.get('projectId')) {
         url.searchParams.set('projectId', result.projectId)
+        const pName = useProjectStore.getState().projectName
+        if (pName) url.searchParams.set('name', pName)
         window.history.replaceState({}, '', url.toString())
       }
     }

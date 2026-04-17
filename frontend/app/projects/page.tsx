@@ -67,7 +67,7 @@ export default function ProjectsPage() {
       setNewAddress('')
       // Navigate into editor with the new project
       if (proj?.id) {
-        router.push(`/editor?projectId=${proj.id}`)
+        router.push(`/editor?projectId=${proj.id}&name=${encodeURIComponent(newName)}`)
       } else {
         fetchProjects()
       }
@@ -240,7 +240,7 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => 
         </button>
       </div>
 
-      <Link href={`/editor?projectId=${project.id}`} className="mt-4 block">
+      <Link href={`/editor?projectId=${project.id}&name=${encodeURIComponent(project.name)}`} className="mt-4 block">
         <h3 className="font-semibold text-white line-clamp-1">{project.name}</h3>
         <p className="mt-1 text-xs text-white/40 line-clamp-1">
           {project.address || '주소 미지정'}

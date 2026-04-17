@@ -2,16 +2,18 @@
 
 import { useState, useCallback } from 'react'
 import { useProjectStore } from '@/store/projectStore'
-import type { ParkingZoneData } from '@/store/projectStore'
-import { generateParkingLayout } from '@/lib/api'
+import type { ParkingZoneData, ParkingLayoutPattern } from '@/store/projectStore'
+import { generateParkingLayout } from '@/lib/parkingLayout'
+import { findParkingPath } from '@/lib/parkingPathfinder'
 
 /**
- * 주차구역 배치 패널 (재설계)
+ * 주차구역 배치 패널 (v2)
  *
- * - 선택 영역 면적 자동 표시
- * - 주차 대수 직접 입력
- * - 건물 겹침 회피 + 도로 동선 연결
- * - 생성 후 이동/회전 가능 (Cesium 드래그/휠)
+ * 주요 기능:
+ * - 주차 대수 입력 → 직각/평행 패턴으로 슬롯 자동 배치
+ * - 입구 오브젝트 독립 생성 (별도 이동/회전 가능)
+ * - A* 자동 경로 탐색 (입구→주차영역)
+ * - 선택 블록 영역 내에서만 배치
  */
 export default function ParkingZonePanel() {
   const {
@@ -19,22 +21,33 @@ export default function ParkingZonePanel() {
     building,
     modelTransform,
     parkingZone,
+    parkingEntrance,
+    parkingPath,
     isParkingVisible,
     selectedBlockInfo,
     loadedModelEntity,
+    parkingConfig,
+    setParkingConfig,
     setParkingZone,
+    setParkingEntrance,
+    setParkingPath,
     setIsParkingVisible,
+    setParkingTransform,
+    setEntranceTransform,
+    clearParking,
     setError,
   } = useProjectStore()
 
   const [parkingCount, setParkingCount] = useState(10)
   const [disabledCount, setDisabledCount] = useState(1)
+  const [layoutPattern, setLayoutPattern] = useState<ParkingLayoutPattern>(
+    parkingConfig.layoutPattern || 'perpendicular',
+  )
   const [isGenerating, setIsGenerating] = useState(false)
 
-  // 선택 영역 면적 (이미 계산되어 있음)
   const areaM2 = selectedBlockInfo?.totalArea ?? site?.area ?? 0
 
-  // 좌표 변환: 경위도 → 로컬 미터
+  // 경위도 → 로컬 미터
   const toLocal = useCallback(
     (footprint: number[][]): number[][] => {
       const originLon = modelTransform.longitude
@@ -42,7 +55,6 @@ export default function ParkingZonePanel() {
       const latRad = (originLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
-
       return footprint.map(([lon, lat]) => [
         (lon - originLon) * mPerDegLon,
         (lat - originLat) * mPerDegLat,
@@ -51,79 +63,119 @@ export default function ParkingZonePanel() {
     [modelTransform.longitude, modelTransform.latitude],
   )
 
-  // 주차구역 생성
-  const handleGenerate = useCallback(async () => {
+  // 주차구역 + 입구 생성
+  const handleGenerate = useCallback(() => {
     if (parkingCount <= 0) {
       setError('주차 대수를 입력해주세요')
       return
     }
 
-    // 선택된 블록 좌표 또는 사이트 footprint 사용
     const siteFootprint = selectedBlockInfo?.coordinates?.[0] ?? site?.footprint
     if (!siteFootprint || siteFootprint.length < 3) {
       setError('영역을 먼저 선택해주세요')
       return
     }
 
-    // 건물 footprint — 로드된 모델의 바운더리를 사용하거나 building 정보 사용
-    const buildingFootprint = building?.footprint ?? siteFootprint
-
     setIsGenerating(true)
     try {
       const siteLocal = toLocal(siteFootprint)
-      const buildingLocal = loadedModelEntity
-        ? toLocal(buildingFootprint)
-        : [] // 건물 없으면 빈 배열
+      const buildingLocal = loadedModelEntity && building?.footprint
+        ? toLocal(building.footprint)
+        : []
 
-      const res = await generateParkingLayout({
-        site_footprint: siteLocal,
-        building_footprint: buildingLocal.length >= 3 ? buildingLocal : siteLocal,
-        required_total: parkingCount,
-        required_disabled: disabledCount,
-        preferred_heading: modelTransform.rotation,
+      const result = generateParkingLayout({
+        siteFootprint: siteLocal,
+        buildingFootprint: buildingLocal.length >= 3 ? buildingLocal : [],
+        requiredTotal: parkingCount,
+        requiredDisabled: disabledCount,
+        pattern: layoutPattern,
+        heading: 0,
       })
 
-      const zone: ParkingZoneData = {
-        slots: res.slots,
-        aisles: res.aisles,
-        accessPoint: res.access_point,
-        zonePolygon: res.zone_polygon,
-        zoneCenter: res.zone_center,
-        zoneRotation: res.zone_rotation,
-        zoneWidth: res.zone_width,
-        zoneDepth: res.zone_depth,
-        totalSlots: res.total_slots,
-        standardSlots: res.standard_slots,
-        disabledSlots: res.disabled_slots,
-        totalAreaM2: res.total_area_m2,
-        parkingAreaRatio: res.parking_area_ratio,
-        warnings: res.warnings,
-      }
-
-      setParkingZone(zone)
+      // Store 업데이트
+      setParkingZone(result.zone)
+      setParkingEntrance(result.entrance)
+      setParkingConfig({ layoutPattern })
       setIsParkingVisible(true)
+
+      // 변환 초기화
+      setParkingTransform({ longitude: 0, latitude: 0, rotation: 0 })
+      setEntranceTransform({ longitude: 0, latitude: 0, rotation: 0 })
+
+      // 경로 탐색 (소규모 주차(≤6대)에서는 경로 불필요 — 주택 부지 내 단순 배치)
+      if (result.zone.slots.length > 0 && parkingCount > 6) {
+        const obstacles = buildingLocal.length >= 3
+          ? [{
+              minX: Math.min(...buildingLocal.map(p => p[0])) - 1,
+              minY: Math.min(...buildingLocal.map(p => p[1])) - 1,
+              maxX: Math.max(...buildingLocal.map(p => p[0])) + 1,
+              maxY: Math.max(...buildingLocal.map(p => p[1])) + 1,
+            }]
+          : []
+
+        const path = findParkingPath({
+          start: [result.entrance.cx, result.entrance.cy],
+          goal: result.zone.zoneCenter as [number, number],
+          siteFootprint: siteLocal,
+          obstacles,
+          gridSize: 2,
+        })
+        setParkingPath(path)
+      } else {
+        setParkingPath(null)
+      }
     } catch (err: any) {
       setError(err.message || '주차구역 배치 실패')
     } finally {
       setIsGenerating(false)
     }
   }, [
-    parkingCount, disabledCount, site, building, selectedBlockInfo,
+    parkingCount, disabledCount, layoutPattern, site, building, selectedBlockInfo,
     loadedModelEntity, modelTransform, toLocal,
-    setParkingZone, setIsParkingVisible, setError,
+    setParkingZone, setParkingEntrance, setParkingPath, setParkingConfig,
+    setIsParkingVisible, setParkingTransform, setEntranceTransform, setError,
   ])
 
-  // 주차구역 제거
+  // 경로 재탐색 (입구/주차영역 이동 후)
+  const handleRecalcPath = useCallback(() => {
+    if (!parkingZone || !parkingEntrance) return
+    const siteFootprint = selectedBlockInfo?.coordinates?.[0] ?? site?.footprint
+    if (!siteFootprint || siteFootprint.length < 3) return
+
+    const siteLocal = toLocal(siteFootprint)
+    const buildingLocal = loadedModelEntity && building?.footprint
+      ? toLocal(building.footprint)
+      : []
+
+    const obstacles = buildingLocal.length >= 3
+      ? [{
+          minX: Math.min(...buildingLocal.map(p => p[0])) - 1,
+          minY: Math.min(...buildingLocal.map(p => p[1])) - 1,
+          maxX: Math.max(...buildingLocal.map(p => p[0])) + 1,
+          maxY: Math.max(...buildingLocal.map(p => p[1])) + 1,
+        }]
+      : []
+
+    const path = findParkingPath({
+      start: [parkingEntrance.cx, parkingEntrance.cy],
+      goal: parkingZone.zoneCenter as [number, number],
+      siteFootprint: siteLocal,
+      obstacles,
+      gridSize: 2,
+    })
+    setParkingPath(path)
+  }, [parkingZone, parkingEntrance, selectedBlockInfo, site, building, loadedModelEntity, toLocal, setParkingPath])
+
+  // 제거
   const handleClear = () => {
-    setParkingZone(null as any)
-    setIsParkingVisible(false)
+    clearParking()
   }
 
   return (
     <div className="space-y-4">
       <h3 className="font-semibold text-lg">주차구역 배치</h3>
 
-      {/* 영역 면적 표시 */}
+      {/* 영역 면적 */}
       <div className="bg-gray-50 rounded-lg p-3">
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">선택 영역 면적</span>
@@ -134,64 +186,99 @@ export default function ParkingZonePanel() {
         {loadedModelEntity && (
           <div className="flex justify-between text-sm mt-1">
             <span className="text-gray-600">건물 배치됨</span>
-            <span className="text-green-600 font-medium">O</span>
+            <span className="text-green-600 font-medium">✓</span>
           </div>
         )}
       </div>
 
-      {/* 주차 대수 입력 */}
+      {/* 배치 패턴 선택 */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          주차 대수
-        </label>
-        <input
-          type="number"
-          min={1}
-          max={200}
-          value={parkingCount}
-          onChange={(e) => setParkingCount(Math.max(1, Number(e.target.value)))}
-          className="input-field"
-          placeholder="필요 주차 대수"
-        />
+        <label className="block text-sm font-medium text-gray-700 mb-2">배치 패턴</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setLayoutPattern('perpendicular')}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-2.5 text-xs transition-colors ${
+              layoutPattern === 'perpendicular'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <svg className="w-8 h-8" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="4" y="4" width="6" height="10" rx="0.5" />
+              <rect x="12" y="4" width="6" height="10" rx="0.5" />
+              <rect x="20" y="4" width="6" height="10" rx="0.5" />
+              <line x1="2" y1="16" x2="30" y2="16" strokeDasharray="2 2" />
+            </svg>
+            <span className="font-medium">직각 (90°)</span>
+          </button>
+          <button
+            onClick={() => setLayoutPattern('parallel')}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-2.5 text-xs transition-colors ${
+              layoutPattern === 'parallel'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <svg className="w-8 h-8" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="4" y="6" width="10" height="4" rx="0.5" />
+              <rect x="4" y="12" width="10" height="4" rx="0.5" />
+              <rect x="4" y="18" width="10" height="4" rx="0.5" />
+              <line x1="16" y1="2" x2="16" y2="30" strokeDasharray="2 2" />
+            </svg>
+            <span className="font-medium">평행 (0°)</span>
+          </button>
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          장애인 전용 대수
-        </label>
-        <input
-          type="number"
-          min={0}
-          max={parkingCount}
-          value={disabledCount}
-          onChange={(e) => setDisabledCount(Math.max(0, Number(e.target.value)))}
-          className="input-field"
-          placeholder="장애인 전용"
-        />
+      {/* 주차 대수 입력 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">주차 대수</label>
+          <input
+            type="number"
+            min={1}
+            max={200}
+            value={parkingCount}
+            onChange={(e) => setParkingCount(Math.max(1, Number(e.target.value)))}
+            className="input-field text-center"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">장애인 전용</label>
+          <input
+            type="number"
+            min={0}
+            max={parkingCount}
+            value={disabledCount}
+            onChange={(e) => setDisabledCount(Math.max(0, Number(e.target.value)))}
+            className="input-field text-center"
+          />
+        </div>
       </div>
 
       {/* 생성 버튼 */}
       <button
         onClick={handleGenerate}
-        disabled={isGenerating || parkingCount <= 0}
+        disabled={isGenerating || parkingCount <= 0 || areaM2 === 0}
         className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         {isGenerating && (
           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
         )}
-        주차구역 생성
+        {parkingZone ? '재배치' : '주차구역 생성'}
       </button>
 
-      {/* 조작 안내 */}
+      {/* ─── 결과 표시 ─── */}
       {parkingZone && (
         <>
-          <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700">
-            <p className="font-medium mb-1">주차구역 조작</p>
-            <p>- 좌클릭 드래그: 이동</p>
-            <p>- 휠클릭 드래그: 회전</p>
+          {/* 조작 안내 */}
+          <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+            <p className="font-medium">오브젝트 조작</p>
+            <p>• <span className="font-semibold text-blue-800">주차영역</span> — 좌클릭 드래그: 이동, 휠클릭: 회전</p>
+            <p>• <span className="font-semibold text-orange-600">입구</span> — 좌클릭 드래그: 이동, 휠클릭: 회전</p>
           </div>
 
-          {/* 표시/숨기기 토글 */}
+          {/* 표시/숨기기 */}
           <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
             <input
               type="checkbox"
@@ -203,16 +290,14 @@ export default function ParkingZonePanel() {
           </label>
 
           {/* 결과 요약 */}
-          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+          <div className="bg-gray-50 rounded-lg p-3 space-y-3">
             <h4 className="font-medium text-sm border-b pb-2">배치 결과</h4>
-            <div className="grid grid-cols-2 gap-2 text-xs">
+
+            {/* 대수 */}
+            <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="bg-white rounded p-2 text-center">
                 <div className="font-bold text-lg text-gray-800">{parkingZone.totalSlots}</div>
                 <div className="text-gray-500">배치 대수</div>
-              </div>
-              <div className="bg-white rounded p-2 text-center">
-                <div className="font-bold text-lg text-gray-800">{parkingZone.totalAreaM2.toFixed(0)}</div>
-                <div className="text-gray-500">면적 (m²)</div>
               </div>
               <div className="bg-white rounded p-2 text-center">
                 <div className="font-bold text-lg text-blue-600">{parkingZone.standardSlots}</div>
@@ -224,25 +309,49 @@ export default function ParkingZonePanel() {
               </div>
             </div>
 
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>구역 크기</span>
-              <span className="text-gray-700">
-                {parkingZone.zoneWidth.toFixed(1)} x {parkingZone.zoneDepth.toFixed(1)}m
-              </span>
+            {/* 면적/크기 */}
+            <div className="space-y-1 text-xs text-gray-600">
+              <div className="flex justify-between">
+                <span>주차 면적</span>
+                <span className="text-gray-800 font-medium">{parkingZone.totalAreaM2.toFixed(0)} m²</span>
+              </div>
+              <div className="flex justify-between">
+                <span>구역 크기</span>
+                <span className="text-gray-800">{parkingZone.zoneWidth.toFixed(1)} × {parkingZone.zoneDepth.toFixed(1)}m</span>
+              </div>
             </div>
 
-            {/* 동선 연결 정보 */}
-            {parkingZone.accessPoint && (
-              <div className="flex items-start gap-1.5 text-xs text-green-700 bg-green-50 rounded p-2">
-                <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            {/* 입구 정보 */}
+            {parkingEntrance && (
+              <div className="flex items-center gap-2 text-xs bg-orange-50 rounded p-2 text-orange-700">
+                <span className="text-base">🅿</span>
+                <span>입구 배치됨 ({parkingEntrance.width}m × {parkingEntrance.depth}m)</span>
+              </div>
+            )}
+
+            {/* 경로 정보 */}
+            {parkingPath && (
+              <div className={`flex items-center gap-2 text-xs rounded p-2 ${
+                parkingPath.isValid ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}>
+                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
                 <span>
-                  {parkingZone.accessPoint.road_x != null
-                    ? '도로 연결 동선이 표시되었습니다'
-                    : '진입로가 설정되었습니다'}
+                  경로 {parkingPath.length.toFixed(1)}m
+                  {parkingPath.isValid ? ' (유효)' : ' (영역 초과 — 위치 조정 필요)'}
                 </span>
               </div>
+            )}
+
+            {/* 경로 재탐색 버튼 */}
+            {parkingEntrance && parkingZone && (
+              <button
+                onClick={handleRecalcPath}
+                className="w-full text-xs py-1.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors text-gray-600"
+              >
+                경로 재탐색
+              </button>
             )}
 
             {/* 경고 */}
@@ -250,7 +359,7 @@ export default function ParkingZonePanel() {
               <div className="space-y-1">
                 {parkingZone.warnings.map((w: string, i: number) => (
                   <div key={i} className="flex items-start gap-1.5 text-xs text-amber-600">
-                    <span className="flex-shrink-0">!</span>
+                    <span className="flex-shrink-0">⚠</span>
                     <span>{w}</span>
                   </div>
                 ))}
@@ -269,17 +378,16 @@ export default function ParkingZonePanel() {
             </div>
           </div>
 
-          {/* 제거 버튼 */}
+          {/* 제거 */}
           <button
             onClick={handleClear}
-            className="w-full text-red-600 text-sm hover:text-red-700"
+            className="w-full text-red-600 text-sm hover:text-red-700 py-1"
           >
-            주차구역 제거
+            전체 제거
           </button>
         </>
       )}
 
-      {/* 안내 */}
       {!selectedBlockInfo && !site && (
         <p className="text-sm text-gray-400 text-center py-2">
           먼저 영역을 선택해주세요
