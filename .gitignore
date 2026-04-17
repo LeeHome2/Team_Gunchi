@@ -45,3 +45,4 @@ models/
 *.db
 *.sqlite
 nul
+frontend/public/cesium/

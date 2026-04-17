@@ -17,6 +17,7 @@ const nextConfig = {
                 'node_modules/cesium/Build/Cesium/Workers'
               ),
               to: '../public/cesium/Workers',
+              info: { minimized: true },
             },
             {
               from: path.join(
@@ -24,6 +25,7 @@ const nextConfig = {
                 'node_modules/cesium/Build/Cesium/ThirdParty'
               ),
               to: '../public/cesium/ThirdParty',
+              info: { minimized: true },
             },
             {
               from: path.join(
@@ -31,6 +33,7 @@ const nextConfig = {
                 'node_modules/cesium/Build/Cesium/Assets'
               ),
               to: '../public/cesium/Assets',
+              info: { minimized: true },
             },
             {
               from: path.join(
@@ -38,6 +41,7 @@ const nextConfig = {
                 'node_modules/cesium/Build/Cesium/Widgets'
               ),
               to: '../public/cesium/Widgets',
+              info: { minimized: true },
             },
           ],
         })
