@@ -325,6 +325,69 @@ export function useParkingZone() {
     [viewer, polygonToPositions, toLatLonEntrance],
   )
 
+  // ── 그리드 시각화 렌더링 ──
+  const renderGrid = useCallback(
+    (path: ParkingPathData, ids: string[]) => {
+      if (!viewer || !path.grid) return
+      const Cesium = (window as any).Cesium
+      if (!Cesium) return
+
+      const { cells, gridSize } = path.grid
+      const originLon = modelTransform.longitude
+      const originLat = modelTransform.latitude
+      const latRad = (originLat * Math.PI) / 180
+      const mPerDegLat = 111_320
+      const mPerDegLon = 111_320 * Math.cos(latRad)
+
+      const halfGrid = gridSize / 2
+
+      // 셀 수가 많으면 성능을 위해 건물(blocked) 셀만 렌더
+      const maxCells = 2000
+      const renderAll = cells.length <= maxCells
+
+      cells.forEach((cell, i) => {
+        // 통과 가능 셀은 연하게, 건물 셀은 빨간색으로
+        if (!renderAll && !cell.blocked) return
+
+        const id = `_parking_grid_${i}`
+        const lon = originLon + cell.x / mPerDegLon
+        const lat = originLat + cell.y / mPerDegLat
+
+        // 셀 네 꼭짓점
+        const dLon = halfGrid / mPerDegLon
+        const dLat = halfGrid / mPerDegLat
+        const positions = Cesium.Cartesian3.fromDegreesArray([
+          lon - dLon, lat - dLat,
+          lon + dLon, lat - dLat,
+          lon + dLon, lat + dLat,
+          lon - dLon, lat + dLat,
+        ])
+
+        const color = cell.blocked
+          ? Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.25) // 장애물: 연한 빨강
+          : Cesium.Color.fromCssColorString('#6b7280').withAlpha(0.08) // 통과 가능: 아주 연한 회색
+        const outlineColor = cell.blocked
+          ? Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.4)
+          : Cesium.Color.fromCssColorString('#9ca3af').withAlpha(0.15)
+
+        viewer.entities.add({
+          id,
+          polygon: {
+            hierarchy: new Cesium.PolygonHierarchy(positions),
+            material: color,
+            outline: true,
+            outlineColor,
+            outlineWidth: 1,
+            height: 0.1,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          },
+        })
+        ids.push(id)
+      })
+    },
+    [viewer, modelTransform.longitude, modelTransform.latitude],
+  )
+
   // ── 경로 렌더링 ──
   const renderPath = useCallback(
     (path: ParkingPathData, ids: string[]) => {
@@ -398,17 +461,21 @@ export function useParkingZone() {
       if (!viewer) return
       clearEntities()
       const ids: string[] = []
+
+      const path = useProjectStore.getState().parkingPath
+      // 그리드를 먼저 그려서 다른 요소 아래에 깔리게
+      if (path?.grid) renderGrid(path, ids)
+
       renderZone(zone, ids)
 
       const entrance = useProjectStore.getState().parkingEntrance
       if (entrance) renderEntrance(entrance, ids)
 
-      const path = useProjectStore.getState().parkingPath
       if (path) renderPath(path, ids)
 
       entityIdsRef.current = ids
     },
-    [viewer, clearEntities, renderZone, renderEntrance, renderPath],
+    [viewer, clearEntities, renderZone, renderEntrance, renderPath, renderGrid],
   )
 
   // ── 회전/이동 중 기존 엔티티 위치만 인플레이스 업데이트 (삭제/재생성 없이 빠른 업데이트) ──
@@ -567,28 +634,31 @@ export function useParkingZone() {
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
-      // 기존 입구 + 경로 엔티티만 제거
+      // 기존 입구 + 경로 + 그리드 엔티티 제거
       const entriesToRemove = entityIdsRef.current.filter(
-        (id) => id.startsWith('_parking_entrance') || id.startsWith('_parking_path'),
+        (id) => id.startsWith('_parking_entrance') || id.startsWith('_parking_path') || id.startsWith('_parking_grid'),
       )
       for (const id of entriesToRemove) {
         const ent = viewer.entities.getById(id)
         if (ent) viewer.entities.remove(ent)
       }
       entityIdsRef.current = entityIdsRef.current.filter(
-        (id) => !id.startsWith('_parking_entrance') && !id.startsWith('_parking_path'),
+        (id) => !id.startsWith('_parking_entrance') && !id.startsWith('_parking_path') && !id.startsWith('_parking_grid'),
       )
 
       const ids: string[] = []
+
+      const path = useProjectStore.getState().parkingPath
+      if (path?.grid) renderGrid(path, ids)
+
       const entrance = useProjectStore.getState().parkingEntrance
       if (entrance) renderEntrance(entrance, ids)
 
-      const path = useProjectStore.getState().parkingPath
       if (path) renderPath(path, ids)
 
       entityIdsRef.current = [...entityIdsRef.current, ...ids]
     },
-    [viewer, renderEntrance, renderPath],
+    [viewer, renderEntrance, renderPath, renderGrid],
   )
 
   // ── 상태 변화에 따른 렌더 / 클리어 ──
@@ -597,6 +667,8 @@ export function useParkingZone() {
     if (isParkingVisible && parkingZone) {
       clearEntities()
       const ids: string[] = []
+      // 그리드를 먼저 그려서 다른 요소 아래에 깔리게
+      if (parkingPath?.grid) renderGrid(parkingPath, ids)
       renderZone(parkingZone, ids)
       if (parkingEntrance) renderEntrance(parkingEntrance, ids)
       if (parkingPath) renderPath(parkingPath, ids)

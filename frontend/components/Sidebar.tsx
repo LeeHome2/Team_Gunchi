@@ -35,6 +35,8 @@ export default function Sidebar() {
     toggleSunlightHeatmapFn,
     clearSunlightFn,
     setSunlightHeatmapModeFn,
+    sunlightDate,
+    setSunlightDate,
     setSite,
     setBuilding,
     setValidation,
@@ -48,9 +50,7 @@ export default function Sidebar() {
   } = useProjectStore()
 
   const [activeTab, setActiveTab] = useState<'upload' | 'mass' | 'validate' | 'parking'>('upload')
-  const [sunlightDate, setSunlightDate] = useState(() => {
-    const d = new Date(); d.setHours(12, 0, 0, 0); return d
-  })
+  // sunlightDate는 store에서 가져옴 (CesiumViewer와 공유)
 
   // Analysis modal state
   const [analysisFile, setAnalysisFile] = useState<File | null>(null)

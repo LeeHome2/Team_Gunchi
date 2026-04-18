@@ -131,6 +131,20 @@ export interface ParkingEntranceData {
 }
 
 /** A* 경로 탐색 결과 */
+export interface ParkingGridCell {
+  x: number // 로컬 m
+  y: number // 로컬 m
+  blocked: boolean // true=장애물(건물)
+}
+
+export interface ParkingGridData {
+  cells: ParkingGridCell[]
+  gridSize: number
+  cols: number
+  rows: number
+  bounds: { minX: number; minY: number; maxX: number; maxY: number }
+}
+
 export interface ParkingPathData {
   /** 경로 노드들 (로컬 m 좌표) */
   points: number[][]
@@ -138,6 +152,8 @@ export interface ParkingPathData {
   length: number
   /** 경로 유효 여부 (영역 내) */
   isValid: boolean
+  /** 그리드 시각화 데이터 */
+  grid?: ParkingGridData
 }
 
 export type ParkingLayoutPattern = 'perpendicular' | 'parallel'
@@ -313,6 +329,9 @@ interface ProjectState {
     showHeatmap: boolean
     heatmapMode: 'point' | 'cell'
   }
+  // 일조 분석 날짜/시간 (Sidebar ↔ CesiumViewer 공유)
+  sunlightDate: Date
+  setSunlightDate: (date: Date) => void
 
   // 결과 확인 페이지용 스냅샷
   resultSnapshot: ResultSnapshot
@@ -440,6 +459,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
     showHeatmap: false,
     heatmapMode: 'point' as const,
   },
+  sunlightDate: (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d })(),
+  setSunlightDate: (date: Date) => set({ sunlightDate: date }),
   resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
   runReviewCheckFn: null,
   startSunlightFn: null,

@@ -1559,6 +1559,18 @@ export default function CesiumViewer() {
     viewerRef.current.scene.requestRender()
   }, [])
 
+  // === 일조 시간 슬라이더 동기화 ===
+  const sunlightDate = useProjectStore((state) => state.sunlightDate)
+  useEffect(() => {
+    if (!viewerRef.current) return
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+    viewerRef.current.clock.currentTime = Cesium.JulianDate.fromDate(sunlightDate)
+    viewerRef.current.scene.globe.enableLighting = true
+    viewerRef.current.scene.requestRender()
+    setCurrentTime(sunlightDate)
+  }, [sunlightDate])
+
   // === 프로젝트 저장/불러오기 (Hook) ===
   const projectPersistence = useProjectPersistence({
     viewerRef,

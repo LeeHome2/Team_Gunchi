@@ -182,6 +182,9 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
       viewer.shadowMap.maximumDistance = 1000.0
       viewer.shadowMap.softShadows = true
 
+      // 태양 조명 활성화 (시간대별 그림자 표현에 필수)
+      viewer.scene.globe.enableLighting = true
+
       // 지형에 대한 깊이 테스트 활성화 (globe.pick 작동에 필요)
       viewer.scene.globe.depthTestAgainstTerrain = true
 

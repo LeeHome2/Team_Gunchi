@@ -82,6 +82,8 @@ function rectOverlapsExclusion(rect: number[][], exclusions: AABB[]): boolean {
 export interface ParkingLayoutInput {
   siteFootprint: number[][]
   buildingFootprint: number[][]
+  /** 다중 건물 footprint (각각 로컬 m 좌표 폴리곤) */
+  additionalFootprints?: number[][][]
   requiredTotal: number
   requiredDisabled: number
   pattern: ParkingLayoutPattern
@@ -121,6 +123,7 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
   const {
     siteFootprint,
     buildingFootprint,
+    additionalFootprints = [],
     requiredTotal,
     requiredDisabled,
     pattern,
@@ -132,10 +135,15 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
   const siteCx = (siteAABB.minX + siteAABB.maxX) / 2
   const siteCy = (siteAABB.minY + siteAABB.maxY) / 2
 
-  // 건물 배제 영역
+  // 건물 배제 영역 (다중 건물 지원)
   const exclusions: AABB[] = []
-  if (buildingFootprint.length >= 3) {
-    const bAABB = polygonAABB(buildingFootprint)
+  const allFootprints = [
+    buildingFootprint,
+    ...additionalFootprints,
+  ].filter((fp) => fp.length >= 3)
+
+  for (const fp of allFootprints) {
+    const bAABB = polygonAABB(fp)
     exclusions.push({
       minX: bAABB.minX - 1.5, minY: bAABB.minY - 1.5,
       maxX: bAABB.maxX + 1.5, maxY: bAABB.maxY + 1.5,

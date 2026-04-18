@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { useProjectStore } from '@/store/projectStore'
 import type { ParkingZoneData, ParkingLayoutPattern } from '@/store/projectStore'
 import { generateParkingLayout } from '@/lib/parkingLayout'
-import { findParkingPath } from '@/lib/parkingPathfinder'
+import { findParkingPath, findBoundaryPoint } from '@/lib/parkingPathfinder'
 
 /**
  * 주차구역 배치 패널 (v2)
@@ -26,6 +26,7 @@ export default function ParkingZonePanel() {
     isParkingVisible,
     selectedBlockInfo,
     loadedModelEntity,
+    generatedMasses,
     parkingConfig,
     setParkingConfig,
     setParkingZone,
@@ -44,6 +45,7 @@ export default function ParkingZonePanel() {
     parkingConfig.layoutPattern || 'perpendicular',
   )
   const [isGenerating, setIsGenerating] = useState(false)
+  const [showGrid, setShowGrid] = useState(true)
 
   const areaM2 = selectedBlockInfo?.totalArea ?? site?.area ?? 0
 
@@ -63,6 +65,40 @@ export default function ParkingZonePanel() {
     [modelTransform.longitude, modelTransform.latitude],
   )
 
+  // 모든 건물 footprint를 로컬 좌표 AABB 장애물로 변환
+  const collectObstacles = useCallback(() => {
+    const obstacles: { minX: number; minY: number; maxX: number; maxY: number }[] = []
+    const additionalFootprintsLocal: number[][][] = []
+
+    // 1. 메인 건물
+    if (loadedModelEntity && building?.footprint && building.footprint.length >= 3) {
+      const local = toLocal(building.footprint)
+      obstacles.push({
+        minX: Math.min(...local.map(p => p[0])) - 1,
+        minY: Math.min(...local.map(p => p[1])) - 1,
+        maxX: Math.max(...local.map(p => p[0])) + 1,
+        maxY: Math.max(...local.map(p => p[1])) + 1,
+      })
+      additionalFootprintsLocal.push(local)
+    }
+
+    // 2. 생성된 매스 모델들 (다중 건물)
+    for (const mass of generatedMasses) {
+      if (mass.footprint && mass.footprint.length >= 3) {
+        const local = toLocal(mass.footprint)
+        obstacles.push({
+          minX: Math.min(...local.map(p => p[0])) - 1,
+          minY: Math.min(...local.map(p => p[1])) - 1,
+          maxX: Math.max(...local.map(p => p[0])) + 1,
+          maxY: Math.max(...local.map(p => p[1])) + 1,
+        })
+        additionalFootprintsLocal.push(local)
+      }
+    }
+
+    return { obstacles, additionalFootprintsLocal }
+  }, [building, loadedModelEntity, generatedMasses, toLocal])
+
   // 주차구역 + 입구 생성
   const handleGenerate = useCallback(() => {
     if (parkingCount <= 0) {
@@ -79,6 +115,9 @@ export default function ParkingZonePanel() {
     setIsGenerating(true)
     try {
       const siteLocal = toLocal(siteFootprint)
+      const { obstacles, additionalFootprintsLocal } = collectObstacles()
+
+      // 메인 건물 (레이아웃용)
       const buildingLocal = loadedModelEntity && building?.footprint
         ? toLocal(building.footprint)
         : []
@@ -86,15 +125,32 @@ export default function ParkingZonePanel() {
       const result = generateParkingLayout({
         siteFootprint: siteLocal,
         buildingFootprint: buildingLocal.length >= 3 ? buildingLocal : [],
+        additionalFootprints: additionalFootprintsLocal.length > 0
+          ? additionalFootprintsLocal
+          : undefined,
         requiredTotal: parkingCount,
         requiredDisabled: disabledCount,
         pattern: layoutPattern,
         heading: 0,
       })
 
+      // 입구를 필지 경계 위에 배치
+      const boundaryPt = findBoundaryPoint(siteLocal, 'top')
+      const entrance = {
+        ...result.entrance,
+        cx: boundaryPt[0],
+        cy: boundaryPt[1],
+        polygon: [
+          [boundaryPt[0] - result.entrance.width / 2, boundaryPt[1] - result.entrance.depth / 2],
+          [boundaryPt[0] + result.entrance.width / 2, boundaryPt[1] - result.entrance.depth / 2],
+          [boundaryPt[0] + result.entrance.width / 2, boundaryPt[1] + result.entrance.depth / 2],
+          [boundaryPt[0] - result.entrance.width / 2, boundaryPt[1] + result.entrance.depth / 2],
+        ],
+      }
+
       // Store 업데이트
       setParkingZone(result.zone)
-      setParkingEntrance(result.entrance)
+      setParkingEntrance(entrance)
       setParkingConfig({ layoutPattern })
       setIsParkingVisible(true)
 
@@ -102,23 +158,15 @@ export default function ParkingZonePanel() {
       setParkingTransform({ longitude: 0, latitude: 0, rotation: 0 })
       setEntranceTransform({ longitude: 0, latitude: 0, rotation: 0 })
 
-      // 경로 탐색 (소규모 주차(≤6대)에서는 경로 불필요 — 주택 부지 내 단순 배치)
-      if (result.zone.slots.length > 0 && parkingCount > 6) {
-        const obstacles = buildingLocal.length >= 3
-          ? [{
-              minX: Math.min(...buildingLocal.map(p => p[0])) - 1,
-              minY: Math.min(...buildingLocal.map(p => p[1])) - 1,
-              maxX: Math.max(...buildingLocal.map(p => p[0])) + 1,
-              maxY: Math.max(...buildingLocal.map(p => p[1])) + 1,
-            }]
-          : []
-
+      // 경로 탐색 (항상 수행 — 그리드 데이터도 함께 반환)
+      if (result.zone.slots.length > 0) {
         const path = findParkingPath({
-          start: [result.entrance.cx, result.entrance.cy],
+          start: [entrance.cx, entrance.cy],
           goal: result.zone.zoneCenter as [number, number],
           siteFootprint: siteLocal,
           obstacles,
           gridSize: 2,
+          returnGrid: showGrid,
         })
         setParkingPath(path)
       } else {
@@ -131,7 +179,8 @@ export default function ParkingZonePanel() {
     }
   }, [
     parkingCount, disabledCount, layoutPattern, site, building, selectedBlockInfo,
-    loadedModelEntity, modelTransform, toLocal,
+    loadedModelEntity, generatedMasses, modelTransform, toLocal, showGrid,
+    collectObstacles,
     setParkingZone, setParkingEntrance, setParkingPath, setParkingConfig,
     setIsParkingVisible, setParkingTransform, setEntranceTransform, setError,
   ])
@@ -143,18 +192,7 @@ export default function ParkingZonePanel() {
     if (!siteFootprint || siteFootprint.length < 3) return
 
     const siteLocal = toLocal(siteFootprint)
-    const buildingLocal = loadedModelEntity && building?.footprint
-      ? toLocal(building.footprint)
-      : []
-
-    const obstacles = buildingLocal.length >= 3
-      ? [{
-          minX: Math.min(...buildingLocal.map(p => p[0])) - 1,
-          minY: Math.min(...buildingLocal.map(p => p[1])) - 1,
-          maxX: Math.max(...buildingLocal.map(p => p[0])) + 1,
-          maxY: Math.max(...buildingLocal.map(p => p[1])) + 1,
-        }]
-      : []
+    const { obstacles } = collectObstacles()
 
     const path = findParkingPath({
       start: [parkingEntrance.cx, parkingEntrance.cy],
@@ -162,9 +200,10 @@ export default function ParkingZonePanel() {
       siteFootprint: siteLocal,
       obstacles,
       gridSize: 2,
+      returnGrid: showGrid,
     })
     setParkingPath(path)
-  }, [parkingZone, parkingEntrance, selectedBlockInfo, site, building, loadedModelEntity, toLocal, setParkingPath])
+  }, [parkingZone, parkingEntrance, selectedBlockInfo, site, showGrid, collectObstacles, toLocal, setParkingPath])
 
   // 제거
   const handleClear = () => {
@@ -183,10 +222,12 @@ export default function ParkingZonePanel() {
             {areaM2 > 0 ? `${areaM2.toFixed(1)} m²` : '영역 미선택'}
           </span>
         </div>
-        {loadedModelEntity && (
+        {(loadedModelEntity || generatedMasses.length > 0) && (
           <div className="flex justify-between text-sm mt-1">
-            <span className="text-gray-600">건물 배치됨</span>
-            <span className="text-green-600 font-medium">✓</span>
+            <span className="text-gray-600">건물 매스</span>
+            <span className="text-green-600 font-medium">
+              {(loadedModelEntity ? 1 : 0) + generatedMasses.length}개 인식
+            </span>
           </div>
         )}
       </div>
@@ -279,15 +320,26 @@ export default function ParkingZonePanel() {
           </div>
 
           {/* 표시/숨기기 */}
-          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isParkingVisible}
-              onChange={(e) => setIsParkingVisible(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            지도에 표시
-          </label>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isParkingVisible}
+                onChange={(e) => setIsParkingVisible(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              지도에 표시
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showGrid}
+                onChange={(e) => setShowGrid(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              그리드 표시 (건물/경로 시각화)
+            </label>
+          </div>
 
           {/* 결과 요약 */}
           <div className="bg-gray-50 rounded-lg p-3 space-y-3">

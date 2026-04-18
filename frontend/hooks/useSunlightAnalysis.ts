@@ -87,12 +87,14 @@ export function useSunlightAnalysis(
 
     // 건축선 결과에서 buildableArea 가져오기
     const buildingLineResult = getBuildingLineResult()
-    if (!buildingLineResult?.buildableArea?.geometry) {
+    // buildableArea 또는 buildingLine 중 하나라도 있으면 사용
+    const areaFeature = buildingLineResult?.buildableArea ?? buildingLineResult?.buildingLine
+    if (!areaFeature?.geometry) {
       alert('먼저 건축선을 계산해주세요. 건축선 버튼을 클릭하여 건축 가능 영역을 생성하세요.')
       return
     }
 
-    const buildableArea = buildingLineResult.buildableArea.geometry
+    const buildableArea = areaFeature.geometry
 
     // 기존 히트맵 제거
     clearHeatmapEntities()

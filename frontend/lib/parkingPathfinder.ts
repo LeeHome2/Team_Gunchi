@@ -3,9 +3,11 @@
  *
  * 블록(사이트) 내에서 건물 등 장애물을 회피하면서
  * 입구 중심 → 주차영역 중심으로 가는 경로를 찾습니다.
+ *
+ * v2: 다중 장애물 + 그리드 시각화 데이터 반환
  */
 
-import type { ParkingPathData } from '@/store/projectStore'
+import type { ParkingPathData, ParkingGridData, ParkingGridCell } from '@/store/projectStore'
 
 // ─── 유틸리티 ───
 
@@ -20,42 +22,6 @@ function isInsidePolygon(px: number, py: number, polygon: number[][]): boolean {
     if (intersect) inside = !inside
   }
   return inside
-}
-
-/** 선분-AABB 교차 검사 (간략) */
-function lineIntersectsAABB(
-  x1: number, y1: number, x2: number, y2: number,
-  minX: number, minY: number, maxX: number, maxY: number,
-): boolean {
-  // 선분의 AABB
-  const lMinX = Math.min(x1, x2)
-  const lMaxX = Math.max(x1, x2)
-  const lMinY = Math.min(y1, y2)
-  const lMaxY = Math.max(y1, y2)
-
-  // 겹침 확인
-  if (lMaxX < minX || lMinX > maxX || lMaxY < minY || lMinY > maxY) return false
-
-  // 선분 방향
-  const dx = x2 - x1, dy = y2 - y1
-
-  // SAT — 4개 변 검사
-  const corners = [
-    [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY],
-  ]
-  let allSameSide = true
-  let prevSide = 0
-  for (const [cx, cy] of corners) {
-    const cross = dx * (cy - y1) - dy * (cx - x1)
-    const side = cross > 0 ? 1 : cross < 0 ? -1 : 0
-    if (prevSide !== 0 && side !== 0 && side !== prevSide) {
-      allSameSide = false
-      break
-    }
-    if (side !== 0) prevSide = side
-  }
-
-  return !allSameSide
 }
 
 // ─── A* 구현 ───
@@ -91,6 +57,10 @@ export interface PathfinderInput {
   obstacles: { minX: number; minY: number; maxX: number; maxY: number }[]
   /** 그리드 해상도 (m, 기본 2m) */
   gridSize?: number
+  /** 장애물 주변 마진 (그리드 셀 수, 기본 1) */
+  obstacleMargin?: number
+  /** 그리드 시각화 데이터 반환 여부 (기본 true) */
+  returnGrid?: boolean
 }
 
 /**
@@ -100,9 +70,12 @@ export interface PathfinderInput {
  * 8방향 이동으로 최적 경로를 탐색합니다.
  */
 export function findParkingPath(input: PathfinderInput): ParkingPathData {
-  const { start, goal, siteFootprint, obstacles, gridSize = 2 } = input
+  const {
+    start, goal, siteFootprint, obstacles,
+    gridSize = 2, obstacleMargin = 1, returnGrid = true,
+  } = input
 
-  // 사이트 AABB
+  // 사이트 AABB (패딩 포함)
   const xs = siteFootprint.map((p) => p[0])
   const ys = siteFootprint.map((p) => p[1])
   const sMinX = Math.min(...xs) - 5
@@ -125,17 +98,52 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     sMinY + gy * gridSize,
   ]
 
-  // 장애물 그리드 마크
+  // 장애물 그리드 마크 (다중 장애물 지원)
   const blocked = new Set<string>()
-  const margin = 1 // 1 그리드 셀 마진
 
   for (const obs of obstacles) {
     const [g1x, g1y] = toGrid(obs.minX, obs.minY)
     const [g2x, g2y] = toGrid(obs.maxX, obs.maxY)
-    for (let gx = g1x - margin; gx <= g2x + margin; gx++) {
-      for (let gy = g1y - margin; gy <= g2y + margin; gy++) {
+    for (let gx = g1x - obstacleMargin; gx <= g2x + obstacleMargin; gx++) {
+      for (let gy = g1y - obstacleMargin; gy <= g2y + obstacleMargin; gy++) {
         blocked.add(nodeKey(gx, gy))
       }
+    }
+  }
+
+  // 사이트 외부 셀도 차단 (선택적 — 경로가 사이트 밖으로 나가지 않도록)
+  for (let gx = 0; gx <= cols; gx++) {
+    for (let gy = 0; gy <= rows; gy++) {
+      const [wx, wy] = toWorld(gx, gy)
+      if (!isInsidePolygon(wx, wy, siteFootprint)) {
+        blocked.add(nodeKey(gx, gy))
+      }
+    }
+  }
+
+  // 그리드 시각화 데이터 생성
+  let gridData: ParkingGridData | undefined
+  if (returnGrid) {
+    const cells: ParkingGridCell[] = []
+    // 사이트 내부 셀만 포함 (성능)
+    for (let gx = 0; gx <= cols; gx++) {
+      for (let gy = 0; gy <= rows; gy++) {
+        const [wx, wy] = toWorld(gx, gy)
+        if (isInsidePolygon(wx, wy, siteFootprint)) {
+          cells.push({
+            x: wx,
+            y: wy,
+            blocked: blocked.has(nodeKey(gx, gy)),
+          })
+        }
+      }
+    }
+    gridData = {
+      cells,
+      gridSize,
+      cols,
+      rows,
+      bounds: { minX: sMinX, minY: sMinY, maxX: sMaxX, maxY: sMaxY },
     }
   }
 
@@ -152,7 +160,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
   // 시작/끝이 blocked면 가장 가까운 unblocked로
   const unblock = (gx: number, gy: number): [number, number] => {
     if (!blocked.has(nodeKey(gx, gy))) return [gx, gy]
-    for (let r = 1; r <= 10; r++) {
+    for (let r = 1; r <= 15; r++) {
       for (const [dx, dy] of dirs) {
         const nx = gx + dx * r, ny = gy + dy * r
         if (!blocked.has(nodeKey(nx, ny)) && nx >= 0 && ny >= 0 && nx <= cols && ny <= rows) {
@@ -240,11 +248,11 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
 
   // 경로 복원
   if (!found) {
-    // 경로를 못 찾으면 직선 연결
     return {
       points: [start, goal],
       length: heuristic(start[0], start[1], goal[0], goal[1]),
       isValid: false,
+      grid: gridData,
     }
   }
 
@@ -255,7 +263,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     node = node.parent
   }
 
-  // 경로 단순화 (Douglas-Peucker 비슷하게 — 직선 구간 합치기)
+  // 경로 단순화
   const simplified = simplifyPath(gridPath, gridSize * 0.8)
 
   // 시작/끝을 정확한 좌표로 교체
@@ -285,6 +293,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     points: simplified,
     length: totalLength,
     isValid,
+    grid: gridData,
   }
 }
 
@@ -302,7 +311,6 @@ function simplifyPath(
     const next = path[i + 1]
     const curr = path[i]
 
-    // 이전→다음 직선과 현재 점 사이 거리
     const dx = next[0] - prev[0]
     const dy = next[1] - prev[1]
     const len = Math.sqrt(dx * dx + dy * dy)
@@ -316,4 +324,55 @@ function simplifyPath(
 
   result.push(path[path.length - 1])
   return result
+}
+
+/**
+ * 폴리곤 경계 위에서 특정 방향(도로 쪽)에 가장 가까운 점 찾기
+ * 입구를 필지 경계에 배치할 때 사용
+ */
+export function findBoundaryPoint(
+  siteFootprint: number[][],
+  preferredDirection: 'top' | 'bottom' | 'left' | 'right' = 'top',
+): [number, number] {
+  const xs = siteFootprint.map((p) => p[0])
+  const ys = siteFootprint.map((p) => p[1])
+  const minX = Math.min(...xs), maxX = Math.max(...xs)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const cx = (minX + maxX) / 2
+
+  // 경계선 위의 점들을 세밀하게 샘플링
+  const boundaryPoints: [number, number][] = []
+  for (let i = 0; i < siteFootprint.length; i++) {
+    const a = siteFootprint[i]
+    const b = siteFootprint[(i + 1) % siteFootprint.length]
+    // 각 변을 10등분
+    for (let t = 0; t <= 1; t += 0.1) {
+      boundaryPoints.push([
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+      ])
+    }
+  }
+
+  // 방향에 따라 정렬
+  let sorted: [number, number][]
+  switch (preferredDirection) {
+    case 'top':
+      sorted = boundaryPoints.sort((a, b) => b[1] - a[1]) // y가 큰 쪽
+      break
+    case 'bottom':
+      sorted = boundaryPoints.sort((a, b) => a[1] - b[1]) // y가 작은 쪽
+      break
+    case 'left':
+      sorted = boundaryPoints.sort((a, b) => a[0] - b[0])
+      break
+    case 'right':
+      sorted = boundaryPoints.sort((a, b) => b[0] - a[0])
+      break
+  }
+
+  // 중앙에 가까운 점을 우선 (상위 5개 후보 중 중앙에 가장 가까운 것)
+  const candidates = sorted.slice(0, 5)
+  candidates.sort((a, b) => Math.abs(a[0] - cx) - Math.abs(b[0] - cx))
+  return candidates[0]
 }
