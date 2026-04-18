@@ -8,18 +8,6 @@
 set -e
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# --- Swap 확인 및 복구 ---
-if ! swapon --show | grep -q swapfile; then
-    echo "[0/4] Swap 복구 중..."
-    if [ ! -f /swapfile ]; then
-        sudo dd if=/dev/zero of=/swapfile bs=128M count=16 2>/dev/null
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-    fi
-    sudo swapon /swapfile
-    echo "  → Swap 2GB 활성화 완료"
-fi
-
 echo "=========================================="
 echo " Building Cesium 서버 시작"
 echo "=========================================="
