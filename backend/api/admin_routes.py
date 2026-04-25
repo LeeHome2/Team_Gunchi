@@ -303,6 +303,59 @@ def delete_user(user_id: UUID, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.get("/users/{user_id}/projects")
+def list_user_projects(user_id: UUID, db: Session = Depends(get_db)):
+    """특정 사용자의 프로젝트 목록 (관리자 상세 화면용)."""
+    from sqlalchemy import func as sa_func
+    from database.models import Project, DxfFile
+
+    rows_q = (
+        db.query(
+            Project,
+            sa_func.count(DxfFile.id).label("dxf_count"),
+            sa_func.max(DxfFile.area_sqm).label("area_sqm"),
+        )
+        .outerjoin(DxfFile, DxfFile.project_id == Project.id)
+        .filter(Project.user_id == user_id)
+        .group_by(Project.id)
+        .order_by(Project.created_at.desc())
+        .all()
+    )
+    projects = [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "address": p.address,
+            "zone_type": p.zone_type,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            "has_dxf": int(dxf_count or 0) > 0,
+            "area_sqm": area_sqm,
+        }
+        for p, dxf_count, area_sqm in rows_q
+    ]
+    user = crud.get_user(db, user_id=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {
+        "user": _serialize_user(user),
+        "projects": projects,
+        "total": len(projects),
+    }
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: UUID, db: Session = Depends(get_db)):
+    """프로젝트 삭제 (관리자용). 연관 데이터는 CASCADE로 정리됨."""
+    ok = crud.delete_project(db, project_id=project_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="project not found")
+    _cache.invalidate("projects")
+    _cache.invalidate("users:")
+    _cache.invalidate("dashboard")
+    return {"ok": True}
+
+
 # ============================================================================
 # PROJECTS (admin view)
 # ============================================================================

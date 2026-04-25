@@ -472,10 +472,16 @@ export const adminApi = {
     }),
   deleteUser: (userId: string) =>
     adminFetch<{ ok: true }>(`/users/${userId}`, { method: 'DELETE' }),
+  listUserProjects: (userId: string) =>
+    adminFetch<{ user: AdminUser; projects: AdminProject[]; total: number }>(
+      `/users/${userId}/projects`
+    ),
 
   // Projects (admin)
   listProjects: () =>
     adminFetch<{ projects: AdminProject[]; total: number }>('/projects'),
+  deleteProject: (projectId: string) =>
+    adminFetch<{ ok: true }>(`/projects/${projectId}`, { method: 'DELETE' }),
 
   // Results
   listResults: () =>

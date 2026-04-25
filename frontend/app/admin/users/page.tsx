@@ -11,6 +11,7 @@ import {
   StatCard,
 } from '@/components/admin/AdminUI'
 import { adminApi, AdminUser } from '@/lib/api'
+import UserDetailModal from '@/components/admin/UserDetailModal'
 
 const STATUS_LABEL: Record<
   string,
@@ -39,6 +40,7 @@ export default function AdminUsersPage() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [detailUser, setDetailUser] = useState<AdminUser | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -186,7 +188,7 @@ export default function AdminUsersPage() {
                 </Td>
                 <Td>
                   <div className="flex gap-1.5">
-                    <SmallBtn>상세</SmallBtn>
+                    <SmallBtn onClick={() => setDetailUser(u)}>상세</SmallBtn>
                     {u.status === 'suspended' ? (
                       <SmallBtn variant="primary" onClick={() => toggleStatus(u)}>
                         복구
@@ -219,6 +221,14 @@ export default function AdminUsersPage() {
           )}
         </AdminTable>
       </main>
+
+      {detailUser && (
+        <UserDetailModal
+          user={detailUser}
+          onClose={() => setDetailUser(null)}
+          onChanged={load}
+        />
+      )}
     </>
   )
 }
