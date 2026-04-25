@@ -256,14 +256,14 @@ function EditorContent() {
       if (lon != null && lat != null) {
         try {
           // 1. 배치도(탑다운) 먼저 캡처
-          sitePlan = await captureTopDownDataUrl(viewer, lon, lat, 350)
+          sitePlan = await captureTopDownDataUrl(viewer, lon, lat, 150)
         } catch (err) {
           console.warn('Cesium 배치도 캡처 실패:', err)
         }
         try {
           // 2. 조감도(45° 각도) 캡처. 카메라 이동 후 타일 다시 로드 시간 필요해서
           //    captureAerialDataUrl 내부에서 settle 대기.
-          aerialView = await captureAerialDataUrl(viewer, lon, lat, 600)
+          aerialView = await captureAerialDataUrl(viewer, lon, lat, 200)
         } catch (err) {
           console.warn('Cesium 조감도 캡처 실패:', err)
         }

@@ -485,15 +485,15 @@ export default function ResultPage() {
                 <button
                   onClick={handleAIRender}
                   disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}
-                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 text-navy-950 font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:from-amber-300 hover:to-yellow-400 transition flex items-center gap-2"
+                  className="px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/15 transition flex items-center gap-2"
                 >
                   {isRendering ? (
                     <>
-                      <span className="inline-block w-3 h-3 border-2 border-navy-950 border-t-transparent rounded-full animate-spin"></span>
+                      <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                       렌더링 중...
                     </>
                   ) : (
-                    <>🎨 AI 렌더링 실행</>
+                    <>AI 렌더링 실행</>
                   )}
                 </button>
               </div>
