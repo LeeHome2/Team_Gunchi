@@ -153,63 +153,85 @@ function ApiPanel({ apiUrl, health }: { apiUrl: string; health: any }) {
 // ============================================================================
 // AI Model Panel (사용자용 — 읽기 전용)
 //
-// 실제 AI 모델 활성화/교체는 관리자 콘솔(/admin/ai)에서만 가능합니다.
-// 여기서는 사용자가 "지금 어떤 모델이 붙어 있는지" 확인만 할 수 있어요.
-//
-// 데이터 소스 우선순위:
-//   1) localStorage.geonchi.ai.selectedModel  (관리자가 마지막으로 지정한 값)
-//   2) HARDCODED_MODELS[0] 기본값
-// 실제 /api/admin/ai/models 는 관리자 인증이 필요해서 사용자 페이지에서는
-// 직접 조회하지 않아요. 대신 관리자가 활성화한 모델 메타가 localStorage 에
-// 캐시되면 그걸 읽어서 이름/버전만 보여줍니다.
+// 학과 분류 서버(/api/ai/active-model)에서 현재 적용 중인 모델 정보를 직접
+// 가져와 표시한다. 서버 연결 실패 시에만 mock 표시로 fallback.
+// 모델 교체·활성화는 관리자 콘솔(/admin/ai)에서만 가능하다.
 // ============================================================================
-const LS_AI_URL_KEY = 'geonchi.ai.serverUrl'
-const LS_AI_SELECTED_KEY = 'geonchi.ai.selectedModel'
 
-// 관리자 콘솔이 아직 활성 모델을 덮어쓰기 전에 보여줄 기본 카탈로그(시연용).
-const HARDCODED_MODELS = [
-  {
-    id: 'mock-layer-classifier-v1',
-    name: 'Layer Classifier (Mock)',
-    version: 'v1.0.0',
-    type: 'classifier',
-    description:
-      '규칙 기반 가짜 분류기 — 샘플 도면에서 벽/문/창/가구/치수/텍스트를 확률 분포로 분류. AI 서버 연결 전 시연용.',
-    accuracy: 0.87,
-    hardcoded: true,
-  },
-  {
-    id: 'mock-mass-generator-v1',
-    name: 'Mass Extruder (Deterministic)',
-    version: 'v1.0.0',
-    type: 'generator',
-    description:
-      '폴리곤 footprint를 지정 높이로 수직 압출하여 GLB를 만드는 결정적 매스 생성기. AI가 없어도 완전 동작합니다.',
-    accuracy: null,
-    hardcoded: true,
-  },
-]
+interface ActiveModelInfo {
+  active: {
+    run_id?: string
+    model_version?: string
+    algorithm?: string
+    deployed_at?: string | null
+    metrics?: {
+      accuracy?: number
+      f1?: number
+      [k: string]: unknown
+    }
+    [k: string]: unknown
+  } | null
+  ai_server?: string
+  reason?: string
+}
+
+const MOCK_FALLBACK = {
+  name: 'Layer Classifier (Mock)',
+  version: 'mock-v1.0',
+  type: 'classifier',
+  description:
+    'AI 서버 연결이 끊겼을 때 사용하는 규칙 기반 분류기. 레이어명 키워드(WALL/벽 등)로 추정합니다.',
+  accuracy: null as number | null,
+}
+
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleString('ko-KR')
+  } catch {
+    return iso
+  }
+}
 
 function AIModelPanel() {
-  const [selectedId, setSelectedId] = useState(HARDCODED_MODELS[0].id)
-  const [aiUrl, setAiUrl] = useState<string>('')
+  const [info, setInfo] = useState<ActiveModelInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
+  const load = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const sel = localStorage.getItem(LS_AI_SELECTED_KEY)
-      if (sel && HARDCODED_MODELS.some((m) => m.id === sel)) {
-        setSelectedId(sel)
-      }
-      setAiUrl(localStorage.getItem(LS_AI_URL_KEY) || '')
-    } catch {
-      /* ignore */
+      const res = await fetch('/api/ai/active-model')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data: ActiveModelInfo = await res.json()
+      setInfo(data)
+    } catch (e: any) {
+      setError(e.message || 'AI 모델 정보를 불러오지 못했습니다.')
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     setMounted(true)
+    load()
   }, [])
 
-  const selected =
-    HARDCODED_MODELS.find((m) => m.id === selectedId) ?? HARDCODED_MODELS[0]
+  const isLive = !!info?.active
+  const accuracy = info?.active?.metrics?.accuracy
+  const display = isLive
+    ? {
+        name: info!.active!.algorithm
+          ? `${info!.active!.algorithm} Classifier`
+          : 'Layer Classifier',
+        version: info!.active!.model_version || info!.active!.run_id || '—',
+        type: 'classifier',
+        description: '학과 AI 서버에서 운영 중인 실제 분류 모델입니다.',
+        accuracy: typeof accuracy === 'number' ? accuracy : null,
+      }
+    : MOCK_FALLBACK
 
   return (
     <section>
@@ -245,80 +267,68 @@ function AIModelPanel() {
 
       {/* Current model card (read-only) */}
       <div className="mt-6 rounded-lg border border-white/10 bg-white/[0.03] p-5">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-white/40">현재 활성 모델</div>
-            <div className="mt-1 text-base font-semibold text-white">{selected.name}</div>
-            <div className="mt-0.5 font-mono text-xs text-white/50">
-              {selected.id} · {selected.version}
+            <div className="mt-1 text-base font-semibold text-white">
+              {loading ? '불러오는 중…' : display.name}
             </div>
+            <div className="mt-0.5 font-mono text-xs text-white/50 break-all">
+              {display.version}
+            </div>
+            {isLive && info?.active?.deployed_at && (
+              <div className="mt-1 text-[11px] text-white/40">
+                배포: {fmtDate(info.active.deployed_at as string)}
+              </div>
+            )}
           </div>
-          <span className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-            동작 중
-          </span>
+          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+            {isLive ? (
+              <span className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                서버 연결됨
+              </span>
+            ) : (
+              <span className="rounded-full bg-amber-500/15 border border-amber-400/30 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                Mock fallback
+              </span>
+            )}
+            <button
+              onClick={load}
+              className="text-[11px] text-white/50 hover:text-white underline-offset-2 hover:underline"
+            >
+              새로고침
+            </button>
+          </div>
         </div>
-        <p className="mt-3 text-sm text-white/60">{selected.description}</p>
-        {selected.accuracy != null && (
+        <p className="mt-3 text-sm text-white/60">{display.description}</p>
+        {display.accuracy != null && (
           <div className="mt-4">
             <div className="flex items-center justify-between text-xs text-white/50">
-              <span>기준 정확도</span>
+              <span>정확도</span>
               <span className="font-mono text-white/80">
-                {(selected.accuracy * 100).toFixed(1)}%
+                {(display.accuracy * 100).toFixed(1)}%
               </span>
             </div>
             <div className="mt-1.5 h-1.5 rounded-full bg-white/5 overflow-hidden">
               <div
                 className="h-full bg-emerald-400"
-                style={{ width: `${selected.accuracy * 100}%` }}
+                style={{ width: `${display.accuracy * 100}%` }}
               />
             </div>
           </div>
         )}
-      </div>
-
-      {/* Model catalog (read-only list) */}
-      <div className="mt-6">
-        <div className="text-sm font-semibold text-white/80">사용 가능한 모델</div>
-        <p className="mt-1 text-xs text-white/50">
-          관리자가 활성화한 모델 목록입니다. 전환하려면 관리자에게 문의해 주세요.
-        </p>
-        <div className="mt-3 grid gap-2">
-          {HARDCODED_MODELS.map((m) => {
-            const active = mounted && m.id === selectedId
-            return (
-              <div
-                key={m.id}
-                aria-current={active ? 'true' : undefined}
-                className={`flex items-start justify-between gap-4 rounded-lg border p-4 ${
-                  active
-                    ? 'border-brand-400/50 bg-brand-500/5'
-                    : 'border-white/10 bg-white/[0.02]'
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-white">{m.name}</span>
-                    <span className="text-[10px] rounded bg-white/5 border border-white/10 px-1.5 py-0.5 font-mono text-white/60">
-                      {m.type}
-                    </span>
-                    {m.hardcoded && (
-                      <span className="text-[10px] rounded bg-amber-500/15 border border-amber-400/30 px-1.5 py-0.5 text-amber-300">
-                        hardcoded
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-xs text-white/50">{m.description}</div>
-                  <div className="mt-1 font-mono text-[11px] text-white/40">{m.version}</div>
-                </div>
-                {active && (
-                  <span className="flex-shrink-0 text-xs font-semibold text-brand-300">
-                    활성
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        {error && (
+          <div className="mt-3 text-xs text-red-300">{error}</div>
+        )}
+        {!isLive && !loading && info?.reason && (
+          <div className="mt-3 text-[11px] text-white/40">
+            상태: {info.reason === 'unreachable'
+              ? 'AI 서버 연결 실패'
+              : info.reason === 'no_active_model'
+                ? '운영 중인 모델이 없습니다'
+                : info.reason}
+          </div>
+        )}
       </div>
 
       {/* AI server endpoint (read-only display) */}
@@ -330,19 +340,12 @@ function AIModelPanel() {
         <div className="mt-3">
           <input
             type="text"
-            value={mounted ? aiUrl || '연결 대기 중 — Mock fallback 사용' : ''}
+            value={mounted ? info?.ai_server || '—' : ''}
             readOnly
             className="input-field font-mono text-white/70 cursor-not-allowed"
             aria-readonly
           />
         </div>
-      </div>
-
-      {/* Note */}
-      <div className="mt-4 rounded-lg border border-blue-400/20 bg-blue-500/5 p-4 text-xs text-white/60">
-        <div className="font-semibold text-blue-300 mb-1">참고</div>
-        샘플 도면(에디터 사이드바 → 샘플 도면)으로 파싱 → 분류 → 매스 생성 파이프라인을 실제로
-        확인할 수 있어요. 실서버가 연결되기 전까지 분류는 엔티티 수 기반 분포로 Mock 동작합니다.
       </div>
     </section>
   )

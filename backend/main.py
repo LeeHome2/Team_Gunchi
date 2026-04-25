@@ -867,6 +867,30 @@ async def validate_placement_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/ai/active-model")
+async def get_public_active_ai_model():
+    """현재 운영 중인 AI 분류 모델 정보 (사용자 페이지 노출용).
+
+    관리자 콘솔의 deploy 액션은 admin 라우트에서 수행되지만, 어떤 모델이
+    적용 중인지 보는 것은 일반 사용자에게도 노출 가능한 정보이므로 별도
+    퍼블릭 엔드포인트로 둔다. AI 서버 연결 실패 시 200 + active=null로
+    응답해 프론트가 'mock fallback 중' 표시를 그릴 수 있게 한다.
+    """
+    import httpx
+    timeout = httpx.Timeout(connect=2.0, read=4.0, write=4.0, pool=4.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{AI_SERVER_URL}/api/mlops/models/active")
+            if resp.status_code == 200:
+                return {"active": resp.json(), "ai_server": AI_SERVER_URL}
+            if resp.status_code == 404:
+                return {"active": None, "ai_server": AI_SERVER_URL, "reason": "no_active_model"}
+            return {"active": None, "ai_server": AI_SERVER_URL, "reason": f"http_{resp.status_code}"}
+    except Exception as e:
+        logger.info(f"AI active-model fetch failed: {e}")
+        return {"active": None, "ai_server": AI_SERVER_URL, "reason": "unreachable"}
+
+
 @app.post("/api/projects/{project_id}/review")
 def save_review_result(
     project_id: str,
