@@ -101,6 +101,18 @@ export default function AnalysisModal({
     if (isRunningRef.current) return
     isRunningRef.current = true
 
+    // 새로운 분석을 시작하기 전에 이전 결과 초기화
+    // (모달을 다시 열 때 직전 분석 화면이 잠깐 보이거나 stale 상태가 남는 문제 방지)
+    setCurrentStep(1)
+    setStep1Status(StepStatus.PENDING)
+    setStep2Status(StepStatus.PENDING)
+    setStep3Status(StepStatus.PENDING)
+    setParseResult(null)
+    setClassificationResult(null)
+    setModelResult(null)
+    setError(null)
+    setCurrentProjectId(null)
+
     const runAnalysis = async () => {
       try {
         // 기존 projectId가 store에 있으면 재사용, 없으면 새로 생성

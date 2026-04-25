@@ -381,14 +381,68 @@ def create_wall_building_gltf(
         logger.info(f"Extracted {len(geom_lines)} wall line segments from layers {wall_layers}")
 
         # $INSUNITS가 불명확할 때 좌표 범위로 mm 여부 자동 판별
+        # 주의: 벽 레이어만으로 판단하면 벽 부분이 작은 도면(예: 한 변의 일부만 그려진
+        # 평면도)에서 mm를 m로 오판하여 모델이 1000배 작아진다. 따라서 도면 전체
+        # modelspace의 좌표 범위로 판정한다.
         if dxf_scale == 1.0:
-            all_bounds = unary_union(geom_lines).bounds  # (minx, miny, maxx, maxy)
-            extent = max(all_bounds[2] - all_bounds[0], all_bounds[3] - all_bounds[1])
-            if extent > 500:  # 500 이상이면 mm 단위로 추정 (일반 건물 <200m)
+            try:
+                ms_xs: List[float] = []
+                ms_ys: List[float] = []
+                for ent in msp:
+                    et = ent.dxftype()
+                    if et == 'LINE':
+                        ms_xs.extend([ent.dxf.start[0], ent.dxf.end[0]])
+                        ms_ys.extend([ent.dxf.start[1], ent.dxf.end[1]])
+                    elif et == 'LWPOLYLINE':
+                        for p in ent.get_points():
+                            ms_xs.append(p[0])
+                            ms_ys.append(p[1])
+                    elif et == 'POLYLINE':
+                        for v in ent.vertices:
+                            ms_xs.append(v.dxf.location[0])
+                            ms_ys.append(v.dxf.location[1])
+                    elif et in ('CIRCLE', 'ARC'):
+                        c = ent.dxf.center
+                        r = getattr(ent.dxf, 'radius', 0)
+                        ms_xs.extend([c[0] - r, c[0] + r])
+                        ms_ys.extend([c[1] - r, c[1] + r])
+
+                if ms_xs and ms_ys:
+                    full_extent = max(max(ms_xs) - min(ms_xs), max(ms_ys) - min(ms_ys))
+                else:
+                    full_bounds = unary_union(geom_lines).bounds
+                    full_extent = max(
+                        full_bounds[2] - full_bounds[0],
+                        full_bounds[3] - full_bounds[1],
+                    )
+            except Exception as e:
+                logger.warning(f"Full extent check failed, falling back to wall-only: {e}")
+                full_bounds = unary_union(geom_lines).bounds
+                full_extent = max(
+                    full_bounds[2] - full_bounds[0],
+                    full_bounds[3] - full_bounds[1],
+                )
+
+            if full_extent > 500:  # 500 이상이면 mm 단위로 추정 (일반 건물 <200m)
                 dxf_scale = 0.001
-                logger.info(f"Auto-detected mm units: extent={extent:.0f}, applying scale 0.001")
+                logger.info(f"Auto-detected mm units: full extent={full_extent:.0f}, applying scale 0.001")
+            elif full_extent > 50:  # 50~500은 cm 또는 m (드물지만 cm로 추정)
+                # 벽 한 변이 5m 이상이면 m, 그렇지 않으면 cm 가능성
+                wall_bounds = unary_union(geom_lines).bounds
+                wall_extent = max(
+                    wall_bounds[2] - wall_bounds[0],
+                    wall_bounds[3] - wall_bounds[1],
+                )
+                if wall_extent < 5 and full_extent > 50:
+                    dxf_scale = 0.01
+                    logger.info(
+                        f"Auto-detected cm units: full extent={full_extent:.1f}, "
+                        f"wall extent={wall_extent:.2f}, applying scale 0.01"
+                    )
+                else:
+                    logger.info(f"Full extent={full_extent:.1f}, assuming meters")
             else:
-                logger.info(f"Coordinate extent={extent:.1f}, assuming meters")
+                logger.info(f"Full extent={full_extent:.1f}, assuming meters")
 
         # 2) 스케일 변환
         if dxf_scale != 1.0:
