@@ -441,6 +441,28 @@ export interface AdminAIModel {
   created_at: string | null
 }
 
+// classifier MLOps experiment (Team_Gunchi_classifier 프록시 응답)
+export interface AIExperiment {
+  run_id: string
+  model_version?: string
+  algorithm?: string
+  status?: string
+  is_active?: boolean
+  trained_at?: string | null
+  deployed_at?: string | null
+  metrics?: {
+    accuracy?: number
+    f1?: number
+    precision?: number
+    recall?: number
+    confusion_matrix?: number[][] | Record<string, number[]>
+    [k: string]: unknown
+  }
+  hyperparameters?: Record<string, unknown>
+  notes?: string | null
+  [k: string]: unknown
+}
+
 export interface AdminLog {
   id: number
   ts: string
@@ -570,6 +592,19 @@ export const adminApi = {
     adminFetch<AdminAIModel>(`/ai/models/${id}/activate`, { method: 'POST' }),
   deactivateAIModel: (id: string) =>
     adminFetch<AdminAIModel>(`/ai/models/${id}/deactivate`, { method: 'POST' }),
+
+  // AI MLOps (Team_Gunchi_classifier 프록시)
+  listExperiments: (limit = 50) =>
+    adminFetch<{ experiments: AIExperiment[] }>(`/ai/experiments?limit=${limit}`),
+  getExperiment: (runId: string) =>
+    adminFetch<AIExperiment>(`/ai/experiments/${runId}`),
+  getActiveAIModel: () =>
+    adminFetch<{ active: AIExperiment | null } | AIExperiment>(`/ai/active-model`),
+  deployAIModel: (payload: { run_id: string; environment?: string; notes?: string }) =>
+    adminFetch<{ active_run_id: string; environment: string }>(`/ai/deploy`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   // Logs
   listLogs: (params?: { level?: string; q?: string; limit?: number }) => {

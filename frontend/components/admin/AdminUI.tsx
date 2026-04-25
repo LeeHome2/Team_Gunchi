@@ -109,10 +109,12 @@ export function SmallBtn({
   children,
   variant = 'secondary',
   onClick,
+  disabled,
 }: {
   children: React.ReactNode
   variant?: 'primary' | 'secondary' | 'danger'
   onClick?: () => void
+  disabled?: boolean
 }) {
   const classes = {
     primary:
@@ -123,7 +125,11 @@ export function SmallBtn({
       'px-2.5 py-1 rounded text-[11px] font-semibold bg-red-500/15 text-red-300 border border-red-400/30 hover:bg-red-500/25',
   }[variant]
   return (
-    <button onClick={onClick} className={classes}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`${classes} disabled:opacity-50 disabled:cursor-not-allowed`}
+    >
       {children}
     </button>
   )

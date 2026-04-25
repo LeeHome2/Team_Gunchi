@@ -357,6 +357,97 @@ def delete_project(project_id: UUID, db: Session = Depends(get_db)):
 
 
 # ============================================================================
+# AI MLOps PROXY (Team_Gunchi_classifier 연동)
+# ============================================================================
+#
+# 분류 서버는 ceprj2.gachon.ac.kr 에 떠있고 외부에서 직접 호출할 때 CORS·타임아웃
+# 이슈가 생기므로 백엔드를 거쳐 프록시한다. 학습/데이터 수집 엔드포인트는
+# 분류 서버에 존재하지 않아 프론트에서 stub 모달로 처리한다.
+
+
+def _ai_base_url(db: Session) -> str:
+    """service_settings.ai_url 우선, 없으면 환경변수 AI_SERVER_URL."""
+    try:
+        stored = crud.list_service_settings(db)
+        if stored.get("ai_url"):
+            return stored["ai_url"].rstrip("/")
+    except Exception:
+        pass
+    return (os.getenv("AI_SERVER_URL") or "http://ceprj2.gachon.ac.kr:65006").rstrip("/")
+
+
+async def _ai_proxy_get(path: str, db: Session) -> dict:
+    base = _ai_base_url(db)
+    timeout = httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{base}{path}")
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=resp.text or f"AI 서버 오류 ({resp.status_code})",
+                )
+            return resp.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"AI 서버 연결 실패: {e}")
+
+
+async def _ai_proxy_post(path: str, body: dict, db: Session) -> dict:
+    base = _ai_base_url(db)
+    timeout = httpx.Timeout(connect=2.0, read=10.0, write=10.0, pool=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(f"{base}{path}", json=body)
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=resp.text or f"AI 서버 오류 ({resp.status_code})",
+                )
+            return resp.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"AI 서버 연결 실패: {e}")
+
+
+@router.get("/ai/experiments")
+async def list_experiments(limit: int = 50, db: Session = Depends(get_db)):
+    """모델 실험(학습 이력) 목록 조회."""
+    return await _ai_proxy_get(f"/api/mlops/experiments?limit={limit}", db)
+
+
+@router.get("/ai/experiments/{run_id}")
+async def get_experiment(run_id: str, db: Session = Depends(get_db)):
+    """특정 실험의 상세 메트릭."""
+    return await _ai_proxy_get(f"/api/mlops/experiments/{run_id}", db)
+
+
+@router.get("/ai/active-model")
+async def get_active_model(db: Session = Depends(get_db)):
+    """현재 운영 중인 모델 정보."""
+    try:
+        return await _ai_proxy_get("/api/mlops/models/active", db)
+    except HTTPException as e:
+        if e.status_code == 404:
+            return {"active": None}
+        raise
+
+
+class DeployPayload(BaseModel):
+    run_id: str
+    environment: Optional[str] = "production"
+    notes: Optional[str] = None
+
+
+@router.post("/ai/deploy")
+async def deploy_model(payload: DeployPayload, db: Session = Depends(get_db)):
+    """선택한 실험을 운영 모델로 적용."""
+    return await _ai_proxy_post(
+        "/api/mlops/deploy",
+        payload.model_dump(),
+        db,
+    )
+
+
+# ============================================================================
 # PROJECTS (admin view)
 # ============================================================================
 
