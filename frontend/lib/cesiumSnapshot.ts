@@ -106,6 +106,40 @@ async function captureAt(
 }
 
 /**
+ * 카메라를 움직이지 않고 현재 뷰포트를 그대로 캡처한다.
+ * 사용자가 에디터에서 보고 있는 화면을 그대로 결과 페이지에 보여주고 싶을 때 사용.
+ */
+export async function captureCurrentViewDataUrl(
+  viewer: AnyViewer,
+  options: CaptureOptions = {},
+): Promise<string> {
+  const Cesium = getCesium()
+  if (!Cesium) throw new Error('Cesium 이 로드되지 않았습니다.')
+  if (!viewer || !viewer.scene || !viewer.scene.canvas) {
+    throw new Error('Cesium viewer 가 준비되지 않았습니다.')
+  }
+  const opts = { ...DEFAULTS, ...options }
+
+  // 현재 프레임 강제 렌더 후 캡처 (카메라 이동 없음)
+  try {
+    viewer.scene.render()
+  } catch {
+    /* ignore */
+  }
+  await wait(150)
+  try {
+    viewer.scene.render()
+  } catch {
+    /* ignore */
+  }
+
+  const canvas: HTMLCanvasElement = viewer.scene.canvas
+  return opts.mime === 'image/jpeg'
+    ? canvas.toDataURL('image/jpeg', opts.quality)
+    : canvas.toDataURL(opts.mime)
+}
+
+/**
  * 주어진 중심 좌표 위에서 탑다운(수직 하향) 샷을 찍는다.
  *
  * @param viewer         Cesium Viewer instance (projectStore.viewer)

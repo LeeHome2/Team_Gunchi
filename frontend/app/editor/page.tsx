@@ -8,7 +8,7 @@ import { useProjectStore } from '@/store/projectStore'
 import Sidebar from '@/components/Sidebar'
 import ErrorBanner from '@/components/ErrorBanner'
 import Brand from '@/components/Brand'
-import { captureTopDownDataUrl, captureAerialDataUrl } from '@/lib/cesiumSnapshot'
+import { captureTopDownDataUrl, captureCurrentViewDataUrl } from '@/lib/cesiumSnapshot'
 import { getProject } from '@/lib/api'
 
 const CesiumViewer = dynamic(() => import('@/components/CesiumViewer'), {
@@ -253,19 +253,18 @@ function EditorContent() {
     try {
       let sitePlan: string | null = null
       let aerialView: string | null = null
+      // 1. 조감도 = 사용자가 현재 보고 있는 에디터 뷰 그대로 (카메라 이동 없음)
+      try {
+        aerialView = await captureCurrentViewDataUrl(viewer)
+      } catch (err) {
+        console.warn('Cesium 조감도 캡처 실패:', err)
+      }
+      // 2. 배치도(탑다운)은 대지 중심 위로 이동해서 캡처 후 원래 카메라 복원
       if (lon != null && lat != null) {
         try {
-          // 1. 배치도(탑다운) 먼저 캡처
           sitePlan = await captureTopDownDataUrl(viewer, lon, lat, 220)
         } catch (err) {
           console.warn('Cesium 배치도 캡처 실패:', err)
-        }
-        try {
-          // 2. 조감도(45° 각도) 캡처. 카메라 이동 후 타일 다시 로드 시간 필요해서
-          //    captureAerialDataUrl 내부에서 settle 대기.
-          aerialView = await captureAerialDataUrl(viewer, lon, lat, 180)
-        } catch (err) {
-          console.warn('Cesium 조감도 캡처 실패:', err)
         }
       }
       setResultSnapshot({
