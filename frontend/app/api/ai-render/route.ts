@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY || ''
-const MODEL = process.env.NANO_BANANA_MODEL || 'gemini-2.5-flash-image-preview'
+const MODEL = process.env.NANO_BANANA_MODEL || 'gemini-2.5-flash-image'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 
 // 기본 프롬프트 — kind에 따라 분기
