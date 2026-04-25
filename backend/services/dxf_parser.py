@@ -292,16 +292,18 @@ def parse_dxf_file(file_path: str, layer_name: Optional[str] = None) -> Dict[str
     coordinates = parser.get_footprint_coordinates(footprint)
     info = parser.get_footprint_info(footprint)
 
-    # DXF 단위 감지: $INSUNITS 또는 좌표 범위로 mm 여부 판별
+    # DXF 단위 감지: $INSUNITS 매핑 (inch/foot 등 영미 단위까지 처리)
+    # 1=in 2=ft 4=mm 5=cm 6=m 8=microinch 9=mil 10=yard 14=dm 15=dam 16=hm 21=us-ft
+    INSUNITS_SCALE = {
+        1: 0.0254, 2: 0.3048, 4: 0.001, 5: 0.01, 6: 1.0,
+        8: 2.54e-8, 9: 2.54e-5, 10: 0.9144,
+        14: 0.1, 15: 10.0, 16: 100.0, 21: 0.3048006,
+    }
     dxf_unit_scale = 1.0  # 기본: 미터
     try:
         insunits = parser.doc.header.get('$INSUNITS', 0)
-        if insunits == 4:  # mm
-            dxf_unit_scale = 0.001
-        elif insunits == 5:  # cm
-            dxf_unit_scale = 0.01
-        elif insunits == 6:  # m
-            dxf_unit_scale = 1.0
+        if insunits in INSUNITS_SCALE:
+            dxf_unit_scale = INSUNITS_SCALE[insunits]
         else:
             # 좌표 범위로 추정: bounds extent > 500이면 mm
             bounds = info["bounds"]

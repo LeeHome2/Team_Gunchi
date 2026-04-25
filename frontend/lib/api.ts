@@ -129,6 +129,38 @@ export async function validatePlacement(params: {
   return response.json()
 }
 
+export interface SidebarDxfFile {
+  id: string
+  original_filename: string
+  file_size: number
+  total_entities: number | null
+  available_layers: string[]
+  area_sqm: number | null
+  uploaded_at: string | null
+  is_classified: boolean
+  generated_model_count: number
+}
+
+export async function listProjectDxfFiles(projectId: string): Promise<SidebarDxfFile[]> {
+  const res = await fetch(`${API_URL}/api/projects/${projectId}/dxf-files`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'DXF 파일 목록 조회 실패')
+  }
+  const data = await res.json()
+  return data.dxf_files || []
+}
+
+export async function deleteDxfFile(dxfId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/dxf-files/${dxfId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'DXF 파일 삭제 실패')
+  }
+}
+
 /**
  * 클라이언트에서 계산한 규정 검토 결과를 DB에 저장한다.
  * 관리자 결과 관리 탭에서 조회 가능하게 하기 위함.

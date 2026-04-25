@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { adminApi, AdminProjectDetail } from '@/lib/api'
+import { useCallback, useEffect, useState } from 'react'
+import { adminApi, AdminProjectDetail, deleteDxfFile } from '@/lib/api'
 import { Badge, SmallBtn } from '@/components/admin/AdminUI'
 
 interface Props {
@@ -34,25 +34,39 @@ export default function ProjectDetailModal({
   const [data, setData] = useState<AdminProjectDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await adminApi.getProjectDetail(projectId)
-        if (alive) setData(res)
-      } catch (e: any) {
-        if (alive) setError(e.message || '프로젝트 상세 로드 실패')
-      } finally {
-        if (alive) setLoading(false)
-      }
-    })()
-    return () => {
-      alive = false
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await adminApi.getProjectDetail(projectId)
+      setData(res)
+    } catch (e: any) {
+      setError(e.message || '프로젝트 상세 로드 실패')
+    } finally {
+      setLoading(false)
     }
   }, [projectId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const handleDeleteDxf = async (dxf: AdminProjectDetail['dxf_files'][number]) => {
+    if (!confirm(`'${dxf.original_filename}'을(를) 삭제하시겠습니까?\n분류 결과·3D 모델·검토 결과가 함께 삭제됩니다.`)) {
+      return
+    }
+    setDeletingId(dxf.id)
+    try {
+      await deleteDxfFile(dxf.id)
+      await load()
+    } catch (e: any) {
+      alert(e.message || '삭제 실패')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <div
@@ -116,9 +130,14 @@ export default function ProjectDetailModal({
                     업로드된 DXF 파일이 없습니다.
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                     {data.dxf_files.map((f) => (
-                      <DxfCard key={f.id} dxf={f} />
+                      <DxfCard
+                        key={f.id}
+                        dxf={f}
+                        onDelete={() => handleDeleteDxf(f)}
+                        deleting={deletingId === f.id}
+                      />
                     ))}
                   </div>
                 )}
@@ -189,7 +208,15 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
-function DxfCard({ dxf }: { dxf: AdminProjectDetail['dxf_files'][number] }) {
+function DxfCard({
+  dxf,
+  onDelete,
+  deleting,
+}: {
+  dxf: AdminProjectDetail['dxf_files'][number]
+  onDelete?: () => void
+  deleting?: boolean
+}) {
   const c = dxf.classification
   const layers = Array.isArray(dxf.available_layers) ? dxf.available_layers : []
 
@@ -202,11 +229,18 @@ function DxfCard({ dxf }: { dxf: AdminProjectDetail['dxf_files'][number] }) {
             업로드: {fmt(dxf.uploaded_at)} · {fmtBytes(dxf.file_size)}
           </div>
         </div>
-        {c ? (
-          <Badge variant="success">분류 완료</Badge>
-        ) : (
-          <Badge variant="neutral">분류 대기</Badge>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {c ? (
+            <Badge variant="success">분류 완료</Badge>
+          ) : (
+            <Badge variant="neutral">분류 대기</Badge>
+          )}
+          {onDelete && (
+            <SmallBtn variant="danger" onClick={onDelete} disabled={deleting}>
+              {deleting ? '삭제 중…' : '삭제'}
+            </SmallBtn>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">

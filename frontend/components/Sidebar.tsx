@@ -1,8 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useProjectStore } from '@/store/projectStore'
-import { uploadDxf } from '@/lib/api'
+import {
+  uploadDxf,
+  listProjectDxfFiles,
+  deleteDxfFile,
+  SidebarDxfFile,
+} from '@/lib/api'
 import AnalysisModal, { AnalysisResult } from '@/components/AnalysisModal'
 import ParkingZonePanel from '@/components/ParkingZonePanel'
 
@@ -50,6 +55,48 @@ export default function Sidebar() {
   } = useProjectStore()
 
   const [activeTab, setActiveTab] = useState<'upload' | 'mass' | 'validate' | 'parking'>('upload')
+  const projectId = useProjectStore((s) => s.projectId)
+  const [dxfList, setDxfList] = useState<SidebarDxfFile[]>([])
+  const [dxfListLoading, setDxfListLoading] = useState(false)
+
+  const refreshDxfList = useCallback(async () => {
+    if (!projectId) {
+      setDxfList([])
+      return
+    }
+    setDxfListLoading(true)
+    try {
+      const list = await listProjectDxfFiles(projectId)
+      setDxfList(list)
+    } catch (e) {
+      console.error('[Sidebar] DXF 목록 로드 실패', e)
+    } finally {
+      setDxfListLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    refreshDxfList()
+  }, [refreshDxfList])
+
+  const handleDeleteDxf = async (dxf: SidebarDxfFile) => {
+    if (!confirm(`'${dxf.original_filename}' 도면을 삭제하시겠습니까?\n분류 결과와 생성된 3D 모델도 함께 삭제됩니다.`)) {
+      return
+    }
+    try {
+      await deleteDxfFile(dxf.id)
+      await refreshDxfList()
+      // 로컬 store에 같은 fileId가 있으면 함께 정리
+      const masses = useProjectStore.getState().generatedMasses
+      for (const m of masses) {
+        if ((m as any).fileId === dxf.id) {
+          useProjectStore.getState().removeGeneratedMass(m.id)
+        }
+      }
+    } catch (e: any) {
+      alert(e.message || '삭제 실패')
+    }
+  }
   // sunlightDate는 store에서 가져옴 (CesiumViewer와 공유)
 
   // Analysis modal state
@@ -295,6 +342,8 @@ export default function Sidebar() {
     setAnalysisFile(null)
     setActiveTab('mass')
     setError(null)
+    // 새 DXF가 DB에 추가됐으니 사이드바 목록도 새로고침
+    refreshDxfList()
   }
 
 
@@ -475,6 +524,66 @@ export default function Sidebar() {
         {activeTab === 'mass' && (
           <div className="space-y-4">
             <h3 className="font-semibold text-lg">건물 매스 설정</h3>
+
+            {/* 업로드된 DXF 파일 목록 (DB 기반) */}
+            {projectId && (
+              <div className="border-b pb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium">업로드된 도면</h4>
+                  <button
+                    onClick={refreshDxfList}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                    title="새로고침"
+                  >
+                    {dxfListLoading ? '⟳' : '↻'}
+                  </button>
+                </div>
+                {dxfList.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-3">
+                    {dxfListLoading ? '불러오는 중…' : '업로드된 도면이 없습니다'}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {dxfList.map((dxf) => (
+                      <div
+                        key={dxf.id}
+                        className="flex items-center gap-2 rounded border border-gray-200 bg-white p-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-gray-800 truncate">
+                            {dxf.original_filename}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mt-0.5">
+                            <span>{(dxf.total_entities ?? 0).toLocaleString()}개 엔티티</span>
+                            <span>·</span>
+                            <span>{dxf.available_layers.length}개 레이어</span>
+                            {dxf.is_classified && (
+                              <span className="px-1 rounded bg-green-100 text-green-700">
+                                분류됨
+                              </span>
+                            )}
+                            {dxf.generated_model_count > 0 && (
+                              <span className="px-1 rounded bg-blue-100 text-blue-700">
+                                3D {dxf.generated_model_count}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteDxf(dxf)}
+                          className="px-1.5 py-1 text-red-500 hover:bg-red-50 rounded shrink-0"
+                          title="삭제"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 생성된 매스 모델 목록 */}
             {generatedMasses.length > 0 && (

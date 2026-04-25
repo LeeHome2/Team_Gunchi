@@ -592,9 +592,9 @@ async def upload_dxf(
                     project_id=project_uuid,
                     original_filename=file.filename,
                     stored_path=str(file_path),
-                    file_size=file.file.__sizeof__(),
+                    file_size=file_path.stat().st_size if file_path.exists() else 0,
                     total_entities=result.get("total_entities"),
-                    available_layers=result.get("layers"),
+                    available_layers=result.get("available_layers") or result.get("layers"),
                     footprint=result.get("footprint"),
                     area_sqm=result.get("area"),
                     centroid=result.get("centroid"),
@@ -923,6 +923,82 @@ async def get_public_active_ai_model():
     except Exception as e:
         logger.info(f"AI active-model fetch failed: {e}")
         return {"active": None, "ai_server": AI_SERVER_URL, "reason": "unreachable"}
+
+
+@app.get("/api/projects/{project_id}/dxf-files")
+def list_project_dxf_files(project_id: str, db: Session = Depends(get_db)):
+    """프로젝트에 업로드된 DXF 파일 목록 (사용자 사이드바 노출용)."""
+    from database.models import DxfFile, ClassificationResult, GeneratedModel
+    import uuid as uuid_module
+
+    try:
+        pid = uuid_module.UUID(project_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid project id")
+
+    files = (
+        db.query(DxfFile)
+        .filter(DxfFile.project_id == pid)
+        .order_by(DxfFile.uploaded_at.desc())
+        .all()
+    )
+    out = []
+    for f in files:
+        classified = (
+            db.query(ClassificationResult)
+            .filter(ClassificationResult.dxf_file_id == f.id)
+            .count()
+            > 0
+        )
+        gen_count = (
+            db.query(GeneratedModel)
+            .filter(GeneratedModel.dxf_file_id == f.id)
+            .count()
+        )
+        out.append({
+            "id": str(f.id),
+            "original_filename": f.original_filename,
+            "file_size": f.file_size,
+            "total_entities": f.total_entities,
+            "available_layers": f.available_layers or [],
+            "area_sqm": f.area_sqm,
+            "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+            "is_classified": classified,
+            "generated_model_count": gen_count,
+        })
+    return {"dxf_files": out, "total": len(out)}
+
+
+@app.delete("/api/dxf-files/{dxf_id}")
+def delete_dxf_file(dxf_id: str, db: Session = Depends(get_db)):
+    """DXF 파일 삭제 (메타 + 디스크 파일 + CASCADE로 분류·모델·검토 정리).
+
+    사이드바와 관리자 콘솔 모두 같은 엔드포인트를 호출하므로 양쪽이 동일한
+    DB 상태를 보게 된다.
+    """
+    from database.models import DxfFile
+    import uuid as uuid_module
+
+    try:
+        did = uuid_module.UUID(dxf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid dxf id")
+
+    f = db.query(DxfFile).filter(DxfFile.id == did).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="dxf file not found")
+
+    # 디스크 파일 best-effort 삭제
+    try:
+        path = Path(f.stored_path)
+        if path.exists():
+            path.unlink()
+    except Exception as e:
+        logger.warning(f"DXF physical file delete failed: {e}")
+
+    db.delete(f)  # CASCADE: classification, generated_models, validation_results
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/projects/{project_id}/review")
