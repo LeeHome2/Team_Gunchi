@@ -263,7 +263,7 @@ function EditorContent() {
         try {
           // 2. 조감도(45° 각도) 캡처. 카메라 이동 후 타일 다시 로드 시간 필요해서
           //    captureAerialDataUrl 내부에서 settle 대기.
-          aerialView = await captureAerialDataUrl(viewer, lon, lat, 120)
+          aerialView = await captureAerialDataUrl(viewer, lon, lat, 180)
         } catch (err) {
           console.warn('Cesium 조감도 캡처 실패:', err)
         }
