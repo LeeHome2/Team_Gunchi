@@ -9,7 +9,7 @@ import {
   Badge,
   SmallBtn,
 } from '@/components/admin/AdminUI'
-import { adminApi, AIExperiment } from '@/lib/api'
+import { adminApi, AIExperiment, AIConnectionCheckResult } from '@/lib/api'
 import ExperimentDetailModal from '@/components/admin/ExperimentDetailModal'
 
 function formatDate(iso: string | null | undefined): string {
@@ -28,7 +28,6 @@ function pickAccuracy(e: AIExperiment): number | null {
 
 export default function AdminAiPage() {
   const [aiUrl, setAiUrl] = useState('http://ceprj2.gachon.ac.kr:65006')
-  const [savingUrl, setSavingUrl] = useState(false)
 
   const [active, setActive] = useState<AIExperiment | null>(null)
   const [experiments, setExperiments] = useState<AIExperiment[]>([])
@@ -38,6 +37,9 @@ export default function AdminAiPage() {
   const [detailRunId, setDetailRunId] = useState<string | null>(null)
   const [stubModal, setStubModal] = useState<'retrain' | 'collect' | null>(null)
   const [deployingRunId, setDeployingRunId] = useState<string | null>(null)
+
+  const [checking, setChecking] = useState(false)
+  const [conn, setConn] = useState<AIConnectionCheckResult | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
@@ -73,15 +75,29 @@ export default function AdminAiPage() {
     loadAll()
   }, [])
 
-  const handleSaveAiUrl = async () => {
-    setSavingUrl(true)
+  const handleCheckConnection = async () => {
+    setChecking(true)
+    setConn(null)
     try {
-      await adminApi.putServiceSetting('ai_url', aiUrl)
-      await loadAll()
+      const res = await adminApi.checkAIConnection({ url: aiUrl, save: true })
+      setConn(res)
+      if (res.reachable) {
+        // 새 URL이 저장됐다면 활성 모델 / 실험 목록도 다시 받아온다
+        await loadAll()
+      }
     } catch (e: any) {
-      alert(e.message || 'URL 저장 실패')
+      setConn({
+        url: aiUrl,
+        reachable: false,
+        health: null,
+        service_info: null,
+        active_model: null,
+        latency_ms: null,
+        error: e.message || '연결 점검 실패',
+        saved: false,
+      })
     } finally {
-      setSavingUrl(false)
+      setChecking(false)
     }
   }
 
@@ -123,21 +139,89 @@ export default function AdminAiPage() {
                 className="input-field font-mono text-sm"
               />
               <p className="mt-1 text-xs text-white/40">
-                DB <code>service_settings.ai_url</code>에 저장됩니다.
+                연결 확인 성공 시 자동으로 <code>service_settings.ai_url</code>에 저장됩니다.
               </p>
             </div>
             <div className="flex gap-2">
               <button
-                className="btn-secondary"
-                onClick={handleSaveAiUrl}
-                disabled={savingUrl}
+                className="btn-primary"
+                onClick={handleCheckConnection}
+                disabled={checking}
               >
-                {savingUrl ? '저장 중…' : 'URL 저장'}
+                {checking ? '확인 중…' : '연결 확인'}
               </button>
               <button className="btn-secondary" onClick={loadAll}>
                 새로고침
               </button>
             </div>
+
+            {conn && (
+              <div
+                className={`rounded-lg border p-4 text-sm ${
+                  conn.reachable
+                    ? 'border-emerald-400/30 bg-emerald-500/5'
+                    : 'border-red-400/30 bg-red-500/5'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  {conn.reachable ? (
+                    <span className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                      연결됨
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-red-500/15 border border-red-400/30 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+                      연결 실패
+                    </span>
+                  )}
+                  {conn.latency_ms != null && (
+                    <span className="text-xs text-white/50 font-mono">
+                      {conn.latency_ms} ms
+                    </span>
+                  )}
+                  {conn.saved && (
+                    <span className="text-[11px] text-white/50">
+                      · URL 저장됨
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid gap-1.5 text-xs">
+                  <div className="flex gap-2">
+                    <span className="text-white/40 w-16 flex-shrink-0">대상</span>
+                    <span className="font-mono text-white/80 break-all">
+                      {conn.url}
+                    </span>
+                  </div>
+                  {conn.service_info && typeof conn.service_info === 'object' && (
+                    <div className="flex gap-2">
+                      <span className="text-white/40 w-16 flex-shrink-0">서비스</span>
+                      <span className="text-white/80">
+                        {(conn.service_info as any).service || '—'}{' '}
+                        <span className="text-white/50 font-mono">
+                          v{(conn.service_info as any).version || '?'}
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                  {conn.active_model && typeof conn.active_model === 'object' && (
+                    <div className="flex gap-2">
+                      <span className="text-white/40 w-16 flex-shrink-0">활성 모델</span>
+                      <span className="font-mono text-white/80 break-all">
+                        {(conn.active_model as any).model_version ||
+                          (conn.active_model as any).run_id ||
+                          '없음'}
+                      </span>
+                    </div>
+                  )}
+                  {conn.error && (
+                    <div className="flex gap-2">
+                      <span className="text-white/40 w-16 flex-shrink-0">오류</span>
+                      <span className="text-red-300 break-all">{conn.error}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

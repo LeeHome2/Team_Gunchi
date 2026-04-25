@@ -447,6 +447,87 @@ async def deploy_model(payload: DeployPayload, db: Session = Depends(get_db)):
     )
 
 
+class CheckConnectionPayload(BaseModel):
+    url: Optional[str] = None
+    save: bool = True  # 연결 성공 시 service_settings.ai_url에 저장할지 여부
+
+
+@router.post("/ai/check-connection")
+async def check_ai_connection(
+    payload: CheckConnectionPayload,
+    db: Session = Depends(get_db),
+):
+    """AI 서버 연결 상태를 종합 점검한다.
+
+    URL을 명시하면 그 주소로, 비우면 현재 설정된 ai_url로 테스트한다.
+    /health, /, /api/mlops/models/active 세 개를 호출해서 가용성과 운영
+    모델 정보를 한꺼번에 반환한다. 성공하면 (save=True 기본) 해당 URL을
+    service_settings에 저장하여 분류 프록시도 같은 주소를 사용하도록 한다.
+    """
+    target = (payload.url or _ai_base_url(db)).rstrip("/")
+    timeout = httpx.Timeout(connect=2.0, read=4.0, write=4.0, pool=4.0)
+
+    result: Dict[str, object] = {
+        "url": target,
+        "reachable": False,
+        "health": None,
+        "service_info": None,
+        "active_model": None,
+        "latency_ms": None,
+        "error": None,
+        "saved": False,
+    }
+
+    start = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            # 1) /health
+            try:
+                hr = await client.get(f"{target}/health")
+                if hr.status_code == 200:
+                    result["reachable"] = True
+                    try:
+                        result["health"] = hr.json()
+                    except Exception:
+                        result["health"] = {"raw": hr.text[:200]}
+                else:
+                    result["error"] = f"/health HTTP {hr.status_code}"
+            except Exception as e:
+                result["error"] = f"/health 호출 실패: {e}"
+
+            # 2) 서비스 메타 (선택)
+            try:
+                rr = await client.get(f"{target}/")
+                if rr.status_code == 200:
+                    try:
+                        result["service_info"] = rr.json()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # 3) 활성 모델 (선택)
+            if result["reachable"]:
+                try:
+                    mr = await client.get(f"{target}/api/mlops/models/active")
+                    if mr.status_code == 200:
+                        result["active_model"] = mr.json()
+                except Exception:
+                    pass
+
+        result["latency_ms"] = round((time.time() - start) * 1000, 1)
+
+        # 성공 시 저장
+        if result["reachable"] and payload.save:
+            crud.upsert_service_setting(db, key="ai_url", value=target)
+            _cache.invalidate("service:settings")
+            result["saved"] = True
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
 # ============================================================================
 # PROJECTS (admin view)
 # ============================================================================

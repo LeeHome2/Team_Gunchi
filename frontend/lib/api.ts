@@ -441,6 +441,18 @@ export interface AdminAIModel {
   created_at: string | null
 }
 
+// AI 분류 서버 연결 점검 결과
+export interface AIConnectionCheckResult {
+  url: string
+  reachable: boolean
+  health: Record<string, unknown> | null
+  service_info: Record<string, unknown> | null
+  active_model: Record<string, unknown> | null
+  latency_ms: number | null
+  error: string | null
+  saved: boolean
+}
+
 // classifier MLOps experiment (Team_Gunchi_classifier 프록시 응답)
 export interface AIExperiment {
   run_id: string
@@ -602,6 +614,11 @@ export const adminApi = {
     adminFetch<{ active: AIExperiment | null } | AIExperiment>(`/ai/active-model`),
   deployAIModel: (payload: { run_id: string; environment?: string; notes?: string }) =>
     adminFetch<{ active_run_id: string; environment: string }>(`/ai/deploy`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  checkAIConnection: (payload: { url?: string; save?: boolean } = {}) =>
+    adminFetch<AIConnectionCheckResult>(`/ai/check-connection`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
