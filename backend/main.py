@@ -934,12 +934,29 @@ async def classify_layers(
     entities = request.get("entities", [])
     total_entities = len(entities)
 
+    # AI 서버 스펙에 맞게 entity 필드명 정규화: type→entity_type, layer→raw_layer
+    # (DXF 파서는 type/layer로 출력하지만 학과 분류 서버는 entity_type/raw_layer를 본다)
+    normalized_entities = []
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        normalized_entities.append({
+            "entity_type": ent.get("entity_type") or ent.get("type"),
+            "raw_layer": ent.get("raw_layer") or ent.get("layer"),
+            "entity_id": ent.get("entity_id") or ent.get("handle"),
+        })
+    ai_request = {
+        "file_id": request.get("file_id"),
+        "entities": normalized_entities,
+        "log_predictions": request.get("log_predictions", True),
+    }
+
     # Try real AI server first
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
                 f"{AI_SERVER_URL}/api/classify",
-                json=request
+                json=ai_request
             )
             if response.status_code == 200:
                 ai_result = response.json()
