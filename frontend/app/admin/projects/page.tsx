@@ -11,6 +11,7 @@ import {
   StatCard,
 } from '@/components/admin/AdminUI'
 import { adminApi, deleteProject, AdminProject, AdminEndpointStatus } from '@/lib/api'
+import ProjectDetailModal from '@/components/admin/ProjectDetailModal'
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -32,6 +33,7 @@ export default function AdminProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [endpoints, setEndpoints] = useState<AdminEndpointStatus[]>([])
+  const [detail, setDetail] = useState<AdminProject | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -168,7 +170,7 @@ export default function AdminProjectsPage() {
               </Td>
               <Td>
                 <div className="flex gap-1.5">
-                  <SmallBtn>상세</SmallBtn>
+                  <SmallBtn onClick={() => setDetail(p)}>상세</SmallBtn>
                   <SmallBtn variant="danger" onClick={() => handleDelete(p)}>
                     삭제
                   </SmallBtn>
@@ -229,6 +231,14 @@ export default function AdminProjectsPage() {
           </div>
         </section>
       </main>
+
+      {detail && (
+        <ProjectDetailModal
+          projectId={detail.id}
+          projectName={detail.name}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </>
   )
 }

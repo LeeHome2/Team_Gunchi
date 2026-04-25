@@ -344,6 +344,122 @@ def list_user_projects(user_id: UUID, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/projects/{project_id}")
+def get_project_detail(project_id: UUID, db: Session = Depends(get_db)):
+    """프로젝트 상세 + 업로드된 DXF 파일/분류/모델 메타.
+
+    관리자 화면에서 [상세] 버튼으로 들어가서 어떤 도면이 올라갔고 어떤 분석
+    결과가 쌓여있는지 확인하기 위한 엔드포인트. 파일 본문은 보내지 않고
+    레이어 목록·면적·분류 결과 카운트 같은 메타만 반환한다.
+    """
+    from database.models import (
+        Project,
+        DxfFile,
+        ClassificationResult,
+        GeneratedModel,
+        ValidationResult,
+    )
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="project not found")
+
+    dxf_files = (
+        db.query(DxfFile)
+        .filter(DxfFile.project_id == project_id)
+        .order_by(DxfFile.uploaded_at.desc())
+        .all()
+    )
+
+    dxf_payloads = []
+    for f in dxf_files:
+        latest_classification = (
+            db.query(ClassificationResult)
+            .filter(ClassificationResult.dxf_file_id == f.id)
+            .order_by(ClassificationResult.created_at.desc())
+            .first()
+        )
+        gen_count = (
+            db.query(GeneratedModel)
+            .filter(GeneratedModel.dxf_file_id == f.id)
+            .count()
+        )
+        dxf_payloads.append({
+            "id": str(f.id),
+            "original_filename": f.original_filename,
+            "stored_path": f.stored_path,
+            "file_size": f.file_size,
+            "total_entities": f.total_entities,
+            "available_layers": f.available_layers or [],
+            "area_sqm": f.area_sqm,
+            "centroid": f.centroid,
+            "bounds": f.bounds,
+            "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+            "classification": (
+                {
+                    "id": str(latest_classification.id),
+                    "model_version": latest_classification.model_version,
+                    "model_type": latest_classification.model_type,
+                    "class_counts": latest_classification.class_counts,
+                    "average_confidence": latest_classification.average_confidence,
+                    "total_entities": latest_classification.total_entities,
+                    "created_at": (
+                        latest_classification.created_at.isoformat()
+                        if latest_classification.created_at
+                        else None
+                    ),
+                }
+                if latest_classification
+                else None
+            ),
+            "generated_model_count": gen_count,
+        })
+
+    generated_models = (
+        db.query(GeneratedModel)
+        .filter(GeneratedModel.project_id == project_id)
+        .order_by(GeneratedModel.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    model_payloads = [
+        {
+            "id": str(m.id),
+            "model_type": m.model_type,
+            "file_path": m.file_path,
+            "file_size": m.file_size,
+            "height": m.height,
+            "floors": m.floors,
+            "dxf_file_id": str(m.dxf_file_id) if m.dxf_file_id else None,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in generated_models
+    ]
+
+    validation_count = (
+        db.query(ValidationResult)
+        .filter(ValidationResult.project_id == project_id)
+        .count()
+    )
+
+    return {
+        "project": {
+            "id": str(project.id),
+            "name": project.name,
+            "address": project.address,
+            "zone_type": project.zone_type,
+            "longitude": project.longitude,
+            "latitude": project.latitude,
+            "user_id": str(project.user_id) if project.user_id else None,
+            "created_at": project.created_at.isoformat() if project.created_at else None,
+            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
+        },
+        "dxf_files": dxf_payloads,
+        "generated_models": model_payloads,
+        "validation_count": validation_count,
+    }
+
+
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: UUID, db: Session = Depends(get_db)):
     """프로젝트 삭제 (관리자용). 연관 데이터는 CASCADE로 정리됨."""

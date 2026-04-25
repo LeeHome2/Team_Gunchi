@@ -396,6 +396,59 @@ export interface AdminProject {
   area_sqm: number | null
 }
 
+export interface AdminDxfClassification {
+  id: string
+  model_version: string
+  model_type: string
+  class_counts: Record<string, number>
+  average_confidence: number
+  total_entities: number
+  created_at: string | null
+}
+
+export interface AdminDxfFile {
+  id: string
+  original_filename: string
+  stored_path: string
+  file_size: number
+  total_entities: number | null
+  available_layers: string[]
+  area_sqm: number | null
+  centroid: number[] | null
+  bounds: { min_x: number; min_y: number; max_x: number; max_y: number } | null
+  uploaded_at: string | null
+  classification: AdminDxfClassification | null
+  generated_model_count: number
+}
+
+export interface AdminGeneratedModel {
+  id: string
+  model_type: string
+  file_path: string
+  file_size: number | null
+  height: number
+  floors: number
+  dxf_file_id: string | null
+  created_at: string | null
+}
+
+export interface AdminProjectDetail {
+  project: {
+    id: string
+    name: string
+    address: string | null
+    zone_type: string | null
+    longitude: number | null
+    latitude: number | null
+    user_id: string | null
+    created_at: string | null
+    updated_at: string | null
+  }
+  dxf_files: AdminDxfFile[]
+  generated_models: AdminGeneratedModel[]
+  validation_count: number
+}
+
 export interface AdminResult {
   id: string
   project_id: string
@@ -545,6 +598,8 @@ export const adminApi = {
   // Projects (admin)
   listProjects: () =>
     adminFetch<{ projects: AdminProject[]; total: number }>('/projects'),
+  getProjectDetail: (projectId: string) =>
+    adminFetch<AdminProjectDetail>(`/projects/${projectId}`),
   deleteProject: (projectId: string) =>
     adminFetch<{ ok: true }>(`/projects/${projectId}`, { method: 'DELETE' }),
 
