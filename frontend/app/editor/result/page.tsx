@@ -18,7 +18,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Brand from '@/components/Brand'
 import { useProjectStore } from '@/store/projectStore'
 import { requestAIScoring } from '@/lib/analysisApi'
@@ -200,7 +200,7 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot } =
     useProjectStore()
 
   // 데이터가 아예 없으면 에디터로 유도
@@ -209,6 +209,61 @@ export default function ResultPage() {
     // 새로고침 등으로 store 가 비어있는 경우 — 자동 리다이렉트 대신
     // 안내 화면을 띄워 사용자가 컨트롤하게 한다.
   }, [])
+
+  // ─── AI 렌더링 (Google AI Studio "Nano Banana") ─────────────
+  const [isRendering, setIsRendering] = useState(false)
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const [renderedSitePlan, setRenderedSitePlan] = useState<string | null>(null)
+  const [renderedAerialView, setRenderedAerialView] = useState<string | null>(null)
+
+  const handleAIRender = useCallback(async () => {
+    if (!resultSnapshot.sitePlan && !resultSnapshot.aerialView) {
+      setRenderError('렌더링할 캡처 이미지가 없습니다. 에디터에서 "결과 확인"을 먼저 눌러주세요.')
+      return
+    }
+    setIsRendering(true)
+    setRenderError(null)
+    try {
+      const tasks: Promise<void>[] = []
+      if (resultSnapshot.sitePlan) {
+        tasks.push(
+          fetch('/api/ai-render', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: resultSnapshot.sitePlan,
+              kind: 'sitePlan',
+            }),
+          }).then(async (r) => {
+            const d = await r.json()
+            if (!r.ok || !d.imageDataUrl) throw new Error(d.error || '배치도 렌더 실패')
+            setRenderedSitePlan(d.imageDataUrl)
+          }),
+        )
+      }
+      if (resultSnapshot.aerialView) {
+        tasks.push(
+          fetch('/api/ai-render', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: resultSnapshot.aerialView,
+              kind: 'aerialView',
+            }),
+          }).then(async (r) => {
+            const d = await r.json()
+            if (!r.ok || !d.imageDataUrl) throw new Error(d.error || '조감도 렌더 실패')
+            setRenderedAerialView(d.imageDataUrl)
+          }),
+        )
+      }
+      await Promise.all(tasks)
+    } catch (e: any) {
+      setRenderError(e?.message || 'AI 렌더링 실패')
+    } finally {
+      setIsRendering(false)
+    }
+  }, [resultSnapshot])
 
   const projectName = useMemo(() => {
     if (typeof window === 'undefined') return '현재 프로젝트'
@@ -401,20 +456,57 @@ export default function ResultPage() {
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <DiagramCard
                 title="배치도"
-                subtitle="Cesium 뷰포트 탑다운 캡처"
-                imageSrc={resultSnapshot.sitePlan}
+                subtitle={renderedSitePlan ? 'Nano Banana 렌더링' : 'Cesium 뷰포트 탑다운 캡처'}
+                imageSrc={renderedSitePlan ?? resultSnapshot.sitePlan}
                 placeholderLabel="배치도 이미지가 없습니다"
                 placeholderHint="에디터에서 '결과 확인' 버튼을 눌러 현재 뷰포트를 캡처해 주세요."
-                badge="캡처 이미지"
+                badge={renderedSitePlan ? 'AI 렌더링' : '캡처 이미지'}
               />
               <DiagramCard
                 title="조감도"
-                subtitle="AI 이미지 생성 (STAGE 6)"
-                imageSrc={resultSnapshot.aerialView}
-                placeholderLabel="AI 조감도 생성 대기 중"
-                placeholderHint="학교 제공 GPT 이미지 생성 API 가 연결되면 배치도를 입력으로 받아 자동 생성됩니다."
-                badge="AI 생성 예정"
+                subtitle={renderedAerialView ? 'Nano Banana 렌더링' : 'Cesium 뷰포트 45° 캡처'}
+                imageSrc={renderedAerialView ?? resultSnapshot.aerialView}
+                placeholderLabel="조감도 이미지가 없습니다"
+                placeholderHint="에디터에서 '결과 확인' 버튼을 눌러 현재 뷰포트를 캡처해 주세요."
+                badge={renderedAerialView ? 'AI 렌더링' : '캡처 이미지'}
               />
+            </section>
+
+            {/* AI 렌더링 버튼 (Google AI Studio - Nano Banana) */}
+            <section className="card px-4 py-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">AI 렌더링 (Nano Banana)</h3>
+                  <p className="text-xs text-white/50 mt-0.5">
+                    Google AI Studio의 Gemini 2.5 Flash Image 모델로 캡처 이미지를
+                    사실적인 건축 렌더링 스타일로 변환합니다.
+                  </p>
+                </div>
+                <button
+                  onClick={handleAIRender}
+                  disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 text-navy-950 font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:from-amber-300 hover:to-yellow-400 transition flex items-center gap-2"
+                >
+                  {isRendering ? (
+                    <>
+                      <span className="inline-block w-3 h-3 border-2 border-navy-950 border-t-transparent rounded-full animate-spin"></span>
+                      렌더링 중...
+                    </>
+                  ) : (
+                    <>🎨 AI 렌더링 실행</>
+                  )}
+                </button>
+              </div>
+              {renderError && (
+                <div className="mt-3 px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-xs text-red-300">
+                  {renderError}
+                </div>
+              )}
+              {(renderedSitePlan || renderedAerialView) && !isRendering && !renderError && (
+                <div className="mt-3 px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300">
+                  ✅ AI 렌더링 완료. 위 카드에서 확인하세요.
+                </div>
+              )}
             </section>
 
             {/* 규정 요약 카드 */}

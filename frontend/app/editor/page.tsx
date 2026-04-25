@@ -8,7 +8,7 @@ import { useProjectStore } from '@/store/projectStore'
 import Sidebar from '@/components/Sidebar'
 import ErrorBanner from '@/components/ErrorBanner'
 import Brand from '@/components/Brand'
-import { captureTopDownDataUrl } from '@/lib/cesiumSnapshot'
+import { captureTopDownDataUrl, captureAerialDataUrl } from '@/lib/cesiumSnapshot'
 import { getProject } from '@/lib/api'
 
 const CesiumViewer = dynamic(() => import('@/components/CesiumViewer'), {
@@ -252,16 +252,25 @@ function EditorContent() {
     setIsCapturingResult(true)
     try {
       let sitePlan: string | null = null
+      let aerialView: string | null = null
       if (lon != null && lat != null) {
         try {
+          // 1. 배치도(탑다운) 먼저 캡처
           sitePlan = await captureTopDownDataUrl(viewer, lon, lat, 350)
         } catch (err) {
-          console.warn('Cesium 스크린샷 캡처 실패:', err)
+          console.warn('Cesium 배치도 캡처 실패:', err)
+        }
+        try {
+          // 2. 조감도(45° 각도) 캡처. 카메라 이동 후 타일 다시 로드 시간 필요해서
+          //    captureAerialDataUrl 내부에서 settle 대기.
+          aerialView = await captureAerialDataUrl(viewer, lon, lat, 600)
+        } catch (err) {
+          console.warn('Cesium 조감도 캡처 실패:', err)
         }
       }
       setResultSnapshot({
         sitePlan,
-        aerialView: null, // STAGE 6 (이미지 생성 AI) 연결 후 채움
+        aerialView,         // 임시 Cesium 캡처. AI 렌더 후엔 렌더링 결과로 덮어씀.
         capturedAt: new Date().toISOString(),
       })
       router.push('/editor/result')
