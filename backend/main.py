@@ -871,21 +871,55 @@ async def validate_placement_endpoint(
 async def get_public_active_ai_model():
     """현재 운영 중인 AI 분류 모델 정보 (사용자 페이지 노출용).
 
-    관리자 콘솔의 deploy 액션은 admin 라우트에서 수행되지만, 어떤 모델이
-    적용 중인지 보는 것은 일반 사용자에게도 노출 가능한 정보이므로 별도
-    퍼블릭 엔드포인트로 둔다. AI 서버 연결 실패 시 200 + active=null로
-    응답해 프론트가 'mock fallback 중' 표시를 그릴 수 있게 한다.
+    /api/mlops/models/active 응답에는 메트릭이 없어서 실험 상세도 같이
+    조회해 정확도/F1을 합쳐서 반환한다. AI 서버 응답의 model_type/created_at
+    같은 필드명도 프론트가 기대하는 algorithm/trained_at으로 매핑해준다.
     """
     import httpx
     timeout = httpx.Timeout(connect=2.0, read=4.0, write=4.0, pool=4.0)
+
+    def _flatten_metrics(metrics):
+        if not isinstance(metrics, dict):
+            return {}
+        src = metrics.get("test") or metrics.get("val") or metrics.get("train") or {}
+        if not isinstance(src, dict):
+            return {"raw": metrics}
+        return {
+            "accuracy": src.get("accuracy"),
+            "f1": src.get("f1_macro") or src.get("f1_weighted"),
+            "split_used": "test" if metrics.get("test") else ("val" if metrics.get("val") else "train"),
+        }
+
+    def _normalize(exp):
+        if not isinstance(exp, dict):
+            return exp
+        out = dict(exp)
+        out["model_version"] = exp.get("model_version") or exp.get("run_id")
+        out["algorithm"] = exp.get("algorithm") or exp.get("model_type")
+        out["trained_at"] = exp.get("trained_at") or exp.get("created_at")
+        if "metrics" in exp:
+            out["metrics"] = _flatten_metrics(exp.get("metrics"))
+        return out
+
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(f"{AI_SERVER_URL}/api/mlops/models/active")
-            if resp.status_code == 200:
-                return {"active": resp.json(), "ai_server": AI_SERVER_URL}
             if resp.status_code == 404:
                 return {"active": None, "ai_server": AI_SERVER_URL, "reason": "no_active_model"}
-            return {"active": None, "ai_server": AI_SERVER_URL, "reason": f"http_{resp.status_code}"}
+            if resp.status_code != 200:
+                return {"active": None, "ai_server": AI_SERVER_URL, "reason": f"http_{resp.status_code}"}
+
+            active = resp.json()
+            run_id = active.get("run_id") if isinstance(active, dict) else None
+            if run_id:
+                try:
+                    d = await client.get(f"{AI_SERVER_URL}/api/mlops/experiments/{run_id}")
+                    if d.status_code == 200:
+                        merged = {**d.json(), **active}
+                        return {"active": _normalize(merged), "ai_server": AI_SERVER_URL}
+                except Exception:
+                    pass
+            return {"active": _normalize(active), "ai_server": AI_SERVER_URL}
     except Exception as e:
         logger.info(f"AI active-model fetch failed: {e}")
         return {"active": None, "ai_server": AI_SERVER_URL, "reason": "unreachable"}

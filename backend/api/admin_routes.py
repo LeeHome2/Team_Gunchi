@@ -408,27 +408,82 @@ async def _ai_proxy_post(path: str, body: dict, db: Session) -> dict:
         raise HTTPException(status_code=502, detail=f"AI 서버 연결 실패: {e}")
 
 
+def _flatten_metrics(metrics: Optional[dict]) -> dict:
+    """학과 분류 서버는 metrics를 train/val/test 별로 분리해서 돌려준다.
+    프론트는 단일 accuracy/f1 값을 기대하므로 test 우선 → val → train 순서로
+    대표 메트릭을 추려 평탄화한다. 원본은 raw 키로 유지.
+    """
+    if not isinstance(metrics, dict):
+        return {}
+    src = metrics.get("test") or metrics.get("val") or metrics.get("train") or {}
+    if not isinstance(src, dict):
+        return {"raw": metrics}
+    return {
+        "accuracy": src.get("accuracy"),
+        "f1": src.get("f1_macro") or src.get("f1_weighted"),
+        "f1_macro": src.get("f1_macro"),
+        "f1_weighted": src.get("f1_weighted"),
+        "per_class": src.get("per_class"),
+        "split_used": "test" if metrics.get("test") else ("val" if metrics.get("val") else "train"),
+        "raw": metrics,
+    }
+
+
+def _normalize_experiment(exp: dict) -> dict:
+    """AI 서버 실험 응답을 프론트 스키마(model_version/algorithm/trained_at/metrics)로 정규화."""
+    if not isinstance(exp, dict):
+        return exp
+    out = dict(exp)
+    out["model_version"] = exp.get("model_version") or exp.get("run_id")
+    out["algorithm"] = exp.get("algorithm") or exp.get("model_type")
+    out["trained_at"] = exp.get("trained_at") or exp.get("created_at")
+    if "metrics" in exp:
+        out["metrics"] = _flatten_metrics(exp.get("metrics"))
+    if "hyperparams" in exp and "hyperparameters" not in exp:
+        out["hyperparameters"] = exp["hyperparams"]
+    return out
+
+
 @router.get("/ai/experiments")
 async def list_experiments(limit: int = 50, db: Session = Depends(get_db)):
-    """모델 실험(학습 이력) 목록 조회."""
-    return await _ai_proxy_get(f"/api/mlops/experiments?limit={limit}", db)
+    """모델 실험(학습 이력) 목록 조회. 응답 필드명을 프론트 스키마로 정규화한다."""
+    raw = await _ai_proxy_get(f"/api/mlops/experiments?limit={limit}", db)
+    items = raw.get("experiments", []) if isinstance(raw, dict) else []
+    return {"experiments": [_normalize_experiment(e) for e in items]}
 
 
 @router.get("/ai/experiments/{run_id}")
 async def get_experiment(run_id: str, db: Session = Depends(get_db)):
     """특정 실험의 상세 메트릭."""
-    return await _ai_proxy_get(f"/api/mlops/experiments/{run_id}", db)
+    raw = await _ai_proxy_get(f"/api/mlops/experiments/{run_id}", db)
+    return _normalize_experiment(raw)
 
 
 @router.get("/ai/active-model")
 async def get_active_model(db: Session = Depends(get_db)):
-    """현재 운영 중인 모델 정보."""
+    """현재 운영 중인 모델 정보. active 응답에는 메트릭이 없으므로
+    실험 상세도 함께 fetch해서 metrics/hyperparams를 합쳐 반환한다.
+    """
     try:
-        return await _ai_proxy_get("/api/mlops/models/active", db)
+        active = await _ai_proxy_get("/api/mlops/models/active", db)
     except HTTPException as e:
         if e.status_code == 404:
             return {"active": None}
         raise
+
+    if not isinstance(active, dict) or not active.get("run_id"):
+        return {"active": None}
+
+    # 상세 메트릭 보강 (실패해도 active 자체는 그대로)
+    try:
+        detail = await _ai_proxy_get(f"/api/mlops/experiments/{active['run_id']}", db)
+        if isinstance(detail, dict):
+            merged = {**detail, **active}  # active의 deployed_at/environment를 우선 보존
+            return {"active": _normalize_experiment(merged)}
+    except Exception:
+        pass
+
+    return {"active": _normalize_experiment(active)}
 
 
 class DeployPayload(BaseModel):
