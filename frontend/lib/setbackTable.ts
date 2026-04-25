@@ -287,3 +287,48 @@ export const DEFAULT_SETBACKS = {
   fromAdjacentLot: 0.5,   // 인접대지에서 0.5m
   roadSetback: 0,         // 4m 이상 도로 가정
 }
+
+/**
+ * 용도지역별 규정 한도 (검토 탭에서 사용).
+ *
+ * 백엔드 backend/services/validation.py 의 ZONE_CONFIGS 와 매핑 일치.
+ * VWorld 에서 가져온 zoneType 을 키로 조회하여 건폐율/이격/높이 한도를 자동 적용.
+ *
+ * height: null = 제한 없음 (또는 별도 규정 적용 필요)
+ */
+export interface ZoneLimits {
+  coverage: number       // 건폐율 한도 (%)
+  setback: number        // 인접 대지 최소 이격거리 (m)
+  height: number | null  // 최고 높이 (m), null = 제한 없음
+}
+
+export const ZONE_LIMITS: Record<ZoneType, ZoneLimits> = {
+  '제1종전용주거지역': { coverage: 50, setback: 2.0, height: 10 },
+  '제2종전용주거지역': { coverage: 50, setback: 1.5, height: 12 },
+  '제1종일반주거지역': { coverage: 60, setback: 1.5, height: 16 },
+  '제2종일반주거지역': { coverage: 60, setback: 1.5, height: 20 },
+  '제3종일반주거지역': { coverage: 50, setback: 1.5, height: null },
+  '준주거지역':         { coverage: 70, setback: 1.0, height: null },
+  '중심상업지역':       { coverage: 90, setback: 0.0, height: null },
+  '일반상업지역':       { coverage: 80, setback: 0.0, height: null },
+  '근린상업지역':       { coverage: 70, setback: 0.5, height: null },
+  '유통상업지역':       { coverage: 80, setback: 0.0, height: null },
+  '전용공업지역':       { coverage: 70, setback: 1.0, height: null },
+  '일반공업지역':       { coverage: 70, setback: 1.0, height: null },
+  '준공업지역':         { coverage: 70, setback: 1.0, height: null },
+  '보전녹지지역':       { coverage: 20, setback: 1.5, height: null },
+  '생산녹지지역':       { coverage: 20, setback: 1.5, height: null },
+  '자연녹지지역':       { coverage: 20, setback: 1.5, height: null },
+  '관리지역':           { coverage: 40, setback: 1.0, height: null },
+  '농림지역':           { coverage: 20, setback: 1.5, height: null },
+  '자연환경보전지역':   { coverage: 20, setback: 1.5, height: null },
+  '미지정':             { coverage: 60, setback: 1.5, height: null },  // default
+}
+
+/**
+ * zoneType 으로 ZoneLimits 조회. 없으면 '미지정' 기본값.
+ */
+export function getZoneLimits(zoneType: ZoneType | string | null | undefined): ZoneLimits {
+  if (!zoneType) return ZONE_LIMITS['미지정']
+  return (ZONE_LIMITS as Record<string, ZoneLimits>)[zoneType] ?? ZONE_LIMITS['미지정']
+}

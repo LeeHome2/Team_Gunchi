@@ -11,7 +11,7 @@ import { useOsmBuildings } from '@/hooks/useOsmBuildings'
 import { useProjectPersistence } from '@/hooks/useProjectPersistence'
 import { useParkingZone } from '@/hooks/useParkingZone'
 import { isPointInPolygon as checkPointInPolygon } from '@/lib/geometry'
-import { DEFAULT_SETBACKS } from '@/lib/setbackTable'
+import { DEFAULT_SETBACKS, getZoneLimits } from '@/lib/setbackTable'
 import { saveReviewResult } from '@/lib/api'
 import type { CadastralFeature } from '@/types/cesium'
 
@@ -1632,13 +1632,20 @@ export default function CesiumViewer() {
       const siteArea = state.selectedBlockInfo?.totalArea || 0
       if (siteArea <= 0) return
 
+      // 용도지역 기반 규정 한도 — VWorld에서 가져온 zoneType 자동 적용
+      // 건축선 분석을 미리 수행했다면 buildingLineResult.zoneType이 채워져 있음.
+      // 미수행 또는 미지정 시 default(60% / 1.5m / 제한없음) 사용.
+      const blResult = buildingLine.getBuildingLineResult()
+      const zoneType = blResult?.zoneType ?? '미지정'
+      const zoneLimits = getZoneLimits(zoneType)
+
       // 건폐율: 모델 바운더리 면적 / 선택 블록 면적
       const bbox = modelBoundingBoxRef.current
       const scale = modelTransformRef.current.scale
       const buildingArea = (bbox.width * scale) * (bbox.depth * scale)
       const ratio = siteArea > 0 ? (buildingArea / siteArea) * 100 : 0
-      // 용도지역별 건폐율 한도 (기본 60%)
-      const limit = 60
+      // 용도지역별 건폐율 한도 (zoneType 기반 자동 적용)
+      const limit = zoneLimits.coverage
 
       // 이격거리: 모델 코너와 블록 경계 간 최소거리 계산
       const t = modelTransformRef.current
@@ -1672,7 +1679,8 @@ export default function CesiumViewer() {
         }
       }
 
-      const requiredSetback = 0.5 // 기본 인접대지 이격거리
+      // 인접대지 이격거리 한도 (zoneType 기반 자동 적용)
+      const requiredSetback = zoneLimits.setback
       if (minDist < Infinity) {
         setbackDetails.push({
           type: '대지경계',
