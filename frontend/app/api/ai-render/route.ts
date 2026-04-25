@@ -79,21 +79,35 @@ export async function POST(req: NextRequest) {
     },
   }
 
-  try {
-    const upstream = await fetch(`${ENDPOINT}?key=${GOOGLE_AI_API_KEY}`, {
+  // 429(rate limit)는 자동 재시도 — Google AI Studio 무료 티어가 분당 호출수가
+  // 작아서 두 장(배치도+조감도)을 짧은 시간에 보내면 흔히 발생.
+  let upstream: Response | null = null
+  let lastErrText = ''
+  const MAX_RETRY = 3
+  for (let attempt = 0; attempt < MAX_RETRY; attempt++) {
+    upstream = await fetch(`${ENDPOINT}?key=${GOOGLE_AI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest),
     })
+    if (upstream.status !== 429) break
+    lastErrText = await upstream.text()
+    // 429: 1.5s, 4s, 9s 지수 백오프
+    const waitMs = [1500, 4000, 9000][attempt]
+    await new Promise((r) => setTimeout(r, waitMs))
+  }
 
-    if (!upstream.ok) {
-      const errText = await upstream.text()
+  try {
+    if (!upstream || !upstream.ok) {
+      const status = upstream?.status ?? 500
+      const errText = upstream ? await upstream.text() : lastErrText
+      const friendly =
+        status === 429
+          ? 'Gemini 무료 티어 분당 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.'
+          : `Google AI 호출 실패 (${status})`
       return NextResponse.json(
-        {
-          error: `Google AI 호출 실패 (${upstream.status})`,
-          detail: errText.slice(0, 500),
-        },
-        { status: upstream.status },
+        { error: friendly, detail: errText.slice(0, 500), status },
+        { status },
       )
     }
 

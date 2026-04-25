@@ -223,46 +223,45 @@ export default function ResultPage() {
     }
     setIsRendering(true)
     setRenderError(null)
-    try {
-      const tasks: Promise<void>[] = []
-      if (resultSnapshot.sitePlan) {
-        tasks.push(
-          fetch('/api/ai-render', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image: resultSnapshot.sitePlan,
-              kind: 'sitePlan',
-            }),
-          }).then(async (r) => {
-            const d = await r.json()
-            if (!r.ok || !d.imageDataUrl) throw new Error(d.error || '배치도 렌더 실패')
-            setRenderedSitePlan(d.imageDataUrl)
-          }),
-        )
+
+    // 순차 호출 — 무료 티어 분당 호출 한도(429) 회피.
+    // 둘 중 하나가 실패해도 다른 하나는 시도하고, 사용자에게는 묶어서 안내.
+    const renderOne = async (
+      image: string,
+      kind: 'sitePlan' | 'aerialView',
+    ): Promise<{ ok: true; url: string } | { ok: false; error: string }> => {
+      try {
+        const r = await fetch('/api/ai-render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image, kind }),
+        })
+        const d = await r.json()
+        if (!r.ok || !d.imageDataUrl) {
+          return { ok: false, error: d.error || `${kind} 렌더 실패` }
+        }
+        return { ok: true, url: d.imageDataUrl }
+      } catch (e: any) {
+        return { ok: false, error: e?.message || `${kind} 호출 실패` }
       }
-      if (resultSnapshot.aerialView) {
-        tasks.push(
-          fetch('/api/ai-render', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image: resultSnapshot.aerialView,
-              kind: 'aerialView',
-            }),
-          }).then(async (r) => {
-            const d = await r.json()
-            if (!r.ok || !d.imageDataUrl) throw new Error(d.error || '조감도 렌더 실패')
-            setRenderedAerialView(d.imageDataUrl)
-          }),
-        )
-      }
-      await Promise.all(tasks)
-    } catch (e: any) {
-      setRenderError(e?.message || 'AI 렌더링 실패')
-    } finally {
-      setIsRendering(false)
     }
+
+    const errors: string[] = []
+    if (resultSnapshot.sitePlan) {
+      const res = await renderOne(resultSnapshot.sitePlan, 'sitePlan')
+      if (res.ok) setRenderedSitePlan(res.url)
+      else errors.push(`배치도: ${res.error}`)
+    }
+    if (resultSnapshot.aerialView) {
+      const res = await renderOne(resultSnapshot.aerialView, 'aerialView')
+      if (res.ok) setRenderedAerialView(res.url)
+      else errors.push(`조감도: ${res.error}`)
+    }
+
+    if (errors.length > 0) {
+      setRenderError(errors.join(' / '))
+    }
+    setIsRendering(false)
   }, [resultSnapshot])
 
   const projectName = useMemo(() => {
