@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 import uuid
 import shutil
 from pathlib import Path
+from typing import List, Tuple
 from sqlalchemy.orm import Session
 import logging
 
@@ -994,17 +995,47 @@ async def classify_layers(
             layer_set.add(ent["layer"])
     layers = sorted(layer_set) if layer_set else ["WALLS", "DOORS", "WINDOWS", "FURNITURE", "DIMENSIONS", "TEXT", "OTHERS"]
 
+    # 레이어명 키워드 휴리스틱으로 layer_decisions 생성
+    # AI 서버가 다운되어 mock으로 빠져도 매스 생성 시 벽 레이어를 식별할 수 있도록 함
+    layer_decisions = {layer: _classify_layer_by_name(layer) for layer in layers}
+
     mock_result = {
         "file_id": file_id,
         "total_entities": total_entities,
         "class_counts": class_counts,
         "layers": layers,
+        "layer_decisions": layer_decisions,
         "average_confidence": round(0.87 + random.random() * 0.08, 4),
         "model_version": "mock-v1.0",
         "is_mock": True,
     }
 
     return mock_result
+
+
+_LAYER_KEYWORDS: List[Tuple[str, Tuple[str, ...]]] = [
+    ("wall", ("wall", "벽", "wal", "외벽", "내벽", "조적", "structural", "struct")),
+    ("door", ("door", "문", "dr", "출입")),
+    ("window", ("window", "창", "win", "wd", "sash")),
+    ("stair", ("stair", "계단", "step", "stairs")),
+    ("furniture", ("furn", "가구", "fixture", "fix", "equip", "fur")),
+    ("dimension", ("dim", "치수", "annotation", "anno")),
+    ("text", ("text", "txt", "글자", "label")),
+]
+
+
+def _classify_layer_by_name(layer: str) -> str:
+    """레이어 이름으로부터 클래스를 추정한다.
+
+    DXF 레이어 명명 규칙은 회사·도면별로 천차만별이지만 wall/벽/door/창 같은
+    공통 키워드는 거의 모든 도면에서 등장한다. AI 서버가 다운된 경우에도
+    매스 생성이 직육면체로 떨어지지 않도록 최소한의 휴리스틱을 제공한다.
+    """
+    name = layer.lower()
+    for cls, keywords in _LAYER_KEYWORDS:
+        if any(k in name for k in keywords):
+            return cls
+    return "other"
 
 
 # NOTE: /api/report (docx 보고서) 엔드포인트 삭제됨 — Node.js 의존성 제거

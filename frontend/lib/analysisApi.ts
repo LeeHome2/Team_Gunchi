@@ -293,21 +293,34 @@ export async function generateModelFromClassification(
     footprint.reduce((s, c) => s + c[1], 0) / footprint.length,
   ]
 
-  // 벽 레이어 추출
-  // 1순위: 학과 AI 서버 분류 결과의 layer_decisions
-  // 2순위: 기존 하드코딩 매핑 (fallback)
-  const aiWallLayers =
-    classification.layer_decisions && Object.keys(classification.layer_decisions).length > 0
-      ? Object.entries(classification.layer_decisions)
-          .filter(([, cls]) => cls === 'wall')
-          .map(([layer]) => layer)
-      : []
-  const wallLayers =
-    aiWallLayers.length > 0
-      ? aiWallLayers
-      : fileName
-        ? getLayersByClass(fileName, 'wall')
-        : []
+  // 벽 레이어 추출 우선순위
+  // 1) 분류 결과의 layer_decisions (AI / 하드코딩 / 백엔드 mock)
+  // 2) classification.layers를 키워드 휴리스틱으로 분류
+  // 3) parseResult.entities의 모든 layer를 키워드 휴리스틱으로 분류
+  // 4) 파일명 기반 하드코딩 (구버전 호환)
+  let wallLayers: string[] = []
+
+  if (classification.layer_decisions && Object.keys(classification.layer_decisions).length > 0) {
+    wallLayers = Object.entries(classification.layer_decisions)
+      .filter(([, cls]) => cls === 'wall')
+      .map(([layer]) => layer)
+  }
+
+  if (wallLayers.length === 0 && classification.layers && classification.layers.length > 0) {
+    wallLayers = classification.layers.filter((l) => classifyLayerByName(l) === 'wall')
+  }
+
+  if (wallLayers.length === 0 && parseResult?.entities) {
+    const layerSet = new Set<string>()
+    for (const ent of parseResult.entities as any[]) {
+      if (ent?.layer) layerSet.add(ent.layer)
+    }
+    wallLayers = Array.from(layerSet).filter((l) => classifyLayerByName(l) === 'wall')
+  }
+
+  if (wallLayers.length === 0 && fileName) {
+    wallLayers = getLayersByClass(fileName, 'wall')
+  }
 
   console.log('[generateModel]', {
     isLonLat: isLonLatCoords(rawFootprint),
@@ -482,9 +495,32 @@ export function generateHardcodedClassification(
     total_entities: parseResult.total_entities || entities.length,
     class_counts: classCounts,
     layers,
+    layer_decisions: layerMap,
     average_confidence: 0.95, // 하드코딩이므로 높은 신뢰도
     is_mock: false, // mock이 아닌 하드코딩 분류
   }
+}
+
+/**
+ * 레이어 이름 키워드로 클래스를 추정한다.
+ * AI 서버 응답에 layer_decisions가 없거나 일부 레이어만 매핑된 경우의 fallback.
+ */
+const LAYER_KEYWORDS: Array<[string, string[]]> = [
+  ['wall', ['wall', '벽', '외벽', '내벽', 'wal', 'struct', 'structural', '조적']],
+  ['door', ['door', '문', 'dr', '출입']],
+  ['window', ['window', '창', 'win', 'wd', 'sash']],
+  ['stair', ['stair', '계단', 'step']],
+  ['furniture', ['furn', '가구', 'fixture', 'fix', 'equip']],
+  ['dimension', ['dim', '치수', 'anno']],
+  ['text', ['text', 'txt', '글자', 'label']],
+]
+
+export function classifyLayerByName(layer: string): string {
+  const name = layer.toLowerCase()
+  for (const [cls, keywords] of LAYER_KEYWORDS) {
+    if (keywords.some((k) => name.includes(k))) return cls
+  }
+  return 'other'
 }
 
 // ============= Mock Data Generator =============
