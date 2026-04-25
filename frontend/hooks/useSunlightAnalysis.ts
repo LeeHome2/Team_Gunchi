@@ -86,9 +86,15 @@ export function useSunlightAnalysis(
     }
 
     // 건축선 결과에서 buildableArea 가져오기
+    // 우선순위: buildableArea > buildingLine > cadastralPolygon(대지 경계선)
+    // cadastralPolygon으로 fallback: 도로/인접대지 정보 부족으로 offset 적용 실패해도
+    // 대지 경계선 자체로 일조 분석 수행 가능
     const buildingLineResult = getBuildingLineResult()
-    // buildableArea 또는 buildingLine 중 하나라도 있으면 사용
-    const areaFeature = buildingLineResult?.buildableArea ?? buildingLineResult?.buildingLine
+    const areaFeature =
+      buildingLineResult?.buildableArea ??
+      buildingLineResult?.buildingLine ??
+      buildingLineResult?.cadastralPolygon ??
+      null
     if (!areaFeature?.geometry) {
       alert('먼저 건축선을 계산해주세요. 건축선 버튼을 클릭하여 건축 가능 영역을 생성하세요.')
       return

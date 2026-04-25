@@ -241,10 +241,7 @@ export function useBuildingLine(
           polyline: {
             positions: cartesianPositions,
             width: 4,
-            material: new Cesium.PolylineDashMaterialProperty({
-              color: Cesium.Color.RED,
-              dashLength: 12,
-            }),
+            material: Cesium.Color.RED,
             clampToGround: true,
             classificationType: Cesium.ClassificationType.TERRAIN,
             zIndex: 10,
@@ -363,10 +360,7 @@ export function useBuildingLine(
         polyline: {
           positions: cartesianPositions,
           width: 4,
-          material: new Cesium.PolylineDashMaterialProperty({
-            color: Cesium.Color.RED,
-            dashLength: 12,
-          }),
+          material: Cesium.Color.RED,
           clampToGround: true,
           classificationType: Cesium.ClassificationType.TERRAIN,
           zIndex: 10,

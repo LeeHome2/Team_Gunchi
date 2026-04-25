@@ -29,6 +29,7 @@ export interface ClassificationResult {
   total_entities: number
   class_counts: Record<string, number>
   layers: string[]
+  layer_decisions?: Record<string, string>  // 학과 AI 서버에서 오는 레이어→클래스 매핑
   average_confidence: number
   is_mock?: boolean
 }
@@ -169,6 +170,7 @@ export async function classifyLayers(
         total_entities: data.total_entities || parseResult.total_entities,
         class_counts: data.class_counts,
         layers: data.layers || [],
+        layer_decisions: data.layer_decisions || {},  // 학과 AI 서버 응답 보존
         average_confidence: data.average_confidence || 0.85,
         is_mock: data.is_mock || false,
       }
@@ -291,8 +293,21 @@ export async function generateModelFromClassification(
     footprint.reduce((s, c) => s + c[1], 0) / footprint.length,
   ]
 
-  // 벽 레이어 추출 (하드코딩 매핑에서 wall 클래스 레이어)
-  const wallLayers = fileName ? getLayersByClass(fileName, 'wall') : []
+  // 벽 레이어 추출
+  // 1순위: 학과 AI 서버 분류 결과의 layer_decisions
+  // 2순위: 기존 하드코딩 매핑 (fallback)
+  const aiWallLayers =
+    classification.layer_decisions && Object.keys(classification.layer_decisions).length > 0
+      ? Object.entries(classification.layer_decisions)
+          .filter(([, cls]) => cls === 'wall')
+          .map(([layer]) => layer)
+      : []
+  const wallLayers =
+    aiWallLayers.length > 0
+      ? aiWallLayers
+      : fileName
+        ? getLayersByClass(fileName, 'wall')
+        : []
 
   console.log('[generateModel]', {
     isLonLat: isLonLatCoords(rawFootprint),

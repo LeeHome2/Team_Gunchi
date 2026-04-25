@@ -200,11 +200,11 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore } =
     useProjectStore()
 
   // 데이터가 아예 없으면 에디터로 유도
-  const hasAnyData = validation || site || building || resultSnapshot.sitePlan
+  const hasAnyData = validation || reviewData?.buildingCoverage || site || building || resultSnapshot.sitePlan
   useEffect(() => {
     // 새로고침 등으로 store 가 비어있는 경우 — 자동 리다이렉트 대신
     // 안내 화면을 띄워 사용자가 컨트롤하게 한다.
@@ -264,16 +264,68 @@ export default function ResultPage() {
     }
   }, [validation, parkingZone, parkingConfig, sunlightAnalysisState, setAIScore])
 
-  const cov = validation?.building_coverage
-  const setback = validation?.setback
-  const height = validation?.height
+  // validation이 비어있으면 reviewData(검토 탭에서 계산된 값)으로 fallback.
+  // 검토 탭은 reviewData에 저장하지만 result 페이지는 validation을 읽으므로 매핑이 필요.
+  const cov = validation?.building_coverage ?? (reviewData?.buildingCoverage ? {
+    value: reviewData.buildingCoverage.ratio,
+    limit: reviewData.buildingCoverage.limit,
+    status: reviewData.buildingCoverage.status === 'OK' ? 'OK' : 'fail',
+    building_area: reviewData.buildingCoverage.buildingArea,
+    site_area: reviewData.buildingCoverage.siteArea,
+  } : null)
 
-  const overallStatus: StatusKey =
-    validation?.is_valid === true
-      ? 'pass'
-      : validation?.is_valid === false
-      ? 'fail'
-      : 'unknown'
+  const setback = validation?.setback ?? (reviewData?.setback ? {
+    min_distance_m: reviewData.setback.minDistance,
+    required_m: reviewData.setback.required,
+    status: reviewData.setback.status === 'OK' ? 'OK' : 'fail',
+  } : null)
+
+  // validation에 height 정보가 없으면 building.height + 용도지역 한도로 추정
+  const height = validation?.height ?? (building?.height != null ? {
+    value_m: building.height,
+    limit_m: null,
+    status: 'unknown',
+  } : null)
+
+  // 위반 사항: validation 우선, 없으면 reviewData에서 자동 생성
+  const violations = validation?.violations ?? (() => {
+    const v: { code: string; message: string }[] = []
+    if (reviewData?.buildingCoverage?.status === 'VIOLATION') {
+      v.push({
+        code: 'COVERAGE_EXCEED',
+        message: `건폐율 ${reviewData.buildingCoverage.ratio.toFixed(1)}% 가 한도 ${reviewData.buildingCoverage.limit}% 를 초과합니다`,
+      })
+    }
+    if (reviewData?.setback?.status === 'VIOLATION') {
+      v.push({
+        code: 'SETBACK_VIOLATION',
+        message: `이격거리 ${reviewData.setback.minDistance.toFixed(2)}m 가 최소 ${reviewData.setback.required}m 미만입니다`,
+      })
+    }
+    if (reviewData && reviewData.buildingCoverage && reviewData.isModelInBounds === false) {
+      v.push({
+        code: 'OUT_OF_BOUNDS',
+        message: '건물 매스가 선택 영역을 벗어났습니다',
+      })
+    }
+    return v
+  })()
+
+  // 종합 status: validation 우선, 없으면 reviewData / violations 기반
+  const overallStatus: StatusKey = (() => {
+    if (validation?.is_valid === true) return 'pass'
+    if (validation?.is_valid === false) return 'fail'
+    if (violations.length > 0) return 'fail'
+    if (reviewData?.buildingCoverage || reviewData?.setback) {
+      // reviewData가 있고 위반사항이 없으면 적합
+      const allOk =
+        (!reviewData.buildingCoverage || reviewData.buildingCoverage.status === 'OK') &&
+        (!reviewData.setback || reviewData.setback.status === 'OK') &&
+        reviewData.isModelInBounds !== false
+      return allOk ? 'pass' : 'fail'
+    }
+    return 'unknown'
+  })()
 
   return (
     <div className="min-h-screen bg-navy-950 text-white">
@@ -407,9 +459,9 @@ export default function ResultPage() {
             {/* 위반 사항 */}
             <section>
               <h2 className="text-base font-semibold text-white mb-3">위반 사항</h2>
-              {validation?.violations && validation.violations.length > 0 ? (
+              {violations && violations.length > 0 ? (
                 <ul className="space-y-2">
-                  {validation.violations.map((vio, idx) => (
+                  {violations.map((vio, idx) => (
                     <li
                       key={`${vio.code}-${idx}`}
                       className="card px-4 py-3 flex items-start gap-3"
