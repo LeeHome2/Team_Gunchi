@@ -240,7 +240,7 @@ export default function AnalysisModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[#ffffff] rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
+      <div className="bg-[#ffffff] rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-8 py-6 flex items-center justify-between">
           <div>
@@ -272,7 +272,7 @@ export default function AnalysisModal({
         </div>
 
         {/* Content */}
-        <div className="p-8 space-y-6">
+        <div className="p-8 space-y-6 flex-1 overflow-y-auto">
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <p className="text-red-800 text-sm font-medium">오류 발생</p>
