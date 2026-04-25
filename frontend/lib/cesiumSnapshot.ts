@@ -117,7 +117,7 @@ export async function captureTopDownDataUrl(
   viewer: AnyViewer,
   longitude: number,
   latitude: number,
-  altitudeMeters = 150,
+  altitudeMeters = 220,
   options: CaptureOptions = {},
 ): Promise<string> {
   const Cesium = getCesium()
@@ -145,7 +145,7 @@ export async function captureAerialDataUrl(
   viewer: AnyViewer,
   longitude: number,
   latitude: number,
-  altitudeMeters = 200,
+  altitudeMeters = 120,
   options: CaptureOptions = {},
 ): Promise<string> {
   const Cesium = getCesium()
@@ -154,7 +154,7 @@ export async function captureAerialDataUrl(
 
   const destination = Cesium.Cartesian3.fromDegrees(
     longitude,
-    latitude - 0.0008, // 약간 남쪽에서 북쪽을 바라보도록 (~88m)
+    latitude - 0.0004, // 약간 남쪽에서 북쪽을 바라보도록 (~44m)
     altitudeMeters,
   )
   const orientation = {
