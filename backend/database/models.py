@@ -159,7 +159,7 @@ class ValidationResult(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    model_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("generated_models.id"), nullable=False)
+    model_id: Mapped[Optional[UUID]] = mapped_column(Uuid(as_uuid=True), ForeignKey("generated_models.id"), nullable=True)
     is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False)
     building_coverage: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)  # {value, limit, status}
     setback: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)  # {min_distance_m, required_m, status}

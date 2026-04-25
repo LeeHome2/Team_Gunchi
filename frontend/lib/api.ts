@@ -130,6 +130,37 @@ export async function validatePlacement(params: {
 }
 
 /**
+ * 클라이언트에서 계산한 규정 검토 결과를 DB에 저장한다.
+ * 관리자 결과 관리 탭에서 조회 가능하게 하기 위함.
+ */
+export async function saveReviewResult(
+  projectId: string,
+  payload: {
+    is_valid: boolean
+    building_coverage?: Record<string, unknown>
+    setback?: Record<string, unknown>
+    height_check?: Record<string, unknown>
+    violations?: Array<Record<string, unknown>>
+    zone_type?: string | null
+    model_id?: string | null
+  },
+) {
+  const response = await fetch(
+    `${API_URL}/api/projects/${projectId}/review`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  )
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    throw new Error(error.detail || '검토 결과 저장 실패')
+  }
+  return response.json()
+}
+
+/**
  * 프로젝트 생성
  * DXF 업로드 전에 호출하여 project_id를 발급받습니다.
  */

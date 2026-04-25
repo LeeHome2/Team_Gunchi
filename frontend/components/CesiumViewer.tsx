@@ -12,6 +12,7 @@ import { useProjectPersistence } from '@/hooks/useProjectPersistence'
 import { useParkingZone } from '@/hooks/useParkingZone'
 import { isPointInPolygon as checkPointInPolygon } from '@/lib/geometry'
 import { DEFAULT_SETBACKS } from '@/lib/setbackTable'
+import { saveReviewResult } from '@/lib/api'
 import type { CadastralFeature } from '@/types/cesium'
 
 /** 점에서 선분까지의 최소 거리 (도 → m 변환 적용) */
@@ -1681,22 +1682,68 @@ export default function CesiumViewer() {
         })
       }
 
-      state.setReviewData({
+      const reviewPayload = {
         buildingCoverage: {
           buildingArea: Math.round(buildingArea * 100) / 100,
           siteArea: Math.round(siteArea * 100) / 100,
           ratio: Math.round(ratio * 10) / 10,
           limit,
-          status: ratio <= limit ? 'OK' : 'VIOLATION',
+          status: (ratio <= limit ? 'OK' : 'VIOLATION') as 'OK' | 'VIOLATION',
         },
         setback: minDist < Infinity ? {
           minDistance: Math.round(minDist * 100) / 100,
           required: requiredSetback,
-          status: minDist >= requiredSetback ? 'OK' : 'VIOLATION',
+          status: (minDist >= requiredSetback ? 'OK' : 'VIOLATION') as 'OK' | 'VIOLATION',
           details: setbackDetails,
         } : null,
         isModelInBounds: isModelInBoundsRef.current,
-      })
+      }
+
+      state.setReviewData(reviewPayload)
+
+      // 백엔드 DB에도 저장 (관리자 결과 관리 탭에서 조회되도록)
+      const projectId = state.projectId
+      if (projectId) {
+        const violations: Array<Record<string, unknown>> = []
+        if (reviewPayload.buildingCoverage.status === 'VIOLATION') {
+          violations.push({
+            type: 'building_coverage',
+            message: `건폐율 ${reviewPayload.buildingCoverage.ratio}% > ${reviewPayload.buildingCoverage.limit}%`,
+          })
+        }
+        if (reviewPayload.setback?.status === 'VIOLATION') {
+          violations.push({
+            type: 'setback',
+            message: `이격거리 ${reviewPayload.setback.minDistance}m < ${reviewPayload.setback.required}m`,
+          })
+        }
+        const isValid =
+          reviewPayload.buildingCoverage.status === 'OK' &&
+          (!reviewPayload.setback || reviewPayload.setback.status === 'OK') &&
+          reviewPayload.isModelInBounds
+
+        saveReviewResult(projectId, {
+          is_valid: isValid,
+          building_coverage: {
+            value: reviewPayload.buildingCoverage.ratio,
+            limit: reviewPayload.buildingCoverage.limit,
+            status: reviewPayload.buildingCoverage.status,
+            building_area: reviewPayload.buildingCoverage.buildingArea,
+            site_area: reviewPayload.buildingCoverage.siteArea,
+          },
+          setback: reviewPayload.setback ? {
+            min_distance_m: reviewPayload.setback.minDistance,
+            required_m: reviewPayload.setback.required,
+            status: reviewPayload.setback.status,
+            details: reviewPayload.setback.details,
+          } : {},
+          height_check: {},
+          violations,
+          zone_type: buildingLine.getBuildingLineResult()?.zoneType ?? null,
+        }).catch((err) => {
+          console.warn('[검토] DB 저장 실패:', err)
+        })
+      }
     }
     setRunReviewCheckFn(reviewCheck)
 

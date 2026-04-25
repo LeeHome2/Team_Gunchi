@@ -275,7 +275,7 @@ def delete_generated_model(db: Session, model_id: UUID) -> bool:
 def save_validation_result(
     db: Session,
     project_id: UUID,
-    model_id: UUID,
+    model_id: Optional[UUID],
     is_valid: bool,
     building_coverage: Dict[str, Any],
     setback: Dict[str, Any],

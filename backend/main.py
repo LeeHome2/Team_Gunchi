@@ -866,6 +866,44 @@ async def validate_placement_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/projects/{project_id}/review")
+def save_review_result(
+    project_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """클라이언트 측 규정 검토 결과를 저장한다.
+
+    프론트엔드의 검토 탭은 모델 위치/회전/스케일과 선택된 필지를 사용해
+    브라우저에서 직접 건폐율·이격거리를 계산한다. 이 결과를 admin 결과
+    관리 화면에 노출하기 위해 DB로 보낸다. model_id는 선택사항이며
+    백엔드 generate-mass로 생성된 모델이 있을 때만 전달된다.
+    """
+    try:
+        import uuid as uuid_module
+        project_uuid = uuid_module.UUID(project_id)
+        model_id_raw = payload.get("model_id")
+        model_uuid = uuid_module.UUID(model_id_raw) if model_id_raw else None
+
+        record = crud.save_validation_result(
+            db=db,
+            project_id=project_uuid,
+            model_id=model_uuid,
+            is_valid=bool(payload.get("is_valid", False)),
+            building_coverage=payload.get("building_coverage") or {},
+            setback=payload.get("setback") or {},
+            height_check=payload.get("height_check") or {},
+            violations=payload.get("violations") or [],
+            zone_type=payload.get("zone_type"),
+        )
+        return {"id": str(record.id), "ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"invalid uuid: {e}")
+    except Exception as e:
+        logger.error(f"Failed to save review result: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # AI PROXY ENDPOINTS
 # ============================================================================
