@@ -334,19 +334,30 @@ def create_wall_building_gltf(
         msp = doc.modelspace()
         steps.append({"label": "DXF 파일 읽기", "detail": f"레이어: {', '.join(wall_layers)}"})
 
-        # DXF 단위 판별: $INSUNITS (4=mm, 5=cm, 6=m) 또는 좌표 범위로 추정
+        # DXF 단위 판별: $INSUNITS 코드 매핑
+        # 1=in, 2=ft, 4=mm, 5=cm, 6=m, 8=microinches, 9=mils, 10=yards, 11=angstroms,
+        # 12=nanometers, 13=micrometers, 14=decimeters, 15=decameters, 16=hectometers,
+        # 17=gigameters, 18=astronomical, 19=light years, 20=parsecs, 21=US survey feet
         dxf_scale = 1.0  # 기본: 미터
+        unit_map = {
+            1: (0.0254, 'inch'),
+            2: (0.3048, 'foot'),
+            4: (0.001, 'mm'),
+            5: (0.01, 'cm'),
+            6: (1.0, 'm'),
+            8: (2.54e-8, 'microinch'),
+            9: (2.54e-5, 'mil'),
+            10: (0.9144, 'yard'),
+            14: (0.1, 'dm'),
+            15: (10.0, 'dam'),
+            16: (100.0, 'hm'),
+            21: (0.3048006, 'us-ft'),
+        }
         try:
             insunits = doc.header.get('$INSUNITS', 0)
-            if insunits == 4:  # mm
-                dxf_scale = 0.001
-                logger.info("DXF units: mm (INSUNITS=4), applying scale 0.001")
-            elif insunits == 5:  # cm
-                dxf_scale = 0.01
-                logger.info("DXF units: cm (INSUNITS=5), applying scale 0.01")
-            elif insunits == 6:  # m
-                dxf_scale = 1.0
-                logger.info("DXF units: m (INSUNITS=6)")
+            if insunits in unit_map:
+                dxf_scale, unit_name = unit_map[insunits]
+                logger.info(f"DXF units: {unit_name} (INSUNITS={insunits}), applying scale {dxf_scale}")
             else:
                 logger.info(f"DXF INSUNITS={insunits}, will auto-detect from coordinate range")
         except Exception:
