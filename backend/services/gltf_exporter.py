@@ -1,14 +1,147 @@
 """
 glTF/GLB 모델 생성 서비스
 건물 footprint를 3D 매스로 변환하여 glTF 형식으로 내보냅니다.
+
+PBR 머티리얼을 사용하여 CesiumJS에서 올바르게 렌더링됩니다.
 """
 
 import numpy as np
 import trimesh
+from trimesh.visual.material import PBRMaterial
 from typing import List, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _export_clean_glb(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    normals: np.ndarray,
+    color: Tuple[int, int, int, int],
+    output_path: str,
+) -> None:
+    """
+    TEXCOORD 없이 깔끔한 GLB 파일을 직접 조립합니다.
+    trimesh의 TextureVisuals가 불필요한 UV를 추가하는 문제 우회.
+    POSITION + NORMAL + Material(baseColorFactor)만 포함.
+    """
+    import struct, json
+
+    verts_f32 = vertices.astype(np.float32)
+    norms_f32 = normals.astype(np.float32)
+    indices_u32 = faces.flatten().astype(np.uint32)
+
+    # 바이너리 버퍼 구성: indices | vertices | normals
+    idx_bytes = indices_u32.tobytes()
+    vtx_bytes = verts_f32.tobytes()
+    nrm_bytes = norms_f32.tobytes()
+
+    idx_len = len(idx_bytes)
+    vtx_len = len(vtx_bytes)
+    nrm_len = len(nrm_bytes)
+
+    # 바운딩 박스
+    v_min = verts_f32.min(axis=0).tolist()
+    v_max = verts_f32.max(axis=0).tolist()
+
+    base_color = [c / 255.0 for c in color[:4]]
+
+    gltf_json = {
+        "asset": {"version": "2.0", "generator": "building_cesium"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0, "name": "building_walls"}],
+        "meshes": [{
+            "primitives": [{
+                "attributes": {"POSITION": 1, "NORMAL": 2},
+                "indices": 0,
+                "material": 0,
+                "mode": 4,
+            }]
+        }],
+        "materials": [{
+            "pbrMetallicRoughness": {
+                "baseColorFactor": base_color,
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.8,
+            },
+            "doubleSided": True,
+        }],
+        "accessors": [
+            {  # 0: indices
+                "bufferView": 0,
+                "componentType": 5125,  # UNSIGNED_INT
+                "count": len(indices_u32),
+                "type": "SCALAR",
+                "max": [int(indices_u32.max())],
+                "min": [int(indices_u32.min())],
+            },
+            {  # 1: positions
+                "bufferView": 1,
+                "componentType": 5126,  # FLOAT
+                "count": len(verts_f32),
+                "type": "VEC3",
+                "max": v_max,
+                "min": v_min,
+            },
+            {  # 2: normals
+                "bufferView": 2,
+                "componentType": 5126,
+                "count": len(norms_f32),
+                "type": "VEC3",
+            },
+        ],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": idx_len, "target": 34963},
+            {"buffer": 0, "byteOffset": idx_len, "byteLength": vtx_len, "target": 34962},
+            {"buffer": 0, "byteOffset": idx_len + vtx_len, "byteLength": nrm_len, "target": 34962},
+        ],
+        "buffers": [{"byteLength": idx_len + vtx_len + nrm_len}],
+    }
+
+    json_str = json.dumps(gltf_json, separators=(',', ':'))
+    # JSON 청크는 4바이트 정렬 필요
+    json_bytes = json_str.encode('utf-8')
+    json_pad = (4 - len(json_bytes) % 4) % 4
+    json_bytes += b' ' * json_pad
+
+    bin_data = idx_bytes + vtx_bytes + nrm_bytes
+    bin_pad = (4 - len(bin_data) % 4) % 4
+    bin_data += b'\x00' * bin_pad
+
+    # GLB 헤더 (12 bytes) + JSON 청크 (8 + len) + BIN 청크 (8 + len)
+    total = 12 + 8 + len(json_bytes) + 8 + len(bin_data)
+
+    with open(output_path, 'wb') as f:
+        # GLB header
+        f.write(struct.pack('<4sII', b'glTF', 2, total))
+        # JSON chunk
+        f.write(struct.pack('<I4s', len(json_bytes), b'JSON'))
+        f.write(json_bytes)
+        # BIN chunk
+        f.write(struct.pack('<I4s', len(bin_data), b'BIN\x00'))
+        f.write(bin_data)
+
+
+def _apply_pbr_material(
+    mesh: trimesh.Trimesh,
+    color: Tuple[int, int, int, int] = (180, 180, 180, 255),
+) -> None:
+    """
+    메쉬에 PBR 솔리드 컬러 머티리얼을 적용합니다.
+    baseColorFactor만 사용 (텍스처 없음) → 깔끔한 단색 렌더링.
+    UV를 전부 0으로 세팅하여 자동 생성 UV 아티팩트 방지.
+    """
+    base_color = [c / 255.0 for c in color[:4]]
+    material = PBRMaterial(
+        baseColorFactor=base_color,
+        metallicFactor=0.0,
+        roughnessFactor=0.8,
+        doubleSided=True,
+    )
+    uv = np.zeros((len(mesh.vertices), 2), dtype=np.float64)
+    mesh.visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
 
 
 def create_building_mesh(
@@ -62,6 +195,10 @@ def create_building_mesh(
     ], dtype=np.float64)
     mesh.apply_transform(rotation_matrix)
 
+    # 메쉬 정리: 중복 vertex 병합 + 법선 재계산
+    mesh.merge_vertices()
+    mesh.fix_normals()
+
     # 바닥 높이 조정 (Y-up 이므로 Y축으로 이동)
     if base_height != 0:
         mesh.apply_translation([0, base_height, 0])
@@ -92,12 +229,10 @@ def create_building_gltf(
         # 메쉬 생성
         mesh = create_building_mesh(footprint, height)
 
-        # 색상 설정
+        # PBR 머티리얼 적용
         if color is None:
             color = (180, 180, 180, 255)  # 기본 회색
-
-        # trimesh에서 vertex colors 설정
-        mesh.visual.vertex_colors = np.array([color] * len(mesh.vertices))
+        _apply_pbr_material(mesh, color)
 
         # 메쉬를 Scene에 추가
         scene = trimesh.Scene()
@@ -151,7 +286,7 @@ def create_multi_floor_building(
             )
 
             color = (brightness, brightness, brightness, 255)
-            mesh.visual.vertex_colors = np.array([color] * len(mesh.vertices))
+            _apply_pbr_material(mesh, color)
 
             scene.add_geometry(mesh, node_name=f"floor_{floor_num + 1}")
 
@@ -171,7 +306,7 @@ def create_wall_building_gltf(
     wall_thickness: float = 0.15,
     output_path: str = "building.glb",
     color: Optional[Tuple[int, int, int, int]] = None
-) -> bool:
+) -> dict:
     """
     DXF 벽 레이어에서 실제 벽체 형태를 추출하여 3D GLB 생성
 
@@ -192,9 +327,12 @@ def create_wall_building_gltf(
     from shapely.geometry import LineString, MultiLineString, Polygon as ShapelyPolygon
     from shapely.ops import unary_union
 
+    steps = []  # 중간 변환 과정 기록
+
     try:
         doc = ezdxf.readfile(dxf_path)
         msp = doc.modelspace()
+        steps.append({"label": "DXF 파일 읽기", "detail": f"레이어: {', '.join(wall_layers)}"})
 
         # DXF 단위 판별: $INSUNITS (4=mm, 5=cm, 6=m) 또는 좌표 범위로 추정
         dxf_scale = 1.0  # 기본: 미터
@@ -237,8 +375,9 @@ def create_wall_building_gltf(
 
         if not geom_lines:
             logger.error(f"No wall geometry found on layers {wall_layers}")
-            return False
+            return {"success": False, "error": "벽 레이어에서 도형을 찾을 수 없습니다", "steps": steps}
 
+        steps.append({"label": "벽 선분 추출", "detail": f"{len(geom_lines)}개 LINE/POLYLINE 추출"})
         logger.info(f"Extracted {len(geom_lines)} wall line segments from layers {wall_layers}")
 
         # $INSUNITS가 불명확할 때 좌표 범위로 mm 여부 자동 판별
@@ -251,71 +390,96 @@ def create_wall_building_gltf(
             else:
                 logger.info(f"Coordinate extent={extent:.1f}, assuming meters")
 
-        # 2) 모든 선분을 합치고 buffer로 벽 두께 부여
-        merged = unary_union(geom_lines)
-
-        # mm/cm 단위인 경우 좌표를 미터로 변환
+        # 2) 스케일 변환
         if dxf_scale != 1.0:
-            from shapely.affinity import scale as shapely_scale
-            merged = shapely_scale(merged, xfact=dxf_scale, yfact=dxf_scale, origin=(0, 0))
-            logger.info(f"Scaled DXF geometry by {dxf_scale} to convert to meters")
+            scaled_lines = []
+            for line in geom_lines:
+                coords = [(x * dxf_scale, y * dxf_scale) for x, y in line.coords]
+                scaled_lines.append(LineString(coords))
+            geom_lines = scaled_lines
+            logger.info(f"Scaled {len(geom_lines)} lines by {dxf_scale}")
 
-        wall_poly = merged.buffer(wall_thickness / 2, cap_style='flat', join_style='mitre')
+        # 3) 중심점 계산 (원본 선분 좌표에서)
+        all_xs, all_ys = [], []
+        for line in geom_lines:
+            for x, y in line.coords:
+                all_xs.append(x)
+                all_ys.append(y)
+        cx = (min(all_xs) + max(all_xs)) / 2
+        cy = (min(all_ys) + max(all_ys)) / 2
 
-        # 3) 중심점 기준으로 좌표 정규화 (원점 중심)
-        bounds = wall_poly.bounds  # (minx, miny, maxx, maxy)
-        cx = (bounds[0] + bounds[2]) / 2
-        cy = (bounds[1] + bounds[3]) / 2
-        from shapely.affinity import translate
-        wall_poly_centered = translate(wall_poly, xoff=-cx, yoff=-cy)
+        # 4) 원본 선분 → 원점 기준 세그먼트
+        segments = []
+        for line in geom_lines:
+            coords = list(line.coords)
+            for i in range(len(coords) - 1):
+                x1, y1 = coords[i][0] - cx, coords[i][1] - cy
+                x2, y2 = coords[i+1][0] - cx, coords[i+1][1] - cy
+                if abs(x1 - x2) > 0.001 or abs(y1 - y2) > 0.001:  # 길이 0 제거
+                    segments.append(((x1, y1), (x2, y2)))
 
-        # 4) Polygon(들)을 trimesh로 extrude
-        scene = trimesh.Scene()
+        steps.append({"label": "벽 선분 추출", "detail": f"{len(segments)}개 선분 → 원점 기준 정규화"})
 
-        # Z-up → Y-up 회전 행렬
-        rot_z_to_y = np.array([
-            [1,  0,  0, 0],
-            [0,  0,  1, 0],
-            [0, -1,  0, 0],
-            [0,  0,  0, 1],
-        ], dtype=np.float64)
+        if not segments:
+            return {"success": False, "error": "유효한 선분 없음", "steps": steps}
+
+        # 5) 각 선분 → 수직 quad (4 vertices, 2 faces)
+        #    캡 없음 — 선분을 그대로 수직으로 세움
+        all_vertices = []
+        all_faces = []
+
+        for (x1, y1), (x2, y2) in segments:
+            idx = len(all_vertices)
+            all_vertices.extend([
+                [x1, y1, 0],
+                [x2, y2, 0],
+                [x2, y2, height],
+                [x1, y1, height],
+            ])
+            all_faces.append([idx, idx+1, idx+2])
+            all_faces.append([idx, idx+2, idx+3])
+
+        steps.append({"label": "벽면 Quad 생성", "detail": f"{len(segments)}개 벽면 × 2 삼각형 = {len(all_faces)}개 면"})
+
+        # 6) 좌표 변환: Z-up → Y-up  [x, y, z] → [x, z, -y]
+        verts = np.array(all_vertices, dtype=np.float32)
+        faces_np = np.array(all_faces, dtype=np.uint32)
+
+        # Z-up → Y-up 변환
+        verts_yup = np.column_stack([verts[:, 0], verts[:, 2], -verts[:, 1]])
+
+        # 법선 계산: face cross product → 정점에 할당
+        face_n = np.cross(
+            verts_yup[faces_np[:, 1]] - verts_yup[faces_np[:, 0]],
+            verts_yup[faces_np[:, 2]] - verts_yup[faces_np[:, 0]],
+        )
+        fn_len = np.linalg.norm(face_n, axis=1, keepdims=True)
+        fn_len[fn_len < 1e-10] = 1.0
+        face_n = face_n / fn_len
+        normals = np.zeros_like(verts_yup)
+        for i, face in enumerate(faces_np):
+            for vi in face:
+                normals[vi] = face_n[i]
 
         if color is None:
             color = (200, 200, 200, 255)
 
-        polys = []
-        if wall_poly_centered.geom_type == 'Polygon':
-            polys = [wall_poly_centered]
-        elif wall_poly_centered.geom_type == 'MultiPolygon':
-            polys = list(wall_poly_centered.geoms)
+        steps.append({"label": "메쉬 완성", "detail": f"정점 {len(verts_yup)}개, 면 {len(faces_np)}개"})
 
-        for i, poly in enumerate(polys):
-            if poly.is_empty or not poly.is_valid:
-                continue
-            try:
-                mesh = trimesh.creation.extrude_polygon(poly, height=height)
-                mesh.apply_transform(rot_z_to_y)
-                mesh.visual.vertex_colors = np.array([color] * len(mesh.vertices))
-                scene.add_geometry(mesh, node_name=f"wall_{i}")
-            except Exception as e:
-                logger.warning(f"Failed to extrude wall polygon {i}: {e}")
-                continue
+        # 7) GLB 직접 조립 (trimesh 우회) — TEXCOORD 없이 깔끔한 glTF
+        _export_clean_glb(verts_yup, faces_np, normals, color, output_path)
 
-        if len(scene.geometry) == 0:
-            logger.error("No wall meshes created")
-            return False
+        import os
+        file_size_kb = os.path.getsize(output_path) / 1024
+        steps.append({"label": "GLB 파일 저장", "detail": f"{file_size_kb:.1f} KB"})
 
-        scene.export(output_path, file_type='glb')
-
-        total_verts = sum(len(m.vertices) for m in scene.geometry.values())
-        total_faces = sum(len(m.faces) for m in scene.geometry.values())
-        logger.info(f"Exported wall building: {len(scene.geometry)} parts, "
-                     f"{total_verts} vertices, {total_faces} faces → {output_path}")
-        return True
+        logger.info(f"Exported wall building: {len(verts_yup)} vertices, "
+                     f"{len(faces_np)} faces → {output_path}")
+        return {"success": True, "steps": steps}
 
     except Exception as e:
         logger.error(f"Failed to create wall GLB: {e}")
-        return False
+        return {"success": False, "error": str(e), "steps": steps}
 
 
 def normalize_footprint_to_origin(footprint: List[List[float]]) -> Tuple[List[List[float]], Tuple[float, float]]:

@@ -352,7 +352,6 @@ export default function CesiumViewer() {
 
     // 바닥면 폴리곤이 있으면 사용, 없으면 바운딩박스 사각형 fallback
     let localCorners: { x: number; y: number }[]
-    console.log('[DEBUG boundary] floorPolygon ref:', modelFloorPolygonRef.current ? `${modelFloorPolygonRef.current.length} points` : 'null')
 
     if (modelFloorPolygonRef.current && modelFloorPolygonRef.current.length >= 3) {
       // floorPolygon은 [x, z] (모델 로컬 m) — scale 적용
@@ -373,7 +372,6 @@ export default function CesiumViewer() {
       ]
     }
 
-    console.log('[DEBUG boundary] using', localCorners.length, 'corners (4=bbox fallback, >4=floorPolygon)')
 
     const corners = localCorners.map(corner => {
       const rotatedX = corner.x * cos - corner.y * sin
@@ -624,8 +622,6 @@ export default function CesiumViewer() {
         modelBoundingBoxRef.current = { width: 10, depth: 10 }
       }
       modelFloorPolygonRef.current = modelInfo?.floorPolygon ?? null
-      console.log('[DEBUG] modelInfo:', modelInfo?.filename, 'floorPolygon:', modelInfo?.floorPolygon?.length, 'points, data:', JSON.stringify(modelInfo?.floorPolygon?.slice(0, 3)))
-      console.log('[DEBUG] modelFloorPolygonRef set to:', modelFloorPolygonRef.current ? `${modelFloorPolygonRef.current.length} points` : 'null')
 
       const modelUrl = `/api/models/${encodeURIComponent(filename)}`
       const initialRotation = 0
@@ -817,6 +813,9 @@ export default function CesiumViewer() {
           uri: glbUrl,
           scale: initialScale,
           heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          maximumScale: 20000,
+          minimumPixelSize: 0,
+          backFaceCulling: false,
         },
       })
 
@@ -1223,6 +1222,13 @@ export default function CesiumViewer() {
 
     // 마우스 이동 - 드래그 및 회전 통합 핸들러
     handler.setInputAction((movement: any) => {
+      // 드래그/회전 중이 아니면 즉시 반환 — pickPosition은 GPU 읽기라 비용이 큼
+      const anyActive = isModelDraggingRef.current || isHumanDraggingRef.current ||
+        isParkingDraggingRef.current || isEntranceDraggingRef.current ||
+        isModelRotatingRef.current || isParkingRotatingRef.current ||
+        isEntranceRotatingRef.current
+      if (!anyActive) return
+
       // 마우스 위치 계산 (공통)
       let cartesian = viewer.scene.pickPosition(movement.endPosition)
       if (!cartesian || !Cesium.defined(cartesian)) {

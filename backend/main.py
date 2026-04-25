@@ -35,6 +35,8 @@ from api.models import (
     SignupRequest,
     LoginRequest,
     AuthResponse,
+    AIScoringRequest,
+    AIScoringResponse,
 )
 import hashlib
 from database.config import get_db, init_db
@@ -657,16 +659,24 @@ async def generate_mass(
                 raise HTTPException(status_code=404, detail=f"DXF 파일을 찾을 수 없습니다: {request.file_id}")
 
             logger.info(f"Wall-based generation: layers={request.wall_layers}, thickness={request.wall_thickness}m")
-            success = create_wall_building_gltf(
+            wall_result = create_wall_building_gltf(
                 dxf_path=str(dxf_path),
                 wall_layers=request.wall_layers,
                 height=request.height,
                 wall_thickness=request.wall_thickness,
                 output_path=str(model_path)
             )
-            if not success or not model_path.exists():
-                raise HTTPException(status_code=500, detail="벽체 GLB 생성에 실패했습니다.")
+            # dict 반환 (새 방식) 또는 bool 반환 (호환)
+            if isinstance(wall_result, dict):
+                build_steps = wall_result.get("steps", [])
+                if not wall_result.get("success"):
+                    raise HTTPException(status_code=500, detail=wall_result.get("error", "벽체 GLB 생성에 실패했습니다."))
+            else:
+                build_steps = []
+                if not wall_result or not model_path.exists():
+                    raise HTTPException(status_code=500, detail="벽체 GLB 생성에 실패했습니다.")
         else:
+            build_steps = []
             # 기존 방식: footprint 단순 extrusion
             footprint_lonlat = np.array(request.footprint)
             centroid = footprint_lonlat.mean(axis=0)
@@ -756,6 +766,7 @@ async def generate_mass(
                 "depth": bb_depth,
                 "height": bb_height,
             },
+            build_steps=build_steps if build_steps else None,
         )
     except Exception as e:
         logger.error(f"Error generating mass: {str(e)}")
@@ -1187,6 +1198,41 @@ async def get_model(model_id: str):
         media_type="model/gltf-binary",
         filename=f"{model_id}.glb"
     )
+
+
+# ─── AI 스코어링 ─────────────────────────────────────────
+
+@app.post("/api/ai-scoring", response_model=AIScoringResponse)
+async def ai_scoring(request: AIScoringRequest):
+    """
+    LLM 기반 배치 종합 스코어링
+
+    배치검토(건폐율·이격·높이) + 주차 + 일조 데이터를
+    학과 LLM 서버로 보내 항목별 등급(A~F)과 종합점수(0~100)를 반환합니다.
+    LLM 연결 실패 시 규칙 기반 폴백 스코어를 자동 생성합니다.
+    """
+    from services.llm_scorer import score_placement
+
+    try:
+        result = await score_placement(
+            validation=request.validation,
+            parking=request.parking,
+            sunlight=request.sunlight,
+        )
+
+        return AIScoringResponse(
+            success=True,
+            category_grades=result["category_grades"],
+            overall_score=result["overall_score"],
+            summary=result["summary"],
+            suggestions=result["suggestions"],
+            source=result.get("source", "llm"),
+            error=result.get("error"),
+        )
+
+    except Exception as e:
+        logger.error(f"AI scoring endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

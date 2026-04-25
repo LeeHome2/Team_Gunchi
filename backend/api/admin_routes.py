@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from database.config import get_db
+from database.config import get_db, get_db_info, get_db_type, switch_database
 from database import crud
 from services import log_buffer
 
@@ -208,6 +208,10 @@ class AIModelCreate(BaseModel):
 class ServiceSettingUpsert(BaseModel):
     key: str
     value: str
+
+
+class DbSwitchRequest(BaseModel):
+    target: str  # "rds" | "sqlite"
 
 
 # ============================================================================
@@ -780,3 +784,27 @@ async def list_endpoints():
     rows_list = list(rows)
     _probe_cache[cache_key] = (now, rows_list)
     return {"endpoints": rows_list, "cached": False}
+
+
+# ============================================================================
+# DATABASE SWITCH (RDS ↔ SQLite)
+# ============================================================================
+
+
+@router.get("/database/status")
+def database_status():
+    """현재 DB 연결 상태 조회"""
+    return get_db_info()
+
+
+@router.post("/database/switch")
+def database_switch(payload: DbSwitchRequest):
+    """런타임 DB 전환 (rds ↔ sqlite)"""
+    try:
+        info = switch_database(payload.target)
+        _cache.invalidate()  # 전체 캐시 무효화
+        return {"ok": True, **info}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 전환 실패: {str(e)}")

@@ -394,25 +394,39 @@ export default function AnalysisModal({
               step2Status === StepStatus.COMPLETE
             }
           >
-            {step3Status === StepStatus.COMPLETE && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3 text-sm">
-                  <CheckIcon />
-                  <span className="text-gray-700">외벽 메쉬 생성 완료</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <CheckIcon />
-                  <span className="text-gray-700">GLB 변환 완료</span>
-                </div>
-                {modelResult && (
-                  <div className="bg-blue-50 rounded-lg p-3 text-sm">
-                    <p className="text-gray-600">
-                      메쉬: <span className="font-medium">{modelResult.mesh_stats.wall_meshes}</span>개 |
-                      정점: <span className="font-medium">{modelResult.mesh_stats.vertices.toLocaleString()}</span>개 |
-                      면: <span className="font-medium">{modelResult.mesh_stats.faces.toLocaleString()}</span>개
-                    </p>
-                  </div>
+            {step3Status === StepStatus.COMPLETE && modelResult && (
+              <div className="space-y-2">
+                {/* 변환 과정 단계별 표시 */}
+                {modelResult.build_steps && modelResult.build_steps.length > 0 ? (
+                  modelResult.build_steps.map((step, i) => (
+                    <div key={i} className="flex items-start gap-3 text-sm">
+                      <CheckIcon />
+                      <div>
+                        <span className="font-medium text-gray-800">{step.label}</span>
+                        <span className="text-gray-500 ml-2">{step.detail}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3 text-sm">
+                      <CheckIcon />
+                      <span className="text-gray-700">메쉬 생성 완료</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                      <CheckIcon />
+                      <span className="text-gray-700">GLB 변환 완료</span>
+                    </div>
+                  </>
                 )}
+                {/* 최종 메쉬 통계 */}
+                <div className="bg-blue-50 rounded-lg p-3 text-sm mt-2">
+                  <p className="text-gray-600">
+                    메쉬: <span className="font-medium">{modelResult.mesh_stats.wall_meshes}</span>개 |
+                    정점: <span className="font-medium">{modelResult.mesh_stats.vertices.toLocaleString()}</span>개 |
+                    면: <span className="font-medium">{modelResult.mesh_stats.faces.toLocaleString()}</span>개
+                  </p>
+                </div>
               </div>
             )}
           </Step>

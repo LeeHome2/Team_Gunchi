@@ -33,6 +33,11 @@ export interface ClassificationResult {
   is_mock?: boolean
 }
 
+export interface BuildStep {
+  label: string
+  detail: string
+}
+
 export interface ModelResult {
   file_id: string
   glb_url: string
@@ -46,6 +51,7 @@ export interface ModelResult {
     depth: number
     height: number
   }
+  build_steps?: BuildStep[]
 }
 
 // ============= API Functions =============
@@ -338,6 +344,7 @@ export async function generateModelFromClassification(
       faces: data.mesh_stats?.faces || 12,
     },
     bounding_box: data.bounding_box || undefined,
+    build_steps: data.build_steps || undefined,
   }
 }
 
@@ -505,4 +512,36 @@ function generateMockClassification(
     average_confidence: 0.87 + Math.random() * 0.08,
     is_mock: true,
   }
+}
+
+
+// ============= AI Scoring =============
+
+export interface AIScoreResult {
+  success: boolean
+  category_grades: Record<string, string>  // {"건폐율":"A", "이격거리":"B", ...}
+  overall_score: number                     // 0~100
+  summary: string
+  suggestions: string
+  source: 'llm' | 'fallback'
+  error?: string | null
+}
+
+export async function requestAIScoring(
+  validation: Record<string, any> | null,
+  parking: Record<string, any> | null,
+  sunlight: Record<string, any> | null,
+): Promise<AIScoreResult> {
+  const res = await fetch(`${API_URL}/api/ai-scoring`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ validation, parking, sunlight }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`AI 스코어링 실패: ${res.status} ${err}`)
+  }
+
+  return res.json()
 }

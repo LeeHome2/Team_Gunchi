@@ -12,7 +12,7 @@ function parseGlb(filePath: string): { gltf: any; binBuffer: Buffer } | null {
     const buffer = fs.readFileSync(filePath)
     const magic = buffer.toString('ascii', 0, 4)
     if (magic !== 'glTF') {
-      console.log(`[DEBUG parseGlb] ${filePath}: magic='${magic}', not glTF!`)
+      console.warn(`parseGlb: ${filePath} is not a valid glTF file`)
       return null
     }
 
@@ -21,30 +21,24 @@ function parseGlb(filePath: string): { gltf: any; binBuffer: Buffer } | null {
     const jsonChunkLength = buffer.readUInt32LE(12)
     const jsonChunkType = buffer.readUInt32LE(16)
 
-    console.log(`[DEBUG parseGlb] ${filePath}: version=${version}, totalLength=${totalLength}, fileSize=${buffer.length}, jsonChunkLength=${jsonChunkLength}, jsonChunkType=0x${jsonChunkType.toString(16)}`)
-
     const jsonData = buffer.toString('utf8', 20, 20 + jsonChunkLength)
     const gltf = JSON.parse(jsonData)
 
     // Binary chunk
     const binChunkStart = 20 + jsonChunkLength
     if (binChunkStart + 8 > buffer.length) {
-      console.log(`[DEBUG parseGlb] ${filePath}: no binary chunk! binChunkStart=${binChunkStart}, bufLen=${buffer.length}`)
       return { gltf, binBuffer: Buffer.alloc(0) }
     }
 
     const binChunkLength = buffer.readUInt32LE(binChunkStart)
     const binChunkType = buffer.readUInt32LE(binChunkStart + 4)
-    console.log(`[DEBUG parseGlb] ${filePath}: binChunkStart=${binChunkStart}, binChunkLength=${binChunkLength}, binChunkType=0x${binChunkType.toString(16)}`)
 
     const binOffset = binChunkStart + 8
     const binBuffer = buffer.subarray(binOffset, binOffset + binChunkLength)
 
-    console.log(`[DEBUG parseGlb] ${filePath}: binBuffer.length=${binBuffer.length}`)
-
     return { gltf, binBuffer }
   } catch (err) {
-    console.error(`[DEBUG parseGlb] ${filePath}: EXCEPTION:`, err)
+    console.error(`parseGlb error: ${filePath}`, err)
     return null
   }
 }
@@ -113,8 +107,6 @@ function extractFloorPolygon(
     const accessors = gltf.accessors || []
     const meshes = gltf.meshes || []
 
-    console.log(`[DEBUG extractFloorPolygon] ${filename}: meshes=${meshes.length}, accessors=${accessors.length}, bufferViews=${bufferViews.length}, binBuffer.length=${binBuffer.length}`)
-
     // 모든 메시에서 POSITION accessor 인덱스 수집
     const posAccessorIndices = new Set<number>()
     for (const mesh of meshes) {
@@ -124,15 +116,7 @@ function extractFloorPolygon(
       }
     }
 
-    console.log(`[DEBUG extractFloorPolygon] ${filename}: POSITION accessor indices: [${Array.from(posAccessorIndices).join(', ')}]`)
     if (posAccessorIndices.size === 0) {
-      console.log(`[DEBUG extractFloorPolygon] ${filename}: NO POSITION accessors found!`)
-      // 대안: 모든 VEC3 accessor를 시도
-      for (let i = 0; i < accessors.length; i++) {
-        if (accessors[i].type === 'VEC3') {
-          console.log(`[DEBUG extractFloorPolygon] ${filename}: accessor[${i}] is VEC3, componentType=${accessors[i].componentType}, count=${accessors[i].count}`)
-        }
-      }
       return null
     }
 
@@ -141,36 +125,24 @@ function extractFloorPolygon(
 
     for (const accIdx of Array.from(posAccessorIndices)) {
       const acc = accessors[accIdx]
-      if (!acc || acc.type !== 'VEC3') {
-        console.log(`[DEBUG extractFloorPolygon] ${filename}: accessor[${accIdx}] skipped (type=${acc?.type})`)
-        continue
-      }
+      if (!acc || acc.type !== 'VEC3') continue
 
       const bvIdx = acc.bufferView
       const bv = bufferViews[bvIdx]
-      if (!bv) {
-        console.log(`[DEBUG extractFloorPolygon] ${filename}: accessor[${accIdx}] has no bufferView (bvIdx=${bvIdx})`)
-        continue
-      }
+      if (!bv) continue
 
       const byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0)
       const count = acc.count
       const stride = bv.byteStride || 12 // VEC3 float32 = 12 bytes
 
-      console.log(`[DEBUG extractFloorPolygon] ${filename}: accessor[${accIdx}] componentType=${acc.componentType}, count=${count}, byteOffset=${byteOffset}, stride=${stride}, bufLen=${binBuffer.length}`)
-
       // componentType 5126 = FLOAT
       if (acc.componentType !== 5126) {
-        console.log(`[DEBUG extractFloorPolygon] ${filename}: accessor[${accIdx}] skipped (componentType=${acc.componentType}, not FLOAT)`)
         continue
       }
 
       for (let i = 0; i < count; i++) {
         const off = byteOffset + i * stride
-        if (off + 12 > binBuffer.length) {
-          console.log(`[DEBUG extractFloorPolygon] ${filename}: accessor[${accIdx}] buffer overflow at i=${i}, off=${off}`)
-          break
-        }
+        if (off + 12 > binBuffer.length) break
         const x = binBuffer.readFloatLE(off)
         const y = binBuffer.readFloatLE(off + 4)
         const z = binBuffer.readFloatLE(off + 8)
@@ -178,13 +150,7 @@ function extractFloorPolygon(
       }
     }
 
-    console.log(`[DEBUG extractFloorPolygon] ${filename}: total vertices read = ${allVertices.length}`)
     if (allVertices.length === 0) return null
-
-    if (allVertices.length > 0) {
-      const sampleVerts = allVertices.slice(0, 5)
-      console.log(`[DEBUG extractFloorPolygon] ${filename}: sample vertices:`, sampleVerts.map(v => `(${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)})`).join(' '))
-    }
 
     // 바닥 정점 필터링: Y 최솟값 + 전체 높이의 2%
     // NOTE: Math.min(...arr) 는 배열이 10만 이상이면 콜 스택 오버플로우 발생
@@ -199,7 +165,6 @@ function extractFloorPolygon(
     const heightThreshold = Math.max(modelHeight * 0.02, 0.005)
     const bottomVerts = allVertices.filter((v) => v.y <= minY + heightThreshold)
 
-    console.log(`[DEBUG extractFloorPolygon] ${filename}: Y range=[${minY.toFixed(4)}, ${maxY.toFixed(4)}], height=${modelHeight.toFixed(4)}, threshold=${heightThreshold.toFixed(4)}, bottomVerts=${bottomVerts.length}`)
 
     if (bottomVerts.length < 3) return null
 
@@ -207,15 +172,10 @@ function extractFloorPolygon(
     const points: [number, number][] = bottomVerts.map((v) => [v.x, v.z])
     const hull = convexHull(points)
 
-    console.log(`[DEBUG extractFloorPolygon] ${filename}: hull has ${hull.length} points`)
-    if (hull.length >= 3) {
-      console.log(`[DEBUG extractFloorPolygon] ${filename}: hull sample:`, JSON.stringify(hull.slice(0, 5)))
-    }
-
     if (hull.length < 3) return null
     return { polygon: hull, minY }
   } catch (err) {
-    console.error(`[DEBUG extractFloorPolygon] ${filename}: EXCEPTION:`, err)
+    console.error(`extractFloorPolygon error: ${filename}`, err)
     return null
   }
 }
@@ -305,8 +265,6 @@ export async function GET() {
       const floorPolygon = floorResult?.polygon ?? null
       // originYMin: 실제 POSITION 버텍스에서 추출한 Y 최솟값 (NORMAL accessor가 아님)
       const originYMin = floorResult?.minY ?? 0
-
-      console.log(`[DEBUG API] ${filename}: floorPolygon=${floorPolygon ? floorPolygon.length + ' points' : 'null'}, originYMin=${originYMin}`)
 
       return {
         filename,

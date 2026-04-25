@@ -98,6 +98,12 @@ class BoundingBox(BaseModel):
     height: float = Field(description="Y축 높이 (m)")
 
 
+class BuildStep(BaseModel):
+    """변환 과정 단계"""
+    label: str
+    detail: str
+
+
 class MassGenerateResponse(BaseModel):
     """3D 매스 생성 응답"""
     success: bool
@@ -107,6 +113,7 @@ class MassGenerateResponse(BaseModel):
     floors: int
     mesh_stats: Optional[MeshStats] = None
     bounding_box: Optional[BoundingBox] = None
+    build_steps: Optional[List[BuildStep]] = None
 
 
 class ValidationRequest(BaseModel):
@@ -258,3 +265,34 @@ class ParkingLayoutResponse(BaseModel):
     total_area_m2: float
     parking_area_ratio: float
     warnings: List[str]
+
+
+# ─── AI 스코어링 ──────────────────────────────────────────
+
+class AIScoringRequest(BaseModel):
+    """AI 스코어링 요청 — 배치검토·주차·일조 결과를 종합 평가"""
+    validation: Optional[Dict[str, Any]] = Field(
+        None,
+        description="배치 검토 결과 (building_coverage, setback, height, violations)"
+    )
+    parking: Optional[Dict[str, Any]] = Field(
+        None,
+        description="주차 분석 결과 (required_total, placed_total, ...)"
+    )
+    sunlight: Optional[Dict[str, Any]] = Field(
+        None,
+        description="일조 분석 결과 (avg/min/max_sunlight_hours, total_points)"
+    )
+
+
+class AIScoringResponse(BaseModel):
+    """AI 스코어링 응답"""
+    success: bool
+    category_grades: Dict[str, str] = Field(
+        description="항목별 등급 {'건폐율':'A', '이격거리':'B', ...}"
+    )
+    overall_score: int = Field(description="종합 점수 0~100")
+    summary: str = Field(description="종합 평가 요약")
+    suggestions: str = Field(description="구체적 개선 제안")
+    source: str = Field(description="'llm' 또는 'fallback'")
+    error: Optional[str] = None

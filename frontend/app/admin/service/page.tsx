@@ -22,12 +22,49 @@ export default function AdminServicePage() {
   const [error, setError] = useState<string | null>(null)
   const [probingEndpoints, setProbingEndpoints] = useState(false)
 
+  // DB 전환 상태
+  const [dbType, setDbType] = useState<string>('rds')
+  const [dbUrl, setDbUrl] = useState<string>('')
+  const [rdsAvailable, setRdsAvailable] = useState(true)
+  const [dbSwitching, setDbSwitching] = useState(false)
+
   const loadSettings = async () => {
     try {
       const res = await adminApi.getServiceSettings()
       setSettings(res.settings)
     } catch (e: any) {
       setError(e.message || '설정 로드 실패')
+    }
+  }
+
+  const loadDbStatus = async () => {
+    try {
+      const res = await adminApi.getDatabaseStatus()
+      setDbType(res.type)
+      setDbUrl(res.url)
+      setRdsAvailable(res.rds_available)
+    } catch {
+      // DB 상태 로드 실패 시 무시
+    }
+  }
+
+  const handleDbSwitch = async (target: 'rds' | 'sqlite') => {
+    if (target === dbType) return
+    const label = target === 'rds' ? 'RDS (PostgreSQL)' : 'SQLite (로컬)'
+    if (!confirm(`데이터베이스를 ${label}(으)로 전환하시겠습니까?\n\n전환 시 현재 세션의 데이터는 유지되지 않을 수 있습니다.`)) {
+      return
+    }
+    setDbSwitching(true)
+    try {
+      const res = await adminApi.switchDatabase(target)
+      setDbType(res.type)
+      setDbUrl(res.url)
+      setRdsAvailable(res.rds_available)
+      alert(`${label}(으)로 전환 완료!`)
+    } catch (e: any) {
+      alert(e.message || 'DB 전환 실패')
+    } finally {
+      setDbSwitching(false)
     }
   }
 
@@ -46,10 +83,8 @@ export default function AdminServicePage() {
   useEffect(() => {
     ;(async () => {
       setLoading(true)
-      await loadSettings()
+      await Promise.all([loadSettings(), loadDbStatus()])
       setLoading(false)
-      // Fire-and-forget: endpoint probing can take ~1s, don't block the
-      // initial render for it.
       loadEndpoints()
     })()
   }, [])
@@ -107,6 +142,84 @@ export default function AdminServicePage() {
             설정을 불러오는 중…
           </div>
         )}
+
+        {/* 데이터베이스 선택 */}
+        <section className="card p-6">
+          <h3 className="text-base font-semibold mb-1">데이터베이스</h3>
+          <p className="text-xs text-white/50 mb-4">
+            사용할 데이터베이스를 선택합니다. 기본값은 RDS (PostgreSQL)입니다.
+          </p>
+          <div className="space-y-3">
+            <label
+              className={`flex items-start gap-3 rounded-md border p-4 cursor-pointer transition-colors ${
+                dbType === 'rds'
+                  ? 'border-brand-500/60 bg-brand-500/10'
+                  : 'border-white/10 bg-white/5 hover:bg-white/10'
+              } ${!rdsAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input
+                type="radio"
+                name="db-type"
+                checked={dbType === 'rds'}
+                disabled={!rdsAvailable || dbSwitching}
+                onChange={() => handleDbSwitch('rds')}
+                className="mt-1 accent-brand-500"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">RDS (PostgreSQL)</span>
+                  <Badge variant="success">권장</Badge>
+                  {dbType === 'rds' && <Badge variant="success">사용 중</Badge>}
+                </div>
+                <div className="text-xs text-white/50 mt-0.5">
+                  AWS RDS 프로덕션 데이터베이스 — 팀 공유 데이터
+                </div>
+                {!rdsAvailable && (
+                  <div className="text-xs text-amber-400 mt-1">
+                    DATABASE_URL 환경변수가 설정되지 않아 사용 불가
+                  </div>
+                )}
+              </div>
+            </label>
+
+            <label
+              className={`flex items-start gap-3 rounded-md border p-4 cursor-pointer transition-colors ${
+                dbType === 'sqlite'
+                  ? 'border-brand-500/60 bg-brand-500/10'
+                  : 'border-white/10 bg-white/5 hover:bg-white/10'
+              }`}
+            >
+              <input
+                type="radio"
+                name="db-type"
+                checked={dbType === 'sqlite'}
+                disabled={dbSwitching}
+                onChange={() => handleDbSwitch('sqlite')}
+                className="mt-1 accent-brand-500"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">SQLite (로컬)</span>
+                  {dbType === 'sqlite' && <Badge variant="warning">사용 중</Badge>}
+                </div>
+                <div className="text-xs text-white/50 mt-0.5">
+                  로컬 개발용 경량 데이터베이스 — backend/data/building.db
+                </div>
+              </div>
+            </label>
+          </div>
+
+          {dbUrl && (
+            <div className="mt-3 px-3 py-2 rounded bg-white/5 border border-white/10">
+              <span className="text-xs text-white/40">연결 주소: </span>
+              <span className="text-xs font-mono text-white/60 break-all">{dbUrl}</span>
+            </div>
+          )}
+
+          {dbSwitching && (
+            <div className="mt-3 text-sm text-amber-400">전환 중…</div>
+          )}
+        </section>
 
         {/* API 설정 */}
         <section className="card p-6">

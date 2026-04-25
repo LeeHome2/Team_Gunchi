@@ -18,9 +18,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import Brand from '@/components/Brand'
 import { useProjectStore } from '@/store/projectStore'
+import { requestAIScoring } from '@/lib/analysisApi'
 
 type StatusKey = 'pass' | 'fail' | 'warning' | 'unknown'
 
@@ -199,7 +200,7 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, resultSnapshot, modelTransform } =
+  const { workArea, site, building, validation, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore } =
     useProjectStore()
 
   // 데이터가 아예 없으면 에디터로 유도
@@ -222,6 +223,46 @@ export default function ResultPage() {
 
   const lon = modelTransform?.longitude ?? workArea?.longitude ?? null
   const lat = modelTransform?.latitude ?? workArea?.latitude ?? null
+
+  // AI 스코어링 요청
+  const handleAIScoring = useCallback(async () => {
+    setAIScore({ isLoading: true, error: null })
+    try {
+      // 주차 데이터 조립
+      const parkingData = parkingZone ? {
+        required_total: parkingConfig?.requiredTotal ?? 0,
+        placed_total: parkingZone.totalSlots,
+        required_disabled: parkingConfig?.requiredDisabled ?? 0,
+        placed_disabled: parkingZone.disabledSlots,
+        total_area_m2: parkingZone.totalAreaM2,
+        parking_area_ratio: parkingZone.parkingAreaRatio,
+      } : null
+
+      // 일조 데이터 조립
+      const sunlightData = sunlightAnalysisState?.result ? {
+        avg_sunlight_hours: sunlightAnalysisState.result.averageSunlightHours,
+        min_sunlight_hours: sunlightAnalysisState.result.minSunlightHours,
+        max_sunlight_hours: sunlightAnalysisState.result.maxSunlightHours,
+        total_points: sunlightAnalysisState.result.totalPoints,
+      } : null
+
+      const res = await requestAIScoring(validation, parkingData, sunlightData)
+
+      setAIScore({
+        isLoading: false,
+        result: {
+          categoryGrades: res.category_grades,
+          overallScore: res.overall_score,
+          summary: res.summary,
+          suggestions: res.suggestions,
+          source: res.source,
+        },
+        error: res.error || null,
+      })
+    } catch (e: any) {
+      setAIScore({ isLoading: false, error: e.message || 'AI 스코어링 실패' })
+    }
+  }, [validation, parkingZone, parkingConfig, sunlightAnalysisState, setAIScore])
 
   const cov = validation?.building_coverage
   const setback = validation?.setback
@@ -395,6 +436,119 @@ export default function ResultPage() {
                     </svg>
                   </div>
                   <div className="text-sm text-white/70">감지된 위반 사항이 없습니다</div>
+                </div>
+              )}
+            </section>
+
+            {/* AI 종합 스코어링 */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-white">AI 종합 스코어링</h2>
+                <button
+                  onClick={handleAIScoring}
+                  disabled={aiScore.isLoading}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {aiScore.isLoading ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      분석 중...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      {aiScore.result ? 'AI 재평가' : 'AI 스코어링 실행'}
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {aiScore.error && !aiScore.result && (
+                <div className="card px-4 py-3 border border-red-500/30 text-sm text-red-300">
+                  {aiScore.error}
+                </div>
+              )}
+
+              {!aiScore.result && !aiScore.isLoading && !aiScore.error && (
+                <div className="card px-4 py-8 text-center">
+                  <div className="w-12 h-12 rounded-full bg-brand-500/10 flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-brand-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div className="text-sm text-white/70 mb-1">AI 스코어링으로 배치를 종합 평가합니다</div>
+                  <div className="text-xs text-white/40">배치검토 · 주차 · 일조 결과를 LLM이 분석하여 항목별 등급과 개선점을 제안합니다</div>
+                </div>
+              )}
+
+              {aiScore.result && (
+                <div className="space-y-4">
+                  {/* 종합 점수 + 등급 그리드 */}
+                  <div className="card p-5">
+                    <div className="flex items-center gap-6 mb-5">
+                      {/* 원형 점수 */}
+                      <div className="relative w-24 h-24 flex-shrink-0">
+                        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
+                          <circle
+                            cx="50" cy="50" r="42" fill="none"
+                            stroke={aiScore.result.overallScore >= 80 ? '#10b981' : aiScore.result.overallScore >= 60 ? '#f59e0b' : '#ef4444'}
+                            strokeWidth="8"
+                            strokeLinecap="round"
+                            strokeDasharray={`${aiScore.result.overallScore * 2.64} 264`}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className="text-2xl font-bold text-white">{aiScore.result.overallScore}</span>
+                          <span className="text-[10px] text-white/40">/ 100</span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-white/80 leading-relaxed">{aiScore.result.summary}</div>
+                        {aiScore.result.source === 'fallback' && (
+                          <div className="text-xs text-amber-400/80 mt-2">⚡ LLM 서버 연결 실패 — 규칙 기반 간이 평가</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 항목별 등급 */}
+                    <div className="grid grid-cols-5 gap-3">
+                      {Object.entries(aiScore.result.categoryGrades).map(([cat, grade]) => {
+                        const gradeColors: Record<string, string> = {
+                          A: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+                          B: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
+                          C: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+                          D: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+                          E: 'bg-red-500/20 text-red-300 border-red-500/40',
+                          F: 'bg-red-700/20 text-red-400 border-red-700/40',
+                          N: 'bg-white/5 text-white/40 border-white/10',
+                        }
+                        return (
+                          <div key={cat} className="text-center">
+                            <div className={`text-2xl font-bold rounded-lg border py-2 mb-1.5 ${gradeColors[grade] || gradeColors.N}`}>
+                              {grade}
+                            </div>
+                            <div className="text-xs text-white/50">{cat}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 개선 제안 */}
+                  {aiScore.result.suggestions && (
+                    <div className="card p-4">
+                      <div className="text-xs text-white/40 uppercase tracking-wider mb-2">개선 제안</div>
+                      <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">
+                        {aiScore.result.suggestions}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </section>

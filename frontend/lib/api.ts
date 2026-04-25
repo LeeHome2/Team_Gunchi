@@ -591,4 +591,13 @@ export const adminApi = {
     }),
   listServiceEndpoints: () =>
     adminFetch<{ endpoints: AdminEndpointStatus[] }>('/service/endpoints'),
+
+  // Database
+  getDatabaseStatus: () =>
+    adminFetch<{ type: string; url: string; rds_available: boolean }>('/database/status'),
+  switchDatabase: (target: 'rds' | 'sqlite') =>
+    adminFetch<{ ok: boolean; type: string; url: string; rds_available: boolean }>('/database/switch', {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    }),
 }

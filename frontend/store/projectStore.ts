@@ -329,6 +329,20 @@ interface ProjectState {
     showHeatmap: boolean
     heatmapMode: 'point' | 'cell'
   }
+  // AI 스코어링
+  aiScore: {
+    isLoading: boolean
+    result: {
+      categoryGrades: Record<string, string>
+      overallScore: number
+      summary: string
+      suggestions: string
+      source: 'llm' | 'fallback'
+    } | null
+    error: string | null
+  }
+  setAIScore: (state: Partial<ProjectState['aiScore']>) => void
+
   // 일조 분석 날짜/시간 (Sidebar ↔ CesiumViewer 공유)
   sunlightDate: Date
   setSunlightDate: (date: Date) => void
@@ -452,6 +466,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
     setback: null,
     isModelInBounds: true,
   },
+  aiScore: {
+    isLoading: false,
+    result: null,
+    error: null,
+  },
+  setAIScore: (state) => set((prev) => ({
+    aiScore: { ...prev.aiScore, ...state },
+  })),
   sunlightAnalysisState: {
     isAnalyzing: false,
     progress: null,
@@ -633,6 +655,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,
       reviewData: { buildingCoverage: null, setback: null, isModelInBounds: true },
+      aiScore: { isLoading: false, result: null, error: null },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
       resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
       saveProjectFn: null,
