@@ -222,6 +222,7 @@ export default function CesiumViewer() {
   // === 일조 분석 (Hook) ===
   const sunlightAnalysis = useSunlightAnalysis(viewerRef, {
     getBuildingLineResult: buildingLine.getBuildingLineResult,
+    getSelectedBlocks: blockSelection.getSelectedBlocks,
   })
 
   // === OSM 건물 숨기기 (Hook) ===

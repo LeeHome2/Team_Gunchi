@@ -16,7 +16,7 @@ import type { SerializedBuildingLineResult } from '@/types/projectFile'
 /**
  * 여러 블록을 하나의 폴리곤으로 합필
  */
-function mergeBlocks(blocks: SelectedBlock[]): GeoJSON.Feature<GeoJSON.Polygon> | null {
+export function mergeBlocks(blocks: SelectedBlock[]): GeoJSON.Feature<GeoJSON.Polygon> | null {
   if (blocks.length === 0) return null
 
   if (blocks.length === 1) {

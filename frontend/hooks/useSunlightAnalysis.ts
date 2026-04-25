@@ -14,12 +14,16 @@ import {
   type HeatmapOptions,
 } from '@/lib/sunlightHeatmap'
 import type { BuildingLineResult } from '@/lib/buildingLine'
+import { mergeBlocks } from '@/hooks/useBuildingLine'
+import type { SelectedBlock } from '@/types/cesium'
 
 // ─── 타입 정의 ───
 
 interface UseSunlightAnalysisOptions {
   /** 건축선 결과 가져오기 함수 */
   getBuildingLineResult: () => BuildingLineResult | null
+  /** 선택된 필지 가져오기 함수 (건축선 미계산 시 fallback용) */
+  getSelectedBlocks?: () => SelectedBlock[]
 }
 
 interface UseSunlightAnalysisReturn {
@@ -47,7 +51,7 @@ export function useSunlightAnalysis(
   viewerRef: RefObject<any>,
   options: UseSunlightAnalysisOptions
 ): UseSunlightAnalysisReturn {
-  const { getBuildingLineResult } = options
+  const { getBuildingLineResult, getSelectedBlocks } = options
 
   // 상태
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -85,18 +89,28 @@ export function useSunlightAnalysis(
       return
     }
 
-    // 건축선 결과에서 buildableArea 가져오기
-    // 우선순위: buildableArea > buildingLine > cadastralPolygon(대지 경계선)
-    // cadastralPolygon으로 fallback: 도로/인접대지 정보 부족으로 offset 적용 실패해도
-    // 대지 경계선 자체로 일조 분석 수행 가능
+    // 분석 영역 결정
+    // 1순위: buildableArea (건축선 + 도로/인접대지 offset 적용)
+    // 2순위: buildingLine (건축선만 계산됨)
+    // 3순위: cadastralPolygon (대지 경계선만 있음)
+    // 4순위: 선택된 필지 직접 합필 (건축선 미계산 시 fallback)
     const buildingLineResult = getBuildingLineResult()
-    const areaFeature =
+    let areaFeature: GeoJSON.Feature<GeoJSON.Polygon> | null =
       buildingLineResult?.buildableArea ??
       buildingLineResult?.buildingLine ??
       buildingLineResult?.cadastralPolygon ??
       null
+
+    if (!areaFeature?.geometry && getSelectedBlocks) {
+      const selectedBlocks = getSelectedBlocks()
+      if (selectedBlocks.length > 0) {
+        areaFeature = mergeBlocks(selectedBlocks)
+        console.log('건축선 미계산 - 선택된 필지로 일조 분석 진행')
+      }
+    }
+
     if (!areaFeature?.geometry) {
-      alert('먼저 건축선을 계산해주세요. 건축선 버튼을 클릭하여 건축 가능 영역을 생성하세요.')
+      alert('먼저 필지를 선택해주세요. 지도에서 분석할 대지를 선택한 후 일조 분석을 진행하세요.')
       return
     }
 
@@ -145,7 +159,7 @@ export function useSunlightAnalysis(
       setIsAnalyzing(false)
       setAnalysisProgress(null)
     }
-  }, [viewerRef, getBuildingLineResult, clearHeatmapEntities, heatmapMode])
+  }, [viewerRef, getBuildingLineResult, getSelectedBlocks, clearHeatmapEntities, heatmapMode])
 
   /**
    * 분석 결과 및 히트맵 초기화
