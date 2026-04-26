@@ -11,6 +11,7 @@ import {
 } from '@/components/admin/AdminUI'
 import { adminApi, AIExperiment, AIConnectionCheckResult } from '@/lib/api'
 import ExperimentDetailModal from '@/components/admin/ExperimentDetailModal'
+import AIJobModal from '@/components/admin/AIJobModal'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -142,7 +143,7 @@ export default function AdminAiPage() {
                 연결 확인 성공 시 자동으로 <code>service_settings.ai_url</code>에 저장됩니다.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 className="btn-primary"
                 onClick={handleCheckConnection}
@@ -153,6 +154,14 @@ export default function AdminAiPage() {
               <button className="btn-secondary" onClick={loadAll}>
                 새로고침
               </button>
+              <a
+                href={aiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary inline-flex items-center gap-1"
+              >
+                AI 서버 대시보드 ↗
+              </a>
             </div>
 
             {conn && (
@@ -284,7 +293,7 @@ export default function AdminAiPage() {
             </button>
           </div>
           <p className="mt-3 text-xs text-white/40">
-            데이터 수집과 학습은 학과 서버에서 직접 실행하는 배치 작업으로, AWS에서 트리거할 수 있는 API가 없습니다.
+            학과 AI 서버의 백그라운드 프로세스로 실행됩니다. 모달에서 파라미터를 지정하고 실시간 로그를 확인할 수 있습니다.
           </p>
         </section>
 
@@ -374,66 +383,16 @@ export default function AdminAiPage() {
       )}
 
       {stubModal && (
-        <StubModal kind={stubModal} onClose={() => setStubModal(null)} />
+        <AIJobModal
+          kind={stubModal}
+          aiUrl={aiUrl}
+          onClose={() => setStubModal(null)}
+          onCompleted={() => {
+            // 작업 시작되면 실험 목록 갱신 (학습 완료 시점은 폴링으로 확인)
+            loadAll()
+          }}
+        />
       )}
     </>
-  )
-}
-
-function StubModal({
-  kind,
-  onClose,
-}: {
-  kind: 'retrain' | 'collect'
-  onClose: () => void
-}) {
-  const isRetrain = kind === 'retrain'
-  const title = isRetrain ? '모델 재학습' : '데이터 재수집'
-  const cmd = isRetrain
-    ? 'cd ~/Team_Gunchi_classifier && python -m training.train --output models/$(date +%Y%m%d_%H%M%S)'
-    : 'cd ~/Team_Gunchi_classifier && python -m training.collect_data --refresh'
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div
-        className="card w-full max-w-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between p-6 border-b border-white/10">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-white/50 hover:text-white text-xl leading-none px-2"
-            aria-label="닫기"
-          >
-            ×
-          </button>
-        </div>
-        <div className="p-6 space-y-4 text-sm">
-          <p className="text-white/70">
-            {title} 작업은 학과 서버에서 직접 실행해야 합니다. AI 분류 서버는 GPU
-            정책상 추론 전용으로 동작하며, 학습/데이터 수집은 별도 배치 스크립트로
-            관리됩니다.
-          </p>
-          <div>
-            <div className="text-xs text-white/50 mb-1.5">실행 명령 (예시)</div>
-            <pre className="font-mono text-xs rounded-md border border-white/10 bg-navy-950 p-3 overflow-auto">
-              ssh ceprj2.gachon.ac.kr{'\n'}
-              {cmd}
-            </pre>
-          </div>
-          <p className="text-xs text-white/40">
-            완료 후 본 화면에서 새로 생성된 실험을 확인하고 [적용] 버튼으로 운영에
-            반영하세요.
-          </p>
-        </div>
-        <div className="border-t border-white/10 p-4 flex justify-end">
-          <SmallBtn onClick={onClose}>닫기</SmallBtn>
-        </div>
-      </div>
-    </div>
   )
 }
