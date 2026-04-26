@@ -12,6 +12,7 @@ import {
 import { adminApi, AIExperiment, AIConnectionCheckResult } from '@/lib/api'
 import ExperimentDetailModal from '@/components/admin/ExperimentDetailModal'
 import AIJobModal from '@/components/admin/AIJobModal'
+import DatasetUploadModal from '@/components/admin/DatasetUploadModal'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -37,6 +38,8 @@ export default function AdminAiPage() {
 
   const [detailRunId, setDetailRunId] = useState<string | null>(null)
   const [stubModal, setStubModal] = useState<'retrain' | 'collect' | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [collectPrefillDir, setCollectPrefillDir] = useState<string | null>(null)
   const [deployingRunId, setDeployingRunId] = useState<string | null>(null)
 
   const [checking, setChecking] = useState(false)
@@ -52,7 +55,6 @@ export default function AdminAiPage() {
           throw e
         }),
       ])
-      // active 응답은 {active: ...} 또는 raw experiment 둘 다 가능
       const a: AIExperiment | null =
         (activeRes && 'active' in activeRes ? activeRes.active : activeRes) || null
       setActive(a as AIExperiment | null)
@@ -83,7 +85,6 @@ export default function AdminAiPage() {
       const res = await adminApi.checkAIConnection({ url: aiUrl, save: true })
       setConn(res)
       if (res.reachable) {
-        // 새 URL이 저장됐다면 활성 모델 / 실험 목록도 다시 받아온다
         await loadAll()
       }
     } catch (e: any) {
@@ -280,8 +281,17 @@ export default function AdminAiPage() {
           <h3 className="text-base font-semibold mb-4">관리 작업</h3>
           <div className="flex flex-wrap gap-2">
             <button
+              className="btn-primary"
+              onClick={() => setUploadOpen(true)}
+            >
+              📤 DXF 데이터셋 업로드
+            </button>
+            <button
               className="btn-secondary"
-              onClick={() => setStubModal('collect')}
+              onClick={() => {
+                setCollectPrefillDir(null)
+                setStubModal('collect')
+              }}
             >
               데이터 재수집
             </button>
@@ -293,7 +303,8 @@ export default function AdminAiPage() {
             </button>
           </div>
           <p className="mt-3 text-xs text-white/40">
-            학과 AI 서버의 백그라운드 프로세스로 실행됩니다. 모달에서 파라미터를 지정하고 실시간 로그를 확인할 수 있습니다.
+            <b>업로드</b> → 학과 AI 서버에 zip 으로 데이터셋 전송 (즉시 자동 빌드 옵션 가능). <b>재수집</b> →
+            서버에 이미 있는 데이터셋을 다시 처리. <b>재학습</b> → labeled CSV 로 모델 학습.
           </p>
         </section>
 
@@ -386,10 +397,29 @@ export default function AdminAiPage() {
         <AIJobModal
           kind={stubModal}
           aiUrl={aiUrl}
-          onClose={() => setStubModal(null)}
+          prefillDxfDir={stubModal === 'collect' ? collectPrefillDir : null}
+          onClose={() => {
+            setStubModal(null)
+            setCollectPrefillDir(null)
+          }}
           onCompleted={() => {
-            // 작업 시작되면 실험 목록 갱신 (학습 완료 시점은 폴링으로 확인)
             loadAll()
+          }}
+        />
+      )}
+
+      {uploadOpen && (
+        <DatasetUploadModal
+          aiUrl={aiUrl}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={(result) => {
+            if (!result.auto_build) {
+              setUploadOpen(false)
+              setCollectPrefillDir(result.dxf_dir)
+              setStubModal('collect')
+            } else {
+              loadAll()
+            }
           }}
         />
       )}

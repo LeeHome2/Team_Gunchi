@@ -17,11 +17,13 @@ type ModalKind = 'retrain' | 'collect'
 interface Props {
   kind: ModalKind
   aiUrl: string                     // ex) http://ceprj2.gachon.ac.kr:65006
+  /** kind=collect 일 때 dxf_dir 입력란을 prefill (업로드 모달에서 넘겨받음) */
+  prefillDxfDir?: string | null
   onClose: () => void
   onCompleted?: (info: { run_id?: string; job_id?: string }) => void
 }
 
-export default function AIJobModal({ kind, aiUrl, onClose, onCompleted }: Props) {
+export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onCompleted }: Props) {
   // 재학습 파라미터
   const [runId, setRunId] = useState('')
   const [maxIter, setMaxIter] = useState(200)
@@ -29,7 +31,7 @@ export default function AIJobModal({ kind, aiUrl, onClose, onCompleted }: Props)
   const [learningRate, setLearningRate] = useState(0.08)
 
   // 재수집 파라미터
-  const [dxfDir, setDxfDir] = useState('')
+  const [dxfDir, setDxfDir] = useState(prefillDxfDir || '')
   const [mock, setMock] = useState(false)
   const [limit, setLimit] = useState<number | ''>('')
 
@@ -168,11 +170,20 @@ export default function AIJobModal({ kind, aiUrl, onClose, onCompleted }: Props)
 
         {!response && kind === 'collect' && (
           <div className="space-y-3">
-            <Field label="DXF 디렉토리 (비우면 기본 ~/데이터셋1-dxf/dxf)">
+            {prefillDxfDir ? (
+              <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-400/30 rounded p-2">
+                ✅ 방금 업로드한 데이터셋 경로가 자동 입력되었습니다. 그대로 시작하면 됩니다.
+              </div>
+            ) : (
+              <div className="text-xs text-sky-300 bg-sky-500/10 border border-sky-400/30 rounded p-2">
+                ℹ 경로는 <b>학과 AI 서버(Linux)</b> 의 절대 경로입니다. 본인 PC 경로(C:\…) 가 아닙니다.
+              </div>
+            )}
+            <Field label="DXF 디렉토리 (비우면 기본값 ~/데이터셋1-dxf/dxf 사용)">
               <input
                 value={dxfDir}
                 onChange={(e) => setDxfDir(e.target.value)}
-                placeholder="/home/t26206/데이터셋1-dxf/dxf"
+                placeholder="(비워두면 기본 데이터셋 — 보통 이대로 두면 됩니다)"
                 className="input-field font-mono text-sm"
               />
             </Field>
