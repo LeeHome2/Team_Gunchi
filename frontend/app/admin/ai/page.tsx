@@ -13,6 +13,7 @@ import { adminApi, AIExperiment, AIConnectionCheckResult } from '@/lib/api'
 import ExperimentDetailModal from '@/components/admin/ExperimentDetailModal'
 import AIJobModal from '@/components/admin/AIJobModal'
 import DatasetUploadModal from '@/components/admin/DatasetUploadModal'
+import DatasetsPanel from '@/components/admin/DatasetsPanel'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -45,6 +46,9 @@ export default function AdminAiPage() {
   const [checking, setChecking] = useState(false)
   const [conn, setConn] = useState<AIConnectionCheckResult | null>(null)
 
+  // DatasetsPanel 갱신 트리거 (업로드/빌드 후 증가시킴)
+  const [datasetsRefreshKey, setDatasetsRefreshKey] = useState(0)
+
   const loadAll = async () => {
     setLoading(true)
     setError(null)
@@ -64,6 +68,7 @@ export default function AdminAiPage() {
     } finally {
       setLoading(false)
     }
+    setDatasetsRefreshKey((k) => k + 1)
   }
 
   useEffect(() => {
@@ -189,18 +194,14 @@ export default function AdminAiPage() {
                     </span>
                   )}
                   {conn.saved && (
-                    <span className="text-[11px] text-white/50">
-                      · URL 저장됨
-                    </span>
+                    <span className="text-[11px] text-white/50">· URL 저장됨</span>
                   )}
                 </div>
 
                 <div className="grid gap-1.5 text-xs">
                   <div className="flex gap-2">
                     <span className="text-white/40 w-16 flex-shrink-0">대상</span>
-                    <span className="font-mono text-white/80 break-all">
-                      {conn.url}
-                    </span>
+                    <span className="font-mono text-white/80 break-all">{conn.url}</span>
                   </div>
                   {conn.service_info && typeof conn.service_info === 'object' && (
                     <div className="flex gap-2">
@@ -276,6 +277,9 @@ export default function AdminAiPage() {
           )}
         </section>
 
+        {/* 데이터셋 / 분할 (진도표 항목 1, 2, 3) */}
+        <DatasetsPanel aiUrl={aiUrl} refreshKey={datasetsRefreshKey} />
+
         {/* 관리 작업 */}
         <section className="card p-6">
           <h3 className="text-base font-semibold mb-4">관리 작업</h3>
@@ -338,9 +342,7 @@ export default function AdminAiPage() {
                   <Td className="text-white/50">{formatDate(e.trained_at)}</Td>
                   <Td>{acc != null ? `${(acc * 100).toFixed(1)}%` : '—'}</Td>
                   <Td>
-                    {typeof f1 === 'number'
-                      ? `${(f1 * 100).toFixed(1)}%`
-                      : '—'}
+                    {typeof f1 === 'number' ? `${(f1 * 100).toFixed(1)}%` : '—'}
                   </Td>
                   <Td>
                     {isActive ? (
@@ -413,6 +415,7 @@ export default function AdminAiPage() {
           aiUrl={aiUrl}
           onClose={() => setUploadOpen(false)}
           onUploaded={(result) => {
+            setDatasetsRefreshKey((k) => k + 1)
             if (!result.auto_build) {
               setUploadOpen(false)
               setCollectPrefillDir(result.dxf_dir)

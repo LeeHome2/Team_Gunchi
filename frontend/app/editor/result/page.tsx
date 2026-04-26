@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Brand from '@/components/Brand'
 import { useProjectStore } from '@/store/projectStore'
 import { requestAIScoring } from '@/lib/analysisApi'
+import { fetchLatestReviewResult } from '@/lib/api'
 
 type StatusKey = 'pass' | 'fail' | 'warning' | 'unknown'
 
@@ -200,15 +201,34 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation } =
     useProjectStore()
+
+  // 새로고침으로 store 가 비어있을 때 — DB 의 가장 최근 검토 결과로 hydrate
+  const [dbHydrated, setDbHydrated] = useState(false)
+  useEffect(() => {
+    if (!projectId) return
+    if (validation || reviewData?.buildingCoverage) return // 이미 store 에 있음
+    if (dbHydrated) return
+    setDbHydrated(true)
+    ;(async () => {
+      const saved = await fetchLatestReviewResult(projectId)
+      if (saved) {
+        // 백엔드 응답 → store ValidationResult 로 hydrate
+        setValidation({
+          is_valid: saved.is_valid,
+          building_coverage: saved.building_coverage as any,
+          setback: saved.setback as any,
+          height_check: saved.height_check as any,
+          violations: saved.violations as any,
+          zone_type: saved.zone_type ?? undefined,
+        } as any)
+      }
+    })()
+  }, [projectId, validation, reviewData, dbHydrated, setValidation])
 
   // 데이터가 아예 없으면 에디터로 유도
   const hasAnyData = validation || reviewData?.buildingCoverage || site || building || resultSnapshot.sitePlan
-  useEffect(() => {
-    // 새로고침 등으로 store 가 비어있는 경우 — 자동 리다이렉트 대신
-    // 안내 화면을 띄워 사용자가 컨트롤하게 한다.
-  }, [])
 
   // ─── AI 렌더링 (Google AI Studio "Nano Banana") ─────────────
   const [isRendering, setIsRendering] = useState(false)

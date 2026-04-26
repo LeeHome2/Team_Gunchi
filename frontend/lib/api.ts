@@ -162,6 +162,48 @@ export async function deleteDxfFile(dxfId: string): Promise<void> {
 }
 
 /**
+ * DB 에 저장된 가장 최근 검토 결과를 가져온다.
+ *
+ * /editor/result 페이지가 진입 시 호출하여, store 가 비어있을 때(예: 새로고침)
+ * DB 의 결과로 fallback 한다. 결과가 없으면 null 반환.
+ */
+export interface SavedReviewResult {
+  id: string
+  project_id: string
+  model_id: string | null
+  is_valid: boolean
+  building_coverage: {
+    value?: number
+    limit?: number
+    status?: string
+    building_area?: number
+    site_area?: number
+  }
+  setback: {
+    min_distance_m?: number
+    required_m?: number
+    status?: string
+  }
+  height_check: { value_m?: number; limit_m?: number; status?: string }
+  violations: Array<{ code?: string; message?: string }>
+  zone_type: string | null
+  created_at: string | null
+}
+
+export async function fetchLatestReviewResult(
+  projectId: string,
+): Promise<SavedReviewResult | null> {
+  try {
+    const r = await fetch(`${API_URL}/api/projects/${projectId}/review`)
+    if (r.status === 404) return null
+    if (!r.ok) return null
+    return (await r.json()) as SavedReviewResult
+  } catch {
+    return null
+  }
+}
+
+/**
  * 클라이언트에서 계산한 규정 검토 결과를 DB에 저장한다.
  * 관리자 결과 관리 탭에서 조회 가능하게 하기 위함.
  */

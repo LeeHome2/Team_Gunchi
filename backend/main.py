@@ -1039,6 +1039,66 @@ def save_review_result(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _validation_result_to_dict(record) -> dict:
+    """ValidationResult ORM → JSON 직렬화 dict."""
+    return {
+        "id": str(record.id),
+        "project_id": str(record.project_id),
+        "model_id": str(record.model_id) if record.model_id else None,
+        "is_valid": record.is_valid,
+        "building_coverage": record.building_coverage,
+        "setback": record.setback,
+        "height_check": record.height_check,
+        "violations": record.violations,
+        "zone_type": record.zone_type,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+    }
+
+
+@app.get("/api/projects/{project_id}/review")
+def get_latest_review_result(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+    """프로젝트의 가장 최근 검토 결과 1건 반환.
+
+    /editor/result 페이지가 진입 시 호출하여 저장된 결과 우선 표시.
+    없으면 404 → 프론트가 새로 계산 후 POST 로 저장.
+    """
+    try:
+        import uuid as uuid_module
+        project_uuid = uuid_module.UUID(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"invalid uuid: {e}")
+
+    results = crud.get_validation_results_by_project(db, project_uuid)
+    if not results:
+        raise HTTPException(status_code=404, detail="저장된 검토 결과가 없습니다")
+    # crud 가 created_at desc 정렬해 주므로 첫 번째가 가장 최근
+    return _validation_result_to_dict(results[0])
+
+
+@app.get("/api/projects/{project_id}/reviews")
+def list_review_history(
+    project_id: str,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    """프로젝트의 검토 결과 이력 (최신순). 관리자 화면 또는 결과 비교용."""
+    try:
+        import uuid as uuid_module
+        project_uuid = uuid_module.UUID(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"invalid uuid: {e}")
+
+    results = crud.get_validation_results_by_project(db, project_uuid)
+    return {
+        "project_id": project_id,
+        "count": len(results),
+        "results": [_validation_result_to_dict(r) for r in results[:limit]],
+    }
+
+
 # ============================================================================
 # AI PROXY ENDPOINTS
 # ============================================================================
