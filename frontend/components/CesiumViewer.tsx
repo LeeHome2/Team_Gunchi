@@ -1725,10 +1725,13 @@ export default function CesiumViewer() {
             message: `이격거리 ${reviewPayload.setback.minDistance}m < ${reviewPayload.setback.required}m`,
           })
         }
+        // 이격거리 검토는 대지경계선 ↔ 모델 거리(setback)로만 판정.
+        // isModelInBounds는 건축선(=lot - setback) 안쪽 여부 체크라 setback과
+        // 본질적으로 같은 제약이고, 함께 검사하면 중복 판정이 됨. 시각 피드백
+        // (바운더리 색상)에만 사용하고 적합 판정에서는 제외한다.
         const isValid =
           reviewPayload.buildingCoverage.status === 'OK' &&
-          (!reviewPayload.setback || reviewPayload.setback.status === 'OK') &&
-          reviewPayload.isModelInBounds
+          (!reviewPayload.setback || reviewPayload.setback.status === 'OK')
 
         saveReviewResult(projectId, {
           is_valid: isValid,

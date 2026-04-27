@@ -78,13 +78,10 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <div className="mb-1.5 flex items-center justify-between">
+          <div className="mb-1.5">
             <label htmlFor="password" className="block text-sm font-medium text-white/80">
               비밀번호
             </label>
-            <Link href="#" className="text-xs text-brand-300 hover:text-brand-200">
-              비밀번호 찾기
-            </Link>
           </div>
           <input
             id="password"

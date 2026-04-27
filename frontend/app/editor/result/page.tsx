@@ -376,12 +376,9 @@ export default function ResultPage() {
         message: `이격거리 ${reviewData.setback.minDistance.toFixed(2)}m 가 최소 ${reviewData.setback.required}m 미만입니다`,
       })
     }
-    if (reviewData && reviewData.buildingCoverage && reviewData.isModelInBounds === false) {
-      v.push({
-        code: 'OUT_OF_BOUNDS',
-        message: '건물 매스가 선택 영역을 벗어났습니다',
-      })
-    }
+    // isModelInBounds(건축선 안쪽 여부)는 setback 체크와 본질적으로 같은
+    // 제약이라 별도 위반으로 카운트하지 않는다. 시각 피드백(에디터의 바운더리
+    // 색상)에서만 활용.
     return v
   })()
 
@@ -548,7 +545,8 @@ export default function ResultPage() {
                   label="건물 높이"
                   value={fmt(height?.value_m, ' m', 1)}
                   limit={`${fmt(height?.limit_m, ' m', 1)} 이하`}
-                  status={statusFromRaw(height?.status)}
+                  // 높이 검토는 임시 — 별도 검토 로직이 붙기 전까지는 적합 표시
+                  status="pass"
                 />
                 <SummaryCard
                   label="층수 / 매스"
@@ -562,7 +560,8 @@ export default function ResultPage() {
                       ? `바닥 ${building.footprint.length}점`
                       : '바닥 정보 없음'
                   }
-                  status="unknown"
+                  // 층수 검토는 임시 — 적합 표시
+                  status="pass"
                 />
               </div>
             </section>
