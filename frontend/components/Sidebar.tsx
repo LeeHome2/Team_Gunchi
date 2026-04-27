@@ -166,6 +166,12 @@ export default function Sidebar() {
     if (!Cesium) return
 
     setModelTransform({ height: newHeight })
+    // 임시: 슬라이더의 높이값을 건물 높이로도 반영. 별도 건물 높이 컨트롤이
+    // 추가되기 전까지 결과 페이지가 이 값을 그대로 표시하도록 한다.
+    // 음수(지하)는 0으로 클램프하여 건물 높이가 음수로 보이지 않게 처리.
+    if (building) {
+      setBuilding({ ...building, height: Math.max(0, newHeight) })
+    }
 
     // 새 위치로 업데이트
     loadedModelEntity.position = Cesium.Cartesian3.fromDegrees(
