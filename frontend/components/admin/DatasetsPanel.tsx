@@ -13,7 +13,7 @@
  *   - 데이터셋 버전관리 기능
  *   - 학습/검증/테스트 분할 생성 기능
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface StageInfo {
   label: string
@@ -54,6 +54,8 @@ interface DatasetsResponse {
 interface Props {
   aiUrl: string
   refreshKey?: number  // 부모가 갱신 트리거 가능
+  /** 강조할 데이터셋 ID (방금 업로드한 항목 등). 일치하면 행 highlight + NEW 배지 + scrollIntoView */
+  highlightDatasetId?: string | null
 }
 
 function fmtTime(t: number | null): string {
@@ -65,10 +67,24 @@ function fmtTime(t: number | null): string {
   }
 }
 
-export default function DatasetsPanel({ aiUrl, refreshKey = 0 }: Props) {
+export default function DatasetsPanel({
+  aiUrl,
+  refreshKey = 0,
+  highlightDatasetId = null,
+}: Props) {
   const [data, setData] = useState<DatasetsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
+
+  // highlightDatasetId 가 들어오면 해당 행으로 스크롤
+  useEffect(() => {
+    if (!highlightDatasetId || !highlightRowRef.current) return
+    const t = setTimeout(() => {
+      highlightRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => clearTimeout(t)
+  }, [highlightDatasetId, data])
 
   useEffect(() => {
     let alive = true
@@ -166,14 +182,18 @@ export default function DatasetsPanel({ aiUrl, refreshKey = 0 }: Props) {
           {/* 등록된 데이터셋 목록 */}
           {data.meta?.datasets && data.meta.datasets.length > 0 && (
             <div>
-              <h4 className="text-xs uppercase tracking-wide text-white/50 font-semibold mb-2">
-                등록된 데이터셋 버전
+              <h4 className="text-xs uppercase tracking-wide text-white/50 font-semibold mb-2 flex items-center justify-between">
+                <span>등록된 데이터셋 버전 ({data.meta.datasets.length}개)</span>
+                {highlightDatasetId && (
+                  <span className="rounded-full bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 normal-case tracking-normal">
+                    ⬆ 방금 업로드된 항목 강조됨
+                  </span>
+                )}
               </h4>
               <div className="overflow-auto rounded-md border border-white/10">
                 <table className="w-full text-xs">
                   <thead className="bg-white/[0.04]">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium text-white/60">ID</th>
                       <th className="px-3 py-2 text-left font-medium text-white/60">이름</th>
                       <th className="px-3 py-2 text-left font-medium text-white/60">소스</th>
                       <th className="px-3 py-2 text-right font-medium text-white/60">DXF</th>
@@ -182,28 +202,56 @@ export default function DatasetsPanel({ aiUrl, refreshKey = 0 }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.meta.datasets.map((ds, i) => (
-                      <tr key={i} className="border-t border-white/5">
-                        <td className="px-3 py-1.5 font-mono text-white/80">
-                          {ds.id || '—'}
-                        </td>
-                        <td className="px-3 py-1.5 text-white/70">{ds.name || '—'}</td>
-                        <td className="px-3 py-1.5">
-                          <span className="rounded bg-white/5 border border-white/10 px-2 py-0.5 text-[10px] font-mono text-white/60">
-                            {ds.source || 'manual'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-mono">
-                          {ds.dxf_count ?? '—'}
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-mono text-white/60">
-                          {ds.size_mb ?? '—'} MB
-                        </td>
-                        <td className="px-3 py-1.5 text-white/50 text-[11px]">
-                          {ds.uploaded_at || '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    {data.meta.datasets
+                      .slice() // copy before reverse
+                      .reverse() // 최신이 위로
+                      .map((ds, i) => {
+                        const isHighlighted =
+                          !!highlightDatasetId && ds.id === highlightDatasetId
+                        return (
+                          <tr
+                            key={ds.id || i}
+                            ref={isHighlighted ? highlightRowRef : null}
+                            className={
+                              isHighlighted
+                                ? 'border-t border-emerald-400/40 bg-emerald-500/10 ring-2 ring-emerald-400/40'
+                                : 'border-t border-white/5'
+                            }
+                          >
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-white text-sm">
+                                  {ds.name || ds.id || '—'}
+                                </span>
+                                {isHighlighted && (
+                                  <span className="rounded-full bg-emerald-500/25 border border-emerald-300/60 px-1.5 py-0.5 text-[9px] font-bold text-emerald-200 uppercase">
+                                    🆕 NEW
+                                  </span>
+                                )}
+                              </div>
+                              {ds.id && (
+                                <div className="text-[10px] font-mono text-white/40 mt-0.5">
+                                  {ds.id}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="rounded bg-white/5 border border-white/10 px-2 py-0.5 text-[10px] font-mono text-white/60">
+                                {ds.source || 'manual'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono font-semibold">
+                              {ds.dxf_count ?? '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-white/60">
+                              {ds.size_mb ?? '—'} MB
+                            </td>
+                            <td className="px-3 py-2 text-white/50 text-[11px]">
+                              {ds.uploaded_at || '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
                   </tbody>
                 </table>
               </div>

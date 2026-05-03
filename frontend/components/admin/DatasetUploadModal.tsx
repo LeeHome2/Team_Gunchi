@@ -156,7 +156,9 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
             </div>
 
             <div>
-              <label className="block text-xs text-white/60 mb-1">데이터셋 이름 (선택)</label>
+              <label className="block text-xs text-white/80 mb-1 font-medium">
+                데이터셋 이름 <span className="text-amber-300">★</span>
+              </label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -164,6 +166,10 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
                 disabled={uploading}
                 className="input-field text-sm"
               />
+              <p className="mt-1 text-[11px] text-white/50">
+                관리자가 데이터셋 목록에서 식별하기 쉽도록 의미있는 이름을 입력해주세요.
+                비워두면 zip 파일명({file ? file.name.replace(/\.zip$/i, '') : '예: smoke_test'}) 으로 자동 등록됩니다.
+              </p>
             </div>
 
             {/* 자동 빌드 옵션 */}
@@ -302,8 +308,11 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={onClose} className="btn-secondary text-sm">
-                닫기
+              <button
+                onClick={onClose}
+                className="btn-secondary text-sm"
+              >
+                닫기 (📊 데이터셋 패널에서 새 항목 확인)
               </button>
               {!result.auto_build && (
                 <button

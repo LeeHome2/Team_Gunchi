@@ -28,6 +28,7 @@ export default function ParkingZonePanel() {
     loadedModelEntity,
     generatedMasses,
     parkingConfig,
+    gridRotation,
     setParkingConfig,
     setParkingZone,
     setParkingEntrance,
@@ -35,6 +36,7 @@ export default function ParkingZonePanel() {
     setIsParkingVisible,
     setParkingTransform,
     setEntranceTransform,
+    setGridRotation,
     clearParking,
     setError,
   } = useProjectStore()
@@ -66,31 +68,34 @@ export default function ParkingZonePanel() {
   )
 
   // 모든 건물 footprint를 로컬 좌표 AABB 장애물로 변환
+  // 메인 건물은 generateParkingLayout의 buildingFootprint로 별도 전달되므로 여기서는 제외
   const collectObstacles = useCallback(() => {
     const obstacles: { minX: number; minY: number; maxX: number; maxY: number }[] = []
     const additionalFootprintsLocal: number[][][] = []
 
-    // 1. 메인 건물
+    // 1. 메인 건물 - obstacles에만 추가 (buildingFootprint로 별도 전달되므로 additionalFootprints에는 미포함)
+    // 마진은 generateParkingLayout에서 1.5m가 적용되므로 여기서는 추가하지 않음
     if (loadedModelEntity && building?.footprint && building.footprint.length >= 3) {
       const local = toLocal(building.footprint)
       obstacles.push({
-        minX: Math.min(...local.map(p => p[0])) - 1,
-        minY: Math.min(...local.map(p => p[1])) - 1,
-        maxX: Math.max(...local.map(p => p[0])) + 1,
-        maxY: Math.max(...local.map(p => p[1])) + 1,
+        minX: Math.min(...local.map(p => p[0])),
+        minY: Math.min(...local.map(p => p[1])),
+        maxX: Math.max(...local.map(p => p[0])),
+        maxY: Math.max(...local.map(p => p[1])),
       })
-      additionalFootprintsLocal.push(local)
+      // additionalFootprintsLocal에는 추가하지 않음 (중복 방지)
     }
 
-    // 2. 생성된 매스 모델들 (다중 건물)
+    // 2. 생성된 매스 모델들 (다중 건물) - 이들만 additionalFootprints에 추가
+    // 마진은 generateParkingLayout에서 1.5m가 적용되므로 여기서는 추가하지 않음
     for (const mass of generatedMasses) {
       if (mass.footprint && mass.footprint.length >= 3) {
         const local = toLocal(mass.footprint)
         obstacles.push({
-          minX: Math.min(...local.map(p => p[0])) - 1,
-          minY: Math.min(...local.map(p => p[1])) - 1,
-          maxX: Math.max(...local.map(p => p[0])) + 1,
-          maxY: Math.max(...local.map(p => p[1])) + 1,
+          minX: Math.min(...local.map(p => p[0])),
+          minY: Math.min(...local.map(p => p[1])),
+          maxX: Math.max(...local.map(p => p[0])),
+          maxY: Math.max(...local.map(p => p[1])),
         })
         additionalFootprintsLocal.push(local)
       }
@@ -106,7 +111,32 @@ export default function ParkingZonePanel() {
       return
     }
 
-    const siteFootprint = selectedBlockInfo?.coordinates?.[0] ?? site?.footprint
+    // 선택된 모든 블록의 좌표를 합쳐서 하나의 큰 경계 폴리곤 생성
+    let combinedFootprint: number[][] | null = null
+    if (selectedBlockInfo?.coordinates && selectedBlockInfo.coordinates.length > 0) {
+      // 모든 블록의 점들을 합쳐서 convex hull 계산 대신, 모든 점들의 AABB를 사용
+      const allPoints: number[][] = []
+      for (const blockCoords of selectedBlockInfo.coordinates) {
+        allPoints.push(...blockCoords)
+      }
+      if (allPoints.length >= 3) {
+        // AABB 계산
+        const xs = allPoints.map(p => p[0])
+        const ys = allPoints.map(p => p[1])
+        const minX = Math.min(...xs)
+        const maxX = Math.max(...xs)
+        const minY = Math.min(...ys)
+        const maxY = Math.max(...ys)
+        combinedFootprint = [
+          [minX, minY],
+          [maxX, minY],
+          [maxX, maxY],
+          [minX, maxY],
+        ]
+      }
+    }
+
+    const siteFootprint = combinedFootprint ?? site?.footprint
     if (!siteFootprint || siteFootprint.length < 3) {
       setError('영역을 먼저 선택해주세요')
       return
@@ -188,7 +218,31 @@ export default function ParkingZonePanel() {
   // 경로 재탐색 (입구/주차영역 이동 후)
   const handleRecalcPath = useCallback(() => {
     if (!parkingZone || !parkingEntrance) return
-    const siteFootprint = selectedBlockInfo?.coordinates?.[0] ?? site?.footprint
+
+    // 선택된 모든 블록의 좌표를 합쳐서 AABB 계산
+    let combinedFootprint: number[][] | null = null
+    if (selectedBlockInfo?.coordinates && selectedBlockInfo.coordinates.length > 0) {
+      const allPoints: number[][] = []
+      for (const blockCoords of selectedBlockInfo.coordinates) {
+        allPoints.push(...blockCoords)
+      }
+      if (allPoints.length >= 3) {
+        const xs = allPoints.map(p => p[0])
+        const ys = allPoints.map(p => p[1])
+        const minX = Math.min(...xs)
+        const maxX = Math.max(...xs)
+        const minY = Math.min(...ys)
+        const maxY = Math.max(...ys)
+        combinedFootprint = [
+          [minX, minY],
+          [maxX, minY],
+          [maxX, maxY],
+          [minX, maxY],
+        ]
+      }
+    }
+
+    const siteFootprint = combinedFootprint ?? site?.footprint
     if (!siteFootprint || siteFootprint.length < 3) return
 
     const siteLocal = toLocal(siteFootprint)
@@ -339,6 +393,30 @@ export default function ParkingZonePanel() {
               />
               그리드 표시 (건물/경로 시각화)
             </label>
+
+            {/* 그리드 회전 슬라이더 */}
+            {showGrid && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between text-xs text-gray-600">
+                  <span>그리드 방향</span>
+                  <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{gridRotation}°</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={180}
+                  step={5}
+                  value={gridRotation}
+                  onChange={(e) => setGridRotation(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <div className="flex justify-between text-[10px] text-gray-400">
+                  <span>0°</span>
+                  <span>90°</span>
+                  <span>180°</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 결과 요약 */}

@@ -309,6 +309,8 @@ interface ProjectState {
   entranceTransform: { longitude: number; latitude: number; rotation: number }
   // 경로 탐색 결과
   parkingPath: ParkingPathData | null
+  // 그리드 회전 각도 (도)
+  gridRotation: number
 
   // 검토 탭 데이터 (CesiumViewer에서 계산)
   reviewData: {
@@ -390,6 +392,7 @@ interface ProjectState {
   setParkingEntrance: (entrance: ParkingEntranceData | null) => void
   setEntranceTransform: (transform: Partial<{ longitude: number; latitude: number; rotation: number }>) => void
   setParkingPath: (path: ParkingPathData | null) => void
+  setGridRotation: (rotation: number) => void
   clearParking: () => void
   setResultSnapshot: (snapshot: Partial<ResultSnapshot>) => void
   clearResultSnapshot: () => void
@@ -461,6 +464,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   parkingEntrance: null,
   entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
   parkingPath: null,
+  gridRotation: 0,
   reviewData: {
     buildingCoverage: null,
     setback: null,
@@ -562,6 +566,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       entranceTransform: { ...state.entranceTransform, ...transform },
     })),
   setParkingPath: (path) => set({ parkingPath: path }),
+  setGridRotation: (rotation) => set({ gridRotation: rotation }),
   clearParking: () =>
     set({
       parkingZone: null,
@@ -571,6 +576,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       parkingEntrance: null,
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,
+      gridRotation: 0,
       parkingConfig: {
         buildingUse: '근린생활시설',
         grossFloorArea: 0,
@@ -654,6 +660,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       parkingEntrance: null,
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,
+      gridRotation: 0,
       reviewData: { buildingCoverage: null, setback: null, isModelInBounds: true },
       aiScore: { isLoading: false, result: null, error: null },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },

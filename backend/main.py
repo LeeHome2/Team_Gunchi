@@ -417,6 +417,66 @@ async def root():
     }
 
 
+@app.get("/api/regulations")
+def get_public_regulations(db: Session = Depends(get_db)):
+    """사용자용 규정 기준값 공개 엔드포인트.
+
+    관리자가 /admin/regulations 에서 변경한 zone_rules / base_rules 를
+    사용자 측 (CesiumViewer / editor/result 등) 에서 즉시 fetch 할 수 있도록
+    노출. 관리자 변경 → 사용자 새로고침 즉시 반영.
+
+    응답 형식 (간소화):
+      {
+        "zones": {
+          "<zone_name>": {"coverage": 60, "setback": 1.5, "height_max": null, "far": 200},
+          ...
+        },
+        "base": [{"key": ..., "value": ..., "unit": ...}, ...],
+        "updated_at": <max updated_at iso>
+      }
+    """
+    try:
+        zones = crud.list_zone_rules(db)
+        base = crud.list_base_rules(db)
+
+        zone_dict = {}
+        max_updated = None
+        for r in zones:
+            # 같은 zone 에 region 별 여러 rule 이 있으면 첫 번째(가장 일반) 사용
+            # 더 정교하게는 region 별로 nested 구조 가능
+            if r.zone not in zone_dict:
+                zone_dict[r.zone] = {
+                    "coverage": r.coverage,
+                    "setback": r.setback,
+                    "height_max": r.height_max,
+                    "far": r.far,
+                }
+            if r.updated_at and (max_updated is None or r.updated_at > max_updated):
+                max_updated = r.updated_at
+
+        base_list = [
+            {
+                "key": r.key,
+                "label": r.label,
+                "unit": r.unit,
+                "value": r.value,
+            }
+            for r in base
+        ]
+        for r in base:
+            if r.updated_at and (max_updated is None or r.updated_at > max_updated):
+                max_updated = r.updated_at
+
+        return {
+            "zones": zone_dict,
+            "base": base_list,
+            "updated_at": max_updated.isoformat() if max_updated else None,
+        }
+    except Exception as e:
+        logger.error(f"규정 조회 실패: {e}")
+        return {"zones": {}, "base": [], "updated_at": None, "error": str(e)}
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""

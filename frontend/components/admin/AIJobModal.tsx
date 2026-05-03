@@ -23,12 +23,23 @@ interface Props {
   onCompleted?: (info: { run_id?: string; job_id?: string }) => void
 }
 
+// 분할 비율 프리셋
+const SPLIT_PRESETS: Array<{ label: string; train: number; val: number }> = [
+  { label: '7 : 1.5 : 1.5  (기본)', train: 0.70, val: 0.15 },
+  { label: '8 : 1 : 1', train: 0.80, val: 0.10 },
+  { label: '7 : 2 : 1', train: 0.70, val: 0.20 },
+  { label: '6 : 2 : 2', train: 0.60, val: 0.20 },
+  { label: '5 : 2.5 : 2.5', train: 0.50, val: 0.25 },
+]
+
 export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onCompleted }: Props) {
   // 재학습 파라미터
   const [runId, setRunId] = useState('')
   const [maxIter, setMaxIter] = useState(200)
   const [maxDepth, setMaxDepth] = useState(7)
   const [learningRate, setLearningRate] = useState(0.08)
+  const [trainRatio, setTrainRatio] = useState(0.70)
+  const [valRatio, setValRatio] = useState(0.15)
 
   // 재수집 파라미터
   const [dxfDir, setDxfDir] = useState(prefillDxfDir || '')
@@ -83,6 +94,8 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
               max_iter: Number(maxIter),
               max_depth: Number(maxDepth),
               learning_rate: Number(learningRate),
+              train_ratio: Number(trainRatio),
+              val_ratio: Number(valRatio),
             }
           : {
               dxf_dir: dxfDir || undefined,
@@ -165,6 +178,99 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                 />
               </Field>
             </Grid3>
+
+            {/* 학습/검증/테스트 분할 비율 (교수님 지적사항 #3) */}
+            <div className="rounded-md border border-white/10 bg-white/[0.02] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-white/80">
+                    학습 / 검증 / 테스트 분할 비율
+                  </div>
+                  <div className="text-[10px] text-white/50 mt-0.5">
+                    파일 단위 split. 비율을 바꿔가며 성능 비교 가능
+                  </div>
+                </div>
+                <span className="text-xs font-mono text-blue-300">
+                  {(trainRatio * 100).toFixed(0)} :{' '}
+                  {(valRatio * 100).toFixed(0)} :{' '}
+                  {((1 - trainRatio - valRatio) * 100).toFixed(0)}
+                </span>
+              </div>
+
+              {/* 프리셋 버튼들 */}
+              <div className="flex flex-wrap gap-1.5">
+                {SPLIT_PRESETS.map((p) => {
+                  const active =
+                    Math.abs(trainRatio - p.train) < 0.005 &&
+                    Math.abs(valRatio - p.val) < 0.005
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        setTrainRatio(p.train)
+                        setValRatio(p.val)
+                      }}
+                      className={`px-2 py-1 text-[10px] font-mono rounded border ${
+                        active
+                          ? 'bg-blue-500/30 border-blue-400/60 text-blue-100'
+                          : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* 직접 입력 (소수) */}
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <div>
+                  <label className="block text-[10px] text-emerald-300 mb-0.5">
+                    Train
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0.05"
+                    max="0.95"
+                    value={trainRatio}
+                    onChange={(e) => setTrainRatio(Number(e.target.value))}
+                    className="input-field text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-amber-300 mb-0.5">
+                    Val
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="0.5"
+                    value={valRatio}
+                    onChange={(e) => setValRatio(Number(e.target.value))}
+                    className="input-field text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-blue-300 mb-0.5">
+                    Test (자동)
+                  </label>
+                  <input
+                    type="number"
+                    value={(1 - trainRatio - valRatio).toFixed(2)}
+                    disabled
+                    className="input-field text-xs opacity-50"
+                  />
+                </div>
+              </div>
+              {(trainRatio + valRatio >= 1 || trainRatio <= 0) && (
+                <p className="text-[10px] text-red-300">
+                  ⚠ 잘못된 비율입니다 (train+val &lt; 1, train &gt; 0)
+                </p>
+              )}
+            </div>
           </div>
         )}
 

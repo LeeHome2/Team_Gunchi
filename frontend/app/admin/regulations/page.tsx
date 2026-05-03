@@ -72,6 +72,9 @@ export default function AdminRegulationsPage() {
         }
       }
       await load()
+      // 사용자 측 캐시 무효화 안내 (페이지 새로고침 후 반영)
+      // 사용자가 이미 editor/result 를 열어두고 있으면 새로고침 또는 재진입 시 GET /api/regulations 호출
+      alert('✅ 저장 완료. 사용자 측은 페이지 진입(또는 새로고침) 시 즉시 반영됩니다.')
     } catch (e: any) {
       alert(e.message || '저장 실패')
     } finally {
@@ -105,6 +108,30 @@ export default function AdminRegulationsPage() {
       await load()
     } catch (e: any) {
       alert(e.message || '삭제 실패')
+    }
+  }
+
+  const handleEditZone = async (r: AdminZoneRule) => {
+    const coverageStr = prompt(`건폐율 (현재: ${r.coverage}%)`, String(r.coverage))
+    if (coverageStr === null) return
+    const farStr = prompt(`용적률 (현재: ${r.far}%)`, String(r.far))
+    if (farStr === null) return
+    const heightStr = prompt(`최고높이 (현재: ${r.height_max}m)`, String(r.height_max))
+    if (heightStr === null) return
+    const setbackStr = prompt(`이격거리 (현재: ${r.setback}m)`, String(r.setback))
+    if (setbackStr === null) return
+
+    try {
+      await adminApi.updateZoneRule(r.id, {
+        coverage: Number(coverageStr),
+        far: Number(farStr),
+        height_max: Number(heightStr),
+        setback: Number(setbackStr),
+      })
+      await load()
+      alert('✅ 저장 완료. 사용자 측은 페이지 진입(또는 새로고침) 시 즉시 반영됩니다.')
+    } catch (e: any) {
+      alert(e.message || '수정 실패')
     }
   }
 
@@ -206,7 +233,7 @@ export default function AdminRegulationsPage() {
                 <Td className="text-white/50">{formatDate(r.updated_at)}</Td>
                 <Td>
                   <div className="flex gap-1.5">
-                    <SmallBtn>편집</SmallBtn>
+                    <SmallBtn onClick={() => handleEditZone(r)}>편집</SmallBtn>
                     <SmallBtn
                       variant="danger"
                       onClick={() => handleDeleteZone(r)}

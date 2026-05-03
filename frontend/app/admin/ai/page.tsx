@@ -48,6 +48,8 @@ export default function AdminAiPage() {
 
   // DatasetsPanel 갱신 트리거 (업로드/빌드 후 증가시킴)
   const [datasetsRefreshKey, setDatasetsRefreshKey] = useState(0)
+  // 방금 업로드한 데이터셋 ID — 표에서 행 강조 + 자동 스크롤
+  const [highlightDatasetId, setHighlightDatasetId] = useState<string | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
@@ -278,7 +280,11 @@ export default function AdminAiPage() {
         </section>
 
         {/* 데이터셋 / 분할 (진도표 항목 1, 2, 3) */}
-        <DatasetsPanel aiUrl={aiUrl} refreshKey={datasetsRefreshKey} />
+        <DatasetsPanel
+          aiUrl={aiUrl}
+          refreshKey={datasetsRefreshKey}
+          highlightDatasetId={highlightDatasetId}
+        />
 
         {/* 관리 작업 */}
         <section className="card p-6">
@@ -415,7 +421,12 @@ export default function AdminAiPage() {
           aiUrl={aiUrl}
           onClose={() => setUploadOpen(false)}
           onUploaded={(result) => {
+            // 새 데이터셋을 데이터셋 패널에서 강조 + 스크롤
+            setHighlightDatasetId(result.dataset_id)
             setDatasetsRefreshKey((k) => k + 1)
+            // 강조 효과는 8초 후 자동 해제 (사용자가 인지하면 충분)
+            setTimeout(() => setHighlightDatasetId(null), 8000)
+
             if (!result.auto_build) {
               setUploadOpen(false)
               setCollectPrefillDir(result.dxf_dir)

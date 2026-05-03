@@ -23,6 +23,7 @@ import Brand from '@/components/Brand'
 import { useProjectStore } from '@/store/projectStore'
 import { requestAIScoring } from '@/lib/analysisApi'
 import { fetchLatestReviewResult } from '@/lib/api'
+import { loadRegulationsFromServer } from '@/lib/setbackTable'
 
 type StatusKey = 'pass' | 'fail' | 'warning' | 'unknown'
 
@@ -203,6 +204,12 @@ export default function ResultPage() {
   const router = useRouter()
   const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation } =
     useProjectStore()
+
+  // 페이지 진입 시 서버에서 최신 규정 기준값 로드
+  // (관리자가 /admin/regulations 에서 변경한 값을 즉시 반영하기 위함)
+  useEffect(() => {
+    loadRegulationsFromServer()
+  }, [])
 
   // 새로고침으로 store 가 비어있을 때 — DB 의 가장 최근 검토 결과로 hydrate
   const [dbHydrated, setDbHydrated] = useState(false)

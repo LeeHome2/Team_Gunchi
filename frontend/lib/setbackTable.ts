@@ -325,10 +325,98 @@ export const ZONE_LIMITS: Record<ZoneType, ZoneLimits> = {
   '미지정':             { coverage: 60, setback: 1.5, height: null },  // default
 }
 
+// ─── 서버 override 메커니즘 ────────────────────────────────────────
+// 관리자가 /admin/regulations 에서 변경한 값을 GET /api/regulations 로 받아
+// 이 객체에 메모리 캐싱. getZoneLimits() 가 우선적으로 이 override 를 본다.
+// → 관리자 → 사용자 즉시 반영 (사용자 페이지 진입/새로고침 시점에 fetch)
+let _serverOverrides: Record<string, ZoneLimits> | null = null
+let _lastFetchedAt: number | null = null
+
 /**
- * zoneType 으로 ZoneLimits 조회. 없으면 '미지정' 기본값.
+ * 관리자 규정 기준값을 서버에서 가져와 메모리 캐싱.
+ * 사용자 페이지 (editor, editor/result) 진입 시 호출.
+ */
+/**
+ * 용도지역 이름 정규화 (공백 제거)
+ * DB에서는 "제1종 일반주거지역"으로 저장되지만,
+ * 프론트엔드 ZONE_LIMITS 키는 "제1종일반주거지역"으로 정의됨.
+ */
+function normalizeZoneName(name: string): string {
+  return name.replace(/\s+/g, '')
+}
+
+export async function loadRegulationsFromServer(
+  apiUrl: string = (typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_API_URL || '')
+    : ''),
+): Promise<boolean> {
+  try {
+    const url = apiUrl ? `${apiUrl}/api/regulations` : `/api/regulations`
+    const r = await fetch(url)
+    if (!r.ok) return false
+    const d = await r.json()
+    if (!d || typeof d.zones !== 'object') return false
+
+    const overrides: Record<string, ZoneLimits> = {}
+    for (const [zoneName, v] of Object.entries(d.zones as Record<string, any>)) {
+      if (!v || typeof v !== 'object') continue
+      // 공백 제거하여 정규화된 이름으로 저장 (프론트엔드 키와 일치하도록)
+      const normalizedName = normalizeZoneName(zoneName)
+      overrides[normalizedName] = {
+        coverage: typeof v.coverage === 'number' ? v.coverage : null,
+        setback: typeof v.setback === 'number' ? v.setback : 1.5,
+        height: typeof v.height_max === 'number' ? v.height_max : null,
+      }
+    }
+    // 기본 규정(base)을 "미지정" 용도지역에 적용 (용도지역 미확인 시 사용)
+    if (Array.isArray(d.base)) {
+      const baseMap: Record<string, number> = {}
+      for (const b of d.base) {
+        if (b && typeof b.key === 'string' && typeof b.value === 'number') {
+          baseMap[b.key] = b.value
+        }
+      }
+      overrides['미지정'] = {
+        coverage: baseMap['coverage'] ?? 60,
+        setback: baseMap['setback'] ?? 1.5,
+        height: baseMap['height_max'] ?? null,
+      }
+    }
+    _serverOverrides = overrides
+    _lastFetchedAt = Date.now()
+    if (typeof console !== 'undefined') {
+      console.info('[regulations] 서버 override 로드:', Object.keys(overrides).length, '개 zone')
+    }
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/**
+ * 캐시된 서버 override 무효화 (관리자가 막 저장한 직후 강제 reload 용).
+ */
+export function clearRegulationOverrides(): void {
+  _serverOverrides = null
+  _lastFetchedAt = null
+}
+
+/** 디버그용: 마지막 fetch 시각 */
+export function getRegulationsLastFetched(): number | null {
+  return _lastFetchedAt
+}
+
+/**
+ * zoneType 으로 ZoneLimits 조회.
+ * 우선순위: 서버 override > 하드코딩 ZONE_LIMITS > '미지정' 기본값.
  */
 export function getZoneLimits(zoneType: ZoneType | string | null | undefined): ZoneLimits {
-  if (!zoneType) return ZONE_LIMITS['미지정']
+  if (!zoneType) {
+    return _serverOverrides?.['미지정'] ?? ZONE_LIMITS['미지정']
+  }
+  // 서버 override 우선
+  if (_serverOverrides && _serverOverrides[zoneType]) {
+    return _serverOverrides[zoneType]
+  }
   return (ZONE_LIMITS as Record<string, ZoneLimits>)[zoneType] ?? ZONE_LIMITS['미지정']
 }

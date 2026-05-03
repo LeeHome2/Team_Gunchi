@@ -10,6 +10,7 @@ import ErrorBanner from '@/components/ErrorBanner'
 import Brand from '@/components/Brand'
 import { captureTopDownDataUrl, captureCurrentViewDataUrl } from '@/lib/cesiumSnapshot'
 import { getProject } from '@/lib/api'
+import { loadRegulationsFromServer } from '@/lib/setbackTable'
 
 const CesiumViewer = dynamic(() => import('@/components/CesiumViewer'), {
   ssr: false,
@@ -34,6 +35,13 @@ export default function EditorPage() {
 function EditorContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  // 페이지 진입 시 서버에서 최신 규정 기준값 로드
+  // (관리자가 /admin/regulations 에서 변경한 값을 즉시 반영)
+  useEffect(() => {
+    loadRegulationsFromServer()
+  }, [])
+
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)

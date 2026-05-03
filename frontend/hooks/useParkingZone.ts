@@ -28,6 +28,9 @@ export function useParkingZone() {
   const modelTransform = useProjectStore((s) => s.modelTransform)
   const parkingTransform = useProjectStore((s) => s.parkingTransform)
   const entranceTransform = useProjectStore((s) => s.entranceTransform)
+  const selectedBlockInfo = useProjectStore((s) => s.selectedBlockInfo)
+  const site = useProjectStore((s) => s.site)
+  const gridRotation = useProjectStore((s) => s.gridRotation)
 
   const entityIdsRef = useRef<string[]>([])
 
@@ -325,67 +328,189 @@ export function useParkingZone() {
     [viewer, polygonToPositions, toLatLonEntrance],
   )
 
-  // ── 그리드 시각화 렌더링 ──
+  // ── 그리드 시각화 렌더링 (폴리라인 방식 - 선택 영역 내부만) ──
   const renderGrid = useCallback(
     (path: ParkingPathData, ids: string[]) => {
       if (!viewer || !path.grid) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
-      const { cells, gridSize } = path.grid
+      const { gridSize, bounds } = path.grid
+      if (!bounds) return
+
+      // 선택된 블록 폴리곤 가져오기 (위경도)
+      const blockPolygons: number[][][] = selectedBlockInfo?.coordinates ?? []
+      const sitePolygon = site?.footprint
+      if (blockPolygons.length === 0 && !sitePolygon) return
+
       const originLon = modelTransform.longitude
       const originLat = modelTransform.latitude
       const latRad = (originLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
 
-      const halfGrid = gridSize / 2
+      // 위경도 → 로컬 미터 변환
+      const toLocal = (lon: number, lat: number): [number, number] => [
+        (lon - originLon) * mPerDegLon,
+        (lat - originLat) * mPerDegLat,
+      ]
 
-      // 셀 수가 많으면 성능을 위해 건물(blocked) 셀만 렌더
-      const maxCells = 2000
-      const renderAll = cells.length <= maxCells
+      // 로컬 미터 → 위경도 변환
+      const toLatLon = (x: number, y: number): [number, number] => [
+        originLon + x / mPerDegLon,
+        originLat + y / mPerDegLat,
+      ]
 
-      cells.forEach((cell, i) => {
-        // 통과 가능 셀은 연하게, 건물 셀은 빨간색으로
-        if (!renderAll && !cell.blocked) return
+      // 모든 블록 폴리곤을 로컬 좌표로 변환
+      const localPolygons: number[][][] = blockPolygons.map(poly =>
+        poly.map(([lon, lat]) => toLocal(lon, lat))
+      )
+      if (localPolygons.length === 0 && sitePolygon) {
+        localPolygons.push(sitePolygon.map(([lon, lat]) => toLocal(lon, lat)))
+      }
 
-        const id = `_parking_grid_${i}`
-        const lon = originLon + cell.x / mPerDegLon
-        const lat = originLat + cell.y / mPerDegLat
+      // 점이 폴리곤 내부인지 확인 (ray-casting)
+      const isInsidePolygon = (px: number, py: number, polygon: number[][]): boolean => {
+        let inside = false
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+          const xi = polygon[i][0], yi = polygon[i][1]
+          const xj = polygon[j][0], yj = polygon[j][1]
+          const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi
+          if (intersect) inside = !inside
+        }
+        return inside
+      }
 
-        // 셀 네 꼭짓점
-        const dLon = halfGrid / mPerDegLon
-        const dLat = halfGrid / mPerDegLat
-        const positions = Cesium.Cartesian3.fromDegreesArray([
-          lon - dLon, lat - dLat,
-          lon + dLon, lat - dLat,
-          lon + dLon, lat + dLat,
-          lon - dLon, lat + dLat,
-        ])
+      // 점이 어느 폴리곤에든 속하는지 확인
+      const isInsideAnyPolygon = (px: number, py: number): boolean => {
+        return localPolygons.some(poly => isInsidePolygon(px, py, poly))
+      }
 
-        const color = cell.blocked
-          ? Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.25) // 장애물: 연한 빨강
-          : Cesium.Color.fromCssColorString('#6b7280').withAlpha(0.08) // 통과 가능: 아주 연한 회색
-        const outlineColor = cell.blocked
-          ? Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.4)
-          : Cesium.Color.fromCssColorString('#9ca3af').withAlpha(0.15)
+      // 선분과 폴리곤 변의 교차점 계산
+      const lineIntersection = (
+        x1: number, y1: number, x2: number, y2: number,
+        x3: number, y3: number, x4: number, y4: number
+      ): [number, number] | null => {
+        const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if (Math.abs(denom) < 1e-10) return null
+        const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+          return [x1 + t * (x2 - x1), y1 + t * (y2 - y1)]
+        }
+        return null
+      }
 
-        viewer.entities.add({
-          id,
-          polygon: {
-            hierarchy: new Cesium.PolygonHierarchy(positions),
-            material: color,
-            outline: true,
-            outlineColor,
-            outlineWidth: 1,
-            height: 0.1,
-            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-          },
-        })
-        ids.push(id)
-      })
+      // 선분을 폴리곤으로 클리핑하여 내부 세그먼트 반환
+      const clipLineToPolygons = (
+        x1: number, y1: number, x2: number, y2: number
+      ): Array<[[number, number], [number, number]]> => {
+        const segments: Array<[[number, number], [number, number]]> = []
+
+        // 모든 폴리곤과의 교차점 수집
+        const intersections: { t: number; point: [number, number] }[] = []
+        const dx = x2 - x1, dy = y2 - y1
+        const len = Math.sqrt(dx * dx + dy * dy)
+
+        for (const poly of localPolygons) {
+          for (let i = 0; i < poly.length; i++) {
+            const j = (i + 1) % poly.length
+            const inter = lineIntersection(x1, y1, x2, y2, poly[i][0], poly[i][1], poly[j][0], poly[j][1])
+            if (inter) {
+              const t = len > 0 ? Math.sqrt((inter[0] - x1) ** 2 + (inter[1] - y1) ** 2) / len : 0
+              intersections.push({ t, point: inter })
+            }
+          }
+        }
+
+        // t 값으로 정렬
+        intersections.sort((a, b) => a.t - b.t)
+
+        // 시작점과 끝점 추가
+        const points: { t: number; point: [number, number] }[] = [
+          { t: 0, point: [x1, y1] },
+          ...intersections,
+          { t: 1, point: [x2, y2] },
+        ]
+
+        // 연속된 점들의 중점이 폴리곤 내부인 세그먼트만 추가
+        for (let i = 0; i < points.length - 1; i++) {
+          const midX = (points[i].point[0] + points[i + 1].point[0]) / 2
+          const midY = (points[i].point[1] + points[i + 1].point[1]) / 2
+          if (isInsideAnyPolygon(midX, midY)) {
+            segments.push([points[i].point, points[i + 1].point])
+          }
+        }
+
+        return segments
+      }
+
+      // 그리드 회전 (store에서 구독한 값 사용)
+      const currentGridRotation = useProjectStore.getState().gridRotation
+      const rotRad = (currentGridRotation * Math.PI) / 180
+      const cos = Math.cos(rotRad)
+      const sin = Math.sin(rotRad)
+
+      const { minX, minY, maxX, maxY } = bounds
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+
+      // 회전 적용
+      const rotate = (x: number, y: number): [number, number] => {
+        const dx = x - centerX, dy = y - centerY
+        return [dx * cos + dy * sin + centerX, -dx * sin + dy * cos + centerY]
+      }
+
+      const gridColor = Cesium.Color.fromCssColorString('#6366f1').withAlpha(0.8)
+      let lineId = 0
+
+      // 수직선
+      for (let x = minX; x <= maxX; x += gridSize) {
+        const [rx1, ry1] = rotate(x, minY)
+        const [rx2, ry2] = rotate(x, maxY)
+        const segments = clipLineToPolygons(rx1, ry1, rx2, ry2)
+
+        for (const [[sx1, sy1], [sx2, sy2]] of segments) {
+          const [lon1, lat1] = toLatLon(sx1, sy1)
+          const [lon2, lat2] = toLatLon(sx2, sy2)
+          const id = `_parking_grid_v_${lineId++}`
+          viewer.entities.add({
+            id,
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray([lon1, lat1, lon2, lat2]),
+              width: 1.5,
+              material: gridColor,
+              clampToGround: true,
+            },
+          })
+          ids.push(id)
+        }
+      }
+
+      // 수평선
+      for (let y = minY; y <= maxY; y += gridSize) {
+        const [rx1, ry1] = rotate(minX, y)
+        const [rx2, ry2] = rotate(maxX, y)
+        const segments = clipLineToPolygons(rx1, ry1, rx2, ry2)
+
+        for (const [[sx1, sy1], [sx2, sy2]] of segments) {
+          const [lon1, lat1] = toLatLon(sx1, sy1)
+          const [lon2, lat2] = toLatLon(sx2, sy2)
+          const id = `_parking_grid_h_${lineId++}`
+          viewer.entities.add({
+            id,
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray([lon1, lat1, lon2, lat2]),
+              width: 1.5,
+              material: gridColor,
+              clampToGround: true,
+            },
+          })
+          ids.push(id)
+        }
+      }
     },
-    [viewer, modelTransform.longitude, modelTransform.latitude],
+    [viewer, modelTransform.longitude, modelTransform.latitude, selectedBlockInfo, site, gridRotation],
   )
 
   // ── 경로 렌더링 ──
@@ -677,7 +802,7 @@ export function useParkingZone() {
       clearEntities()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewer, parkingZone, parkingEntrance, parkingPath, isParkingVisible, parkingTransform, entranceTransform])
+  }, [viewer, parkingZone, parkingEntrance, parkingPath, isParkingVisible, parkingTransform, entranceTransform, gridRotation])
 
   // 언마운트 시 클리어
   useEffect(() => {

@@ -196,13 +196,26 @@ export function useProjectPersistence(
 
     // 3. 스토어 상태 복원
     console.log('스토어 상태 복원 중...')
+    const store = useProjectStore.getState()
     const {
       setWorkArea,
       setModelTransform,
       setBuilding,
       setSite,
       setHumanScaleModelLoaded,
-    } = useProjectStore.getState()
+      setLoadedModelEntity,
+      setMassGlbToLoad,
+      setLoadedMassGlbUrl,
+    } = store
+
+    // 기존 매스 목록 초기화 (다른 프로젝트 로드 시 충돌 방지)
+    while (store.generatedMasses.length > 0) {
+      store.removeGeneratedMass(store.generatedMasses[0].id)
+    }
+    // 기존 모델 참조 초기화
+    setLoadedModelEntity(null)
+    setMassGlbToLoad(null)
+    setLoadedMassGlbUrl(null)
 
     if (projectFile.workArea) setWorkArea(projectFile.workArea)
     setModelTransform(projectFile.modelTransform)
@@ -246,7 +259,9 @@ export function useProjectPersistence(
         console.log('매스 GLB 복원 중:', massUrl)
         // 저장된 transform 정보를 함께 전달 (위치, 각도, 스케일 복원용)
         const savedTransform = projectFile.modelTransform
+        // 지연 시간을 늘려서 블록 선택 등이 완료된 후 로드
         setTimeout(() => {
+          console.log('[복원] 매스 GLB 로드 트리거:', massUrl, savedTransform)
           useProjectStore.getState().setMassGlbToLoad(massUrl, {
             longitude: savedTransform.longitude,
             latitude: savedTransform.latitude,
@@ -254,7 +269,7 @@ export function useProjectPersistence(
             rotation: savedTransform.rotation,
             scale: savedTransform.scale,
           })
-        }, 500)
+        }, 1000)
       }
     }
 
