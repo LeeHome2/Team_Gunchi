@@ -15,6 +15,9 @@ import { DEFAULT_SETBACKS, getZoneLimits } from '@/lib/setbackTable'
 import { saveReviewResult } from '@/lib/api'
 import type { CadastralFeature } from '@/types/cesium'
 
+/** 지하 기초 오프셋: 슬라이더 0 = 실제 높이 -1m */
+const GROUND_OFFSET = -1.0
+
 /** 점에서 선분까지의 최소 거리 (도 → m 변환 적용) */
 function pointToSegmentDist(
   px: number, py: number,
@@ -219,6 +222,9 @@ export default function CesiumViewer() {
   const buildingLine = useBuildingLine(viewerRef, {
     getSelectedBlocks: blockSelection.getSelectedBlocks,
   })
+  // 최신 buildingLine 상태를 ref로 추적 (reviewCheck 클로저 문제 해결)
+  const buildingLineRef = useRef(buildingLine)
+  buildingLineRef.current = buildingLine
 
   // === 일조 분석 (Hook) ===
   const sunlightAnalysis = useSunlightAnalysis(viewerRef, {
@@ -289,8 +295,8 @@ export default function CesiumViewer() {
     const { longitude, latitude, height, rotation, scale } = modelTransform
     const entity = loadedSampleModelRef.current
 
-    // 위치 업데이트 (ConstantPositionProperty 사용)
-    const newPosition = Cesium.Cartesian3.fromDegrees(longitude, latitude, height)
+    // 위치 업데이트 (ConstantPositionProperty 사용) - GROUND_OFFSET 적용
+    const newPosition = Cesium.Cartesian3.fromDegrees(longitude, latitude, height + GROUND_OFFSET)
     entity.position = new Cesium.ConstantPositionProperty(newPosition)
 
     // 회전 업데이트 (ConstantProperty 사용)
@@ -625,7 +631,7 @@ export default function CesiumViewer() {
       }
       modelFloorPolygonRef.current = modelInfo?.floorPolygon ?? null
 
-      const modelUrl = `/api/models/${encodeURIComponent(filename)}`
+      const modelUrl = `/models/${encodeURIComponent(filename)}`
       const initialRotation = 0
       const initialScale = 10.0
 
@@ -799,9 +805,9 @@ export default function CesiumViewer() {
 
       const initialRotation = restoredRotation ?? 0
       const initialScale = restoredScale ?? 1.0
-      const initialHeight = restoreTransform?.height ?? 0
+      const initialHeight = restoreTransform?.height ?? 0  // 슬라이더 기본값 0 (실제 위치는 GROUND_OFFSET 적용)
 
-      const position = Cesium.Cartesian3.fromDegrees(lon, lat, initialHeight)
+      const position = Cesium.Cartesian3.fromDegrees(lon, lat, initialHeight + GROUND_OFFSET)
       const heading = Cesium.Math.toRadians(initialRotation)
       const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0)
       const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr)
@@ -929,7 +935,7 @@ export default function CesiumViewer() {
         name: '휴먼 스케일 (180cm)',
         position: Cesium.Cartesian3.fromDegrees(humanLon, humanLat, humanHeight),
         model: {
-          uri: '/api/models/Meshy_AI_man_0315144539_texture.glb',
+          uri: '/models/Meshy_AI_man_0315144539_texture.glb',
           scale: 0.9,  // 원본 2m × 0.9 = 180cm
           heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
         },
@@ -1256,11 +1262,11 @@ export default function CesiumViewer() {
           latitude: newLat,
         }
 
-        // entity 위치 직접 업데이트 (useEffect 경유 안 함)
+        // entity 위치 직접 업데이트 (useEffect 경유 안 함) - GROUND_OFFSET 적용
         const entity = loadedSampleModelRef.current
         if (entity) {
           const t = modelTransformRef.current
-          const newPos = Cesium.Cartesian3.fromDegrees(newLon, newLat, t.height)
+          const newPos = Cesium.Cartesian3.fromDegrees(newLon, newLat, t.height + GROUND_OFFSET)
           entity.position = new Cesium.ConstantPositionProperty(newPos)
           const heading = Cesium.Math.toRadians(t.rotation)
           const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0)
@@ -1449,10 +1455,10 @@ export default function CesiumViewer() {
           rotation: newRotation,
         }
 
-        // entity 회전 직접 업데이트
+        // entity 회전 직접 업데이트 - GROUND_OFFSET 적용
         const entity = loadedSampleModelRef.current
         if (entity) {
-          const pos = Cesium.Cartesian3.fromDegrees(currentTransform.longitude, currentTransform.latitude, currentTransform.height)
+          const pos = Cesium.Cartesian3.fromDegrees(currentTransform.longitude, currentTransform.latitude, currentTransform.height + GROUND_OFFSET)
           const heading = Cesium.Math.toRadians(newRotation)
           const hpr = new Cesium.HeadingPitchRoll(heading, 0, 0)
           entity.orientation = new Cesium.ConstantProperty(
@@ -1635,7 +1641,7 @@ export default function CesiumViewer() {
       // 용도지역 기반 규정 한도 — VWorld에서 가져온 zoneType 자동 적용
       // 건축선 분석을 미리 수행했다면 buildingLineResult.zoneType이 채워져 있음.
       // 미수행 또는 미지정 시 default(60% / 1.5m / 제한없음) 사용.
-      const blResult = buildingLine.getBuildingLineResult()
+      const blResult = buildingLineRef.current.getBuildingLineResult()
       const zoneType = blResult?.zoneType ?? '미지정'
       const zoneLimits = getZoneLimits(zoneType)
 
@@ -1663,34 +1669,111 @@ export default function CesiumViewer() {
         lat + (cx*sin + cy*cos) / mPerDegLat,
       ])
 
-      // 블록 경계와의 최소거리
-      const blockCoords = state.selectedBlockInfo?.coordinates || []
-      let minDist = Infinity
-      const setbackDetails: { type: string; distance: number; required: number; status: 'OK' | 'VIOLATION' }[] = []
+      // 건축선 분석 결과에서 변별 이격거리 가져오기
+      const buildingLineResult = buildingLineRef.current.getBuildingLineResult()
+      const edgeInfos = buildingLineResult?.edgeInfos || []
 
-      for (const blockRing of blockCoords) {
-        for (let i = 0; i < blockRing.length - 1; i++) {
-          const [ex1, ey1] = blockRing[i]
-          const [ex2, ey2] = blockRing[i + 1]
+      console.log('[검토] 건축선 분석 결과:', {
+        hasResult: !!buildingLineResult,
+        edgeCount: edgeInfos.length,
+        zoneType,
+        edges: edgeInfos.map(e => ({ type: e.type, setback: e.setbackDistance }))
+      })
+
+      // 변별 이격거리 검토 (도로측/인접대지측 구분)
+      const setbackDetails: { type: string; distance: number; required: number; status: 'OK' | 'VIOLATION' }[] = []
+      let minRoadDist = Infinity
+      let minAdjacentDist = Infinity
+      let roadSetbackReq = DEFAULT_SETBACKS.fromBuildingLine
+      let adjacentSetbackReq = DEFAULT_SETBACKS.fromAdjacentLot
+
+      if (edgeInfos.length > 0) {
+        // 건축선 분석 결과가 있으면 변별로 검토
+        for (const edgeInfo of edgeInfos) {
+          const edge = edgeInfo.edge
+          const [ex1, ey1] = [edge.start.lon, edge.start.lat]
+          const [ex2, ey2] = [edge.end.lon, edge.end.lat]
+
+          let edgeMinDist = Infinity
           for (const [mx, my] of modelCorners) {
             const dist = pointToSegmentDist(mx, my, ex1, ey1, ex2, ey2, mPerDegLon, mPerDegLat)
-            if (dist < minDist) minDist = dist
+            if (dist < edgeMinDist) edgeMinDist = dist
           }
+
+          if (edgeInfo.type === 'road') {
+            if (edgeMinDist < minRoadDist) {
+              minRoadDist = edgeMinDist
+              roadSetbackReq = edgeInfo.setbackDistance
+            }
+          } else {
+            if (edgeMinDist < minAdjacentDist) {
+              minAdjacentDist = edgeMinDist
+              adjacentSetbackReq = edgeInfo.setbackDistance
+            }
+          }
+        }
+
+        // 도로측 이격거리 결과
+        if (minRoadDist < Infinity) {
+          setbackDetails.push({
+            type: '도로측',
+            distance: Math.round(minRoadDist * 100) / 100,
+            required: roadSetbackReq,
+            status: minRoadDist >= roadSetbackReq ? 'OK' : 'VIOLATION',
+          })
+        }
+
+        // 인접대지측 이격거리 결과
+        if (minAdjacentDist < Infinity) {
+          setbackDetails.push({
+            type: '인접대지',
+            distance: Math.round(minAdjacentDist * 100) / 100,
+            required: adjacentSetbackReq,
+            status: minAdjacentDist >= adjacentSetbackReq ? 'OK' : 'VIOLATION',
+          })
+        }
+
+        console.log('[검토] 이격거리 측정 결과:', {
+          도로측: { 측정: minRoadDist.toFixed(2), 요구: roadSetbackReq },
+          인접대지: { 측정: minAdjacentDist.toFixed(2), 요구: adjacentSetbackReq },
+        })
+      } else {
+        // 건축선 분석 결과가 없으면 기존 방식 (단일 이격거리)
+        const blockCoords = state.selectedBlockInfo?.coordinates || []
+        let fallbackMinDist = Infinity
+
+        for (const blockRing of blockCoords) {
+          for (let i = 0; i < blockRing.length - 1; i++) {
+            const [ex1, ey1] = blockRing[i]
+            const [ex2, ey2] = blockRing[i + 1]
+            for (const [mx, my] of modelCorners) {
+              const dist = pointToSegmentDist(mx, my, ex1, ey1, ex2, ey2, mPerDegLon, mPerDegLat)
+              if (dist < fallbackMinDist) fallbackMinDist = dist
+            }
+          }
+        }
+
+        if (fallbackMinDist < Infinity) {
+          minRoadDist = fallbackMinDist  // fallback에서는 도로측으로 간주
+          roadSetbackReq = zoneLimits.setback
+          setbackDetails.push({
+            type: '대지경계',
+            distance: Math.round(fallbackMinDist * 100) / 100,
+            required: zoneLimits.setback,
+            status: fallbackMinDist >= zoneLimits.setback ? 'OK' : 'VIOLATION',
+          })
         }
       }
 
-      // 인접대지 이격거리 한도 (zoneType 기반 자동 적용)
-      const requiredSetback = zoneLimits.setback
-      if (minDist < Infinity) {
-        setbackDetails.push({
-          type: '대지경계',
-          distance: Math.round(minDist * 100) / 100,
-          required: requiredSetback,
-          status: minDist >= requiredSetback ? 'OK' : 'VIOLATION',
-        })
-      }
+      // 전체 최소거리 계산 및 위반 여부 확인
+      const overallMinDist = Math.min(minRoadDist, minAdjacentDist)
+      const hasViolation = setbackDetails.some(d => d.status === 'VIOLATION')
+      const requiredSetback = setbackDetails.length > 0
+        ? Math.max(...setbackDetails.map(d => d.required))
+        : zoneLimits.setback
 
       const reviewPayload = {
+        zoneType,  // 적용된 용도지역
         buildingCoverage: {
           buildingArea: Math.round(buildingArea * 100) / 100,
           siteArea: Math.round(siteArea * 100) / 100,
@@ -1698,10 +1781,10 @@ export default function CesiumViewer() {
           limit,
           status: (ratio <= limit ? 'OK' : 'VIOLATION') as 'OK' | 'VIOLATION',
         },
-        setback: minDist < Infinity ? {
-          minDistance: Math.round(minDist * 100) / 100,
+        setback: overallMinDist < Infinity ? {
+          minDistance: Math.round(overallMinDist * 100) / 100,
           required: requiredSetback,
-          status: (minDist >= requiredSetback ? 'OK' : 'VIOLATION') as 'OK' | 'VIOLATION',
+          status: (hasViolation ? 'VIOLATION' : 'OK') as 'OK' | 'VIOLATION',
           details: setbackDetails,
         } : null,
         isModelInBounds: isModelInBoundsRef.current,
@@ -1720,9 +1803,15 @@ export default function CesiumViewer() {
           })
         }
         if (reviewPayload.setback?.status === 'VIOLATION') {
+          // 변별 위반 상세 메시지
+          const violatedEdges = reviewPayload.setback.details
+            .filter(d => d.status === 'VIOLATION')
+            .map(d => `${d.type} ${d.distance}m < ${d.required}m`)
           violations.push({
             type: 'setback',
-            message: `이격거리 ${reviewPayload.setback.minDistance}m < ${reviewPayload.setback.required}m`,
+            message: violatedEdges.length > 0
+              ? `이격거리 위반: ${violatedEdges.join(', ')}`
+              : `이격거리 ${reviewPayload.setback.minDistance}m < ${reviewPayload.setback.required}m`,
           })
         }
         // 이격거리 검토는 대지경계선 ↔ 모델 거리(setback)로만 판정.

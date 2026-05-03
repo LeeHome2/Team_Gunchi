@@ -113,18 +113,27 @@ function xmlToGeoJSON(xmlText: string): any {
     if (rings.length > 0) {
       const jimok = jimokMatch ? jimokMatch[1] : null
       const jimokCd = jimokCdMatch ? jimokCdMatch[1] : null
+      const jibun = jibunMatch ? jibunMatch[1] : null
+
+      // 도로 여부 판별:
+      // 1. jimok이 '도'
+      // 2. jimokCd가 '07'
+      // 3. jibun이 ' 도'로 끝남 (예: "958-22 도")
+      const isRoad = jimok === '도' ||
+                     jimokCd === '07' ||
+                     (jibun && jibun.endsWith(' 도'))
 
       features.push({
         type: 'Feature',
         properties: {
           pnu: pnuMatch ? pnuMatch[1] : null,
           addr: addrMatch ? addrMatch[1] : null,
-          jibun: jibunMatch ? jibunMatch[1] : null,
+          jibun: jibun,
           // 지목 정보 (도로="도", 대지="대" 등)
           jimok: jimok,
           jimokCd: jimokCd,
-          // 도로 여부 판별 (지목이 "도"이면 도로)
-          isRoad: jimok === '도' || jimokCd === '07',
+          // 도로 여부 판별
+          isRoad: isRoad,
           // 면적 (제곱미터)
           area: areaMatch ? parseFloat(areaMatch[1]) : null,
         },

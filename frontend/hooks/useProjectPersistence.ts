@@ -209,8 +209,9 @@ export function useProjectPersistence(
     } = store
 
     // 기존 매스 목록 초기화 (다른 프로젝트 로드 시 충돌 방지)
-    while (store.generatedMasses.length > 0) {
-      store.removeGeneratedMass(store.generatedMasses[0].id)
+    const massIds = store.generatedMasses.map(m => m.id)
+    for (const id of massIds) {
+      store.removeGeneratedMass(id)
     }
     // 기존 모델 참조 초기화
     setLoadedModelEntity(null)

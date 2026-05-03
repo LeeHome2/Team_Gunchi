@@ -184,6 +184,7 @@ export const CORNER_CUT_RULES: CornerCutRule[] = [
 
 /**
  * 건축선으로부터의 이격거리 계산
+ * 우선순위: 서버 override > 하드코딩 테이블
  * @param zone 용도지역
  * @param buildingUse 건축물 용도
  * @returns 이격거리 (m)
@@ -192,6 +193,15 @@ export function getSetbackFromBuildingLine(
   zone: ZoneType,
   buildingUse: BuildingUseType = '기타'
 ): number {
+  // 서버 규정 우선 적용 (관리자 패널에서 설정한 값)
+  if (_serverOverrides && _serverOverrides[zone]) {
+    const serverSetback = _serverOverrides[zone].setback
+    if (typeof serverSetback === 'number' && serverSetback > 0) {
+      return serverSetback
+    }
+  }
+
+  // 폴백: 하드코딩 테이블
   const group = getZoneGroup(zone)
   const table = SETBACK_FROM_BUILDING_LINE[group]
 
@@ -209,6 +219,7 @@ export function getSetbackFromBuildingLine(
 
 /**
  * 인접 대지경계선으로부터의 이격거리 계산
+ * 우선순위: 서버 override > 하드코딩 테이블
  * @param zone 용도지역
  * @param buildingUse 건축물 용도
  * @returns 이격거리 (m)
@@ -217,6 +228,15 @@ export function getSetbackFromAdjacentLot(
   zone: ZoneType,
   buildingUse: BuildingUseType = '기타'
 ): number {
+  // 서버 규정 우선 적용 (관리자 패널에서 설정한 값)
+  if (_serverOverrides && _serverOverrides[zone]) {
+    const serverSetback = _serverOverrides[zone].setback
+    if (typeof serverSetback === 'number' && serverSetback > 0) {
+      return serverSetback
+    }
+  }
+
+  // 폴백: 하드코딩 테이블
   const group = getZoneGroup(zone)
   const table = SETBACK_FROM_ADJACENT_LOT[group]
 

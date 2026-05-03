@@ -146,7 +146,7 @@ def _apply_pbr_material(
 
 def create_building_mesh(
     footprint: List[List[float]],
-    height: float = 9.0,
+    height: float = 4.0,  # 기본 매스 높이 4m
     base_height: float = 0.0
 ) -> trimesh.Trimesh:
     """
@@ -209,7 +209,7 @@ def create_building_mesh(
 
 def create_building_gltf(
     footprint: List[List[float]],
-    height: float = 9.0,
+    height: float = 4.0,  # 기본 매스 높이 4m
     output_path: str = "building.glb",
     color: Optional[Tuple[int, int, int, int]] = None
 ) -> bool:
@@ -302,7 +302,7 @@ def create_multi_floor_building(
 def create_wall_building_gltf(
     dxf_path: str,
     wall_layers: List[str],
-    height: float = 9.0,
+    height: float = 4.0,  # 기본 매스 높이 4m
     wall_thickness: float = 0.15,
     output_path: str = "building.glb",
     color: Optional[Tuple[int, int, int, int]] = None
@@ -353,11 +353,12 @@ def create_wall_building_gltf(
             16: (100.0, 'hm'),
             21: (0.3048006, 'us-ft'),
         }
+        insunits_scale = None  # $INSUNITS에서 추출한 스케일 (검증 후 사용)
         try:
             insunits = doc.header.get('$INSUNITS', 0)
             if insunits in unit_map:
-                dxf_scale, unit_name = unit_map[insunits]
-                logger.info(f"DXF units: {unit_name} (INSUNITS={insunits}), applying scale {dxf_scale}")
+                insunits_scale, unit_name = unit_map[insunits]
+                logger.info(f"DXF header: {unit_name} (INSUNITS={insunits}), scale={insunits_scale}")
             else:
                 logger.info(f"DXF INSUNITS={insunits}, will auto-detect from coordinate range")
         except Exception:
@@ -391,11 +392,13 @@ def create_wall_building_gltf(
         steps.append({"label": "벽 선분 추출", "detail": f"{len(geom_lines)}개 LINE/POLYLINE 추출"})
         logger.info(f"Extracted {len(geom_lines)} wall line segments from layers {wall_layers}")
 
-        # $INSUNITS가 불명확할 때 좌표 범위로 mm 여부 자동 판별
+        # 좌표 범위로 단위 자동 판별 (항상 계산하여 $INSUNITS 검증에 사용)
         # 주의: 벽 레이어만으로 판단하면 벽 부분이 작은 도면(예: 한 변의 일부만 그려진
         # 평면도)에서 mm를 m로 오판하여 모델이 1000배 작아진다. 따라서 도면 전체
         # modelspace의 좌표 범위로 판정한다.
-        if dxf_scale == 1.0:
+        auto_detected_scale = 1.0
+        full_extent = 0.0
+        if True:  # 항상 실행하여 extent 계산
             try:
                 ms_xs: List[float] = []
                 ms_ys: List[float] = []
@@ -435,25 +438,81 @@ def create_wall_building_gltf(
                 )
 
             if full_extent > 500:  # 500 이상이면 mm 단위로 추정 (일반 건물 <200m)
-                dxf_scale = 0.001
-                logger.info(f"Auto-detected mm units: full extent={full_extent:.0f}, applying scale 0.001")
-            elif full_extent > 50:  # 50~500은 cm 또는 m (드물지만 cm로 추정)
-                # 벽 한 변이 5m 이상이면 m, 그렇지 않으면 cm 가능성
+                auto_detected_scale = 0.001
+                logger.info(f"Auto-detected mm units: full extent={full_extent:.0f}")
+            elif full_extent > 50:  # 50~500은 cm 또는 inches
+                # 벽 한 변이 5m 이상이면 m, 그렇지 않으면 cm/inches 가능성
                 wall_bounds = unary_union(geom_lines).bounds
                 wall_extent = max(
                     wall_bounds[2] - wall_bounds[0],
                     wall_bounds[3] - wall_bounds[1],
                 )
                 if wall_extent < 5 and full_extent > 50:
-                    dxf_scale = 0.01
-                    logger.info(
-                        f"Auto-detected cm units: full extent={full_extent:.1f}, "
-                        f"wall extent={wall_extent:.2f}, applying scale 0.01"
-                    )
+                    # 50-500 범위: inches일 가능성 (50in=1.27m, 500in=12.7m 건물)
+                    if full_extent > 100:
+                        auto_detected_scale = 0.0254  # inches → meters
+                        logger.info(f"Auto-detected inch units: full extent={full_extent:.1f}")
+                    else:
+                        auto_detected_scale = 0.01
+                        logger.info(f"Auto-detected cm units: full extent={full_extent:.1f}")
                 else:
                     logger.info(f"Full extent={full_extent:.1f}, assuming meters")
+            elif full_extent > 5:  # 5~50: feet 단위 가능성 (5ft=1.5m, 50ft=15m 건물)
+                # 건물이 5m 미만으로 나오면 feet로 추정
+                converted_meters = full_extent * 0.3048
+                if 3 < converted_meters < 100:  # 합리적인 건물 크기 범위
+                    auto_detected_scale = 0.3048  # feet → meters
+                    logger.info(f"Auto-detected feet units: full extent={full_extent:.1f}ft → {converted_meters:.1f}m")
+                else:
+                    logger.info(f"Full extent={full_extent:.1f}, assuming meters")
+            elif full_extent < 5:  # <5: 매우 작음 - feet 또는 스케일 다운된 도면
+                if full_extent > 1:
+                    # 1-5 범위: feet일 가능성 높음
+                    auto_detected_scale = 0.3048
+                    logger.info(f"Auto-detected feet units (small drawing): extent={full_extent:.2f}ft")
+                elif full_extent > 0.1:
+                    # 0.1-1 범위: 축척 도면 가능성 (1:100 또는 1:50)
+                    scaled_100 = full_extent * 100
+                    scaled_50 = full_extent * 50
+                    if 5 < scaled_100 < 200:
+                        auto_detected_scale = 100.0
+                        logger.info(f"Auto-detected 1:100 scale drawing: extent={full_extent:.2f}")
+                    elif 5 < scaled_50 < 100:
+                        auto_detected_scale = 50.0
+                        logger.info(f"Auto-detected 1:50 scale drawing: extent={full_extent:.2f}")
+                    else:
+                        auto_detected_scale = 100.0
+                        logger.warning(f"Very small extent={full_extent:.2f}, defaulting to 1:100 scale")
+                else:
+                    # 0.1 미만: 1:1000 축척 가능성
+                    scaled_1000 = full_extent * 1000
+                    if 5 < scaled_1000 < 500:
+                        auto_detected_scale = 1000.0
+                        logger.info(f"Auto-detected 1:1000 scale drawing: extent={full_extent:.3f}")
+                    else:
+                        auto_detected_scale = 100.0
+                        logger.warning(f"Extremely small extent={full_extent:.3f}, defaulting to 1:100 scale")
             else:
                 logger.info(f"Full extent={full_extent:.1f}, assuming meters")
+
+        # === 최종 스케일 결정: $INSUNITS vs 자동 감지 ===
+        # $INSUNITS 적용 결과가 너무 작으면(3m 미만) 자동 감지 스케일 사용
+        if insunits_scale is not None:
+            insunits_result = full_extent * insunits_scale
+            auto_result = full_extent * auto_detected_scale
+
+            if insunits_result < 3:  # $INSUNITS 적용 결과가 3m 미만 → 헤더가 잘못됐을 가능성
+                logger.warning(
+                    f"$INSUNITS result too small ({insunits_result:.2f}m), "
+                    f"ignoring header and using auto-detected scale {auto_detected_scale} → {auto_result:.1f}m"
+                )
+                dxf_scale = auto_detected_scale
+            else:
+                dxf_scale = insunits_scale
+                logger.info(f"Using $INSUNITS scale {insunits_scale} → {insunits_result:.1f}m")
+        else:
+            dxf_scale = auto_detected_scale
+            logger.info(f"Using auto-detected scale {auto_detected_scale} → {full_extent * auto_detected_scale:.1f}m")
 
         # 2) 스케일 변환
         if dxf_scale != 1.0:

@@ -52,13 +52,13 @@ class MassGenerateRequest(BaseModel):
         description="건물 바닥면 좌표 [[x, y], ...]"
     )
     height: float = Field(
-        default=9.0,
+        default=4.0,
         description="건물 높이 (m)",
         ge=1.0,
         le=100.0
     )
     floors: int = Field(
-        default=3,
+        default=1,
         description="층수",
         ge=1,
         le=30
@@ -127,7 +127,7 @@ class ValidationRequest(BaseModel):
         description="건물 바닥면 좌표"
     )
     building_height: float = Field(
-        default=9.0,
+        default=4.0,
         description="건물 높이 (m)"
     )
     zone_type: Optional[str] = Field(

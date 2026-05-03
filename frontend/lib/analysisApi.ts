@@ -333,8 +333,8 @@ export async function generateModelFromClassification(
 
   const body: Record<string, any> = {
     footprint,
-    height: 9.0,
-    floors: 3,
+    height: 4.0,  // 기본 매스 높이 4m
+    floors: 1,
     position,
   }
 

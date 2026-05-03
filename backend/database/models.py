@@ -170,7 +170,7 @@ class ValidationResult(Base):
 
     # Relationships
     project: Mapped["Project"] = relationship(back_populates="validation_results")
-    model: Mapped["GeneratedModel"] = relationship(back_populates="validation_results")
+    model: Mapped[Optional["GeneratedModel"]] = relationship(back_populates="validation_results")
 
     __table_args__ = (
         Index("idx_validation_project", "project_id"),

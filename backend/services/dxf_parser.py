@@ -300,25 +300,99 @@ def parse_dxf_file(file_path: str, layer_name: Optional[str] = None) -> Dict[str
         14: 0.1, 15: 10.0, 16: 100.0, 21: 0.3048006,
     }
     dxf_unit_scale = 1.0  # 기본: 미터
+    insunits_scale = None  # $INSUNITS에서 추출한 스케일 (검증 후 사용)
+    auto_detected_scale = 1.0  # 좌표 범위 기반 자동 감지 스케일
+
     try:
+        # 1) $INSUNITS 헤더 읽기 (나중에 검증)
         insunits = parser.doc.header.get('$INSUNITS', 0)
         if insunits in INSUNITS_SCALE:
-            dxf_unit_scale = INSUNITS_SCALE[insunits]
+            insunits_scale = INSUNITS_SCALE[insunits]
+            logger.info(f"DXF header: INSUNITS={insunits}, scale={insunits_scale}")
+
+        # 2) 좌표 범위로 단위 자동 감지 (항상 수행)
+        bounds = info["bounds"]
+        extent = max(bounds["max_x"] - bounds["min_x"], bounds["max_y"] - bounds["min_y"])
+
+        if extent > 500:
+            auto_detected_scale = 0.001  # mm
+            logger.info(f"Auto-detected mm units: extent={extent:.0f}")
+        elif extent > 100:
+            auto_detected_scale = 0.0254  # inches
+            logger.info(f"Auto-detected inch units: extent={extent:.0f}")
+        elif extent > 5:
+            # 5-100 범위: feet 가능성 확인
+            converted = extent * 0.3048
+            if 3 < converted < 100:  # 합리적인 건물 크기
+                auto_detected_scale = 0.3048  # feet
+                logger.info(f"Auto-detected feet units: extent={extent:.1f}ft → {converted:.1f}m")
+        elif extent >= 1 and extent <= 5:
+            # 1-5 범위: feet일 가능성 높음
+            auto_detected_scale = 0.3048
+            logger.info(f"Auto-detected feet units (small): extent={extent:.2f}ft")
+        elif extent >= 0.1 and extent < 1:
+            # 0.1-1 범위: 축척 도면 가능성 (1:100 또는 1:50)
+            scaled_100 = extent * 100
+            scaled_50 = extent * 50
+            if 5 < scaled_100 < 200:
+                auto_detected_scale = 100.0
+                logger.info(f"Auto-detected 1:100 scale drawing: extent={extent:.3f}")
+            elif 5 < scaled_50 < 100:
+                auto_detected_scale = 50.0
+                logger.info(f"Auto-detected 1:50 scale drawing: extent={extent:.3f}")
+            else:
+                auto_detected_scale = 100.0
+                logger.info(f"Default 1:100 scale for small extent: {extent:.3f}")
+        elif extent < 0.1:
+            # 0.1 미만: 1:1000 축척 가능성 또는 매우 작은 도면
+            scaled_1000 = extent * 1000
+            if 5 < scaled_1000 < 500:
+                auto_detected_scale = 1000.0
+                logger.info(f"Auto-detected 1:1000 scale drawing: extent={extent:.4f}")
+            else:
+                auto_detected_scale = 100.0
+                logger.info(f"Very small extent {extent:.4f}, defaulting to 1:100 scale")
         else:
-            # 좌표 범위로 추정: bounds extent > 500이면 mm
-            bounds = info["bounds"]
-            extent = max(bounds["max_x"] - bounds["min_x"], bounds["max_y"] - bounds["min_y"])
-            if extent > 500:
-                dxf_unit_scale = 0.001
-                logger.info(f"Auto-detected mm units: extent={extent:.0f}")
+            logger.info(f"Extent={extent:.1f}, assuming meters")
+
+        # 3) 최종 스케일 결정: $INSUNITS vs 자동 감지
+        # $INSUNITS 적용 결과가 너무 작으면(3m 미만) 자동 감지 스케일 사용
+        if insunits_scale is not None:
+            insunits_result = extent * insunits_scale
+            auto_result = extent * auto_detected_scale
+
+            if insunits_result < 3:  # 3m 미만 → 헤더가 잘못됐을 가능성
+                logger.warning(
+                    f"$INSUNITS result too small ({insunits_result:.2f}m), "
+                    f"ignoring header and using auto-detected scale {auto_detected_scale} → {auto_result:.1f}m"
+                )
+                dxf_unit_scale = auto_detected_scale
+            else:
+                dxf_unit_scale = insunits_scale
+                logger.info(f"Using $INSUNITS scale {insunits_scale} → {insunits_result:.1f}m")
+        else:
+            dxf_unit_scale = auto_detected_scale
+            logger.info(f"Using auto-detected scale {auto_detected_scale} → {extent * auto_detected_scale:.1f}m")
+
     except Exception as e:
         logger.warning(f"Failed to detect DXF units: {e}")
 
-    # mm/cm 단위인 경우 면적·둘레를 미터 단위로 보정
+    # 단위 보정: 모든 좌표 및 치수를 미터 단위로 변환
     if dxf_unit_scale != 1.0:
-        info["area"] = info["area"] * (dxf_unit_scale ** 2)       # mm² → m²
-        info["perimeter"] = info["perimeter"] * dxf_unit_scale     # mm → m
-        logger.info(f"Corrected area to {info['area']:.2f} m² (scale={dxf_unit_scale})")
+        # 면적 (제곱 스케일)
+        info["area"] = info["area"] * (dxf_unit_scale ** 2)
+        # 둘레 (선형 스케일)
+        info["perimeter"] = info["perimeter"] * dxf_unit_scale
+        # footprint 좌표
+        coordinates = [[x * dxf_unit_scale, y * dxf_unit_scale] for x, y in coordinates]
+        # 중심점
+        info["centroid"] = [info["centroid"][0] * dxf_unit_scale, info["centroid"][1] * dxf_unit_scale]
+        # 바운딩 박스
+        info["bounds"]["min_x"] *= dxf_unit_scale
+        info["bounds"]["min_y"] *= dxf_unit_scale
+        info["bounds"]["max_x"] *= dxf_unit_scale
+        info["bounds"]["max_y"] *= dxf_unit_scale
+        logger.info(f"Applied scale {dxf_unit_scale}: area={info['area']:.2f}m², bounds={info['bounds']['max_x']-info['bounds']['min_x']:.2f}x{info['bounds']['max_y']-info['bounds']['min_y']:.2f}m")
 
     # 엔티티 정보 추출 (AI 분류용)
     entities = []
@@ -352,4 +426,5 @@ def parse_dxf_file(file_path: str, layer_name: Optional[str] = None) -> Dict[str
         "total_entities": total_entities,
         "entities": entities,
         "road_lines": road_lines,
+        "unit_scale": dxf_unit_scale,  # 적용된 단위 변환 스케일 (디버깅용)
     }

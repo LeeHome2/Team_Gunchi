@@ -107,8 +107,8 @@ function EditorContent() {
                   footprint: [],
                   centroid: proj.longitude && proj.latitude ? [proj.longitude, proj.latitude] : [],
                   area: 0,
-                  height: m.height || 9,
-                  floors: m.floors || 3,
+                  height: m.height || 4,
+                  floors: m.floors || 1,
                   classification: { total_entities: 0, class_counts: {}, average_confidence: 0 },
                   createdAt: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
                 })

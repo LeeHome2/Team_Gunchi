@@ -332,8 +332,8 @@ export default function Sidebar() {
       footprint,
       centroid,
       area: result.site.area_sqm,
-      height: 9,
-      floors: 3,
+      height: 4,  // 기본 매스 높이 4m
+      floors: 1,
       classification: {
         total_entities: result.classification.total_entities,
         class_counts: result.classification.class_counts,
@@ -703,7 +703,7 @@ export default function Sidebar() {
                     <p>- 휠클릭 드래그: 회전 (마우스 방향)</p>
                   </div>
 
-                  {/* 높이 조절 슬라이더 + 입력 */}
+                  {/* 높이 조절 슬라이더 + 입력 (중앙 0, 좌우 대칭) */}
                   <div className="bg-gray-50 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-sm font-medium text-gray-700">높이</label>
@@ -711,7 +711,7 @@ export default function Sidebar() {
                         <input
                           type="number"
                           min={-10}
-                          max={30}
+                          max={10}
                           step={0.5}
                           value={modelTransform.height}
                           onChange={(e) => handleModelHeightChange(Number(e.target.value))}
@@ -723,7 +723,7 @@ export default function Sidebar() {
                     <input
                       type="range"
                       min={-10}
-                      max={30}
+                      max={10}
                       step={0.5}
                       value={modelTransform.height}
                       onChange={(e) => handleModelHeightChange(Number(e.target.value))}
@@ -732,7 +732,7 @@ export default function Sidebar() {
                     <div className="flex justify-between text-xs text-gray-500 mt-1">
                       <span>-10m</span>
                       <span>0m</span>
-                      <span>+30m</span>
+                      <span>+10m</span>
                     </div>
                   </div>
 
@@ -852,6 +852,16 @@ export default function Sidebar() {
             >
               배치 검토 실행
             </button>
+
+            {/* 적용 규정 (용도지역) */}
+            {reviewData.zoneType && (
+              <div className="rounded-lg p-3 bg-blue-50 border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-blue-700">적용 규정</span>
+                  <span className="text-sm font-bold text-blue-800">{reviewData.zoneType}</span>
+                </div>
+              </div>
+            )}
 
             {/* 건폐율 */}
             {reviewData.buildingCoverage && (

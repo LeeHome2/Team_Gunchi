@@ -314,6 +314,7 @@ interface ProjectState {
 
   // 검토 탭 데이터 (CesiumViewer에서 계산)
   reviewData: {
+    zoneType?: string  // 적용된 용도지역
     buildingCoverage: { buildingArea: number; siteArea: number; ratio: number; limit: number; status: 'OK' | 'VIOLATION' } | null
     setback: { minDistance: number; required: number; status: 'OK' | 'VIOLATION'; details: { type: string; distance: number; required: number; status: 'OK' | 'VIOLATION' }[] } | null
     isModelInBounds: boolean
@@ -466,6 +467,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   parkingPath: null,
   gridRotation: 0,
   reviewData: {
+    zoneType: undefined,
     buildingCoverage: null,
     setback: null,
     isModelInBounds: true,
@@ -661,7 +663,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,
       gridRotation: 0,
-      reviewData: { buildingCoverage: null, setback: null, isModelInBounds: true },
+      reviewData: { zoneType: undefined, buildingCoverage: null, setback: null, isModelInBounds: true },
       aiScore: { isLoading: false, result: null, error: null },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
       resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
