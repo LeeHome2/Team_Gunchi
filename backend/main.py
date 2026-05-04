@@ -1525,12 +1525,30 @@ async def generate_parking_layout_endpoint(request: ParkingLayoutRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_FRONTEND_PUBLIC_MODELS_DIR = (
+    _BACKEND_DIR.parent / "frontend" / "public" / "models"
+)
+
+
 @app.get("/api/models/{model_id}.glb")
 async def get_model(model_id: str):
-    """glTF 모델 파일 다운로드"""
+    """glTF 모델 파일 다운로드.
+
+    1순위: backend/MODELS_DIR — 매스 생성 결과(uuid.glb)
+    2순위: frontend/public/models — 샘플/휴먼 스케일 모델
+        (Next.js의 /api/* rewrite가 프론트 라우트를 가려서 모든 모델 요청이
+         백엔드로 오므로, 여기서 함께 서빙해야 함)
+    """
     model_path = MODELS_DIR / f"{model_id}.glb"
 
     if not model_path.exists():
+        fallback = _FRONTEND_PUBLIC_MODELS_DIR / f"{model_id}.glb"
+        if fallback.exists():
+            return FileResponse(
+                path=fallback,
+                media_type="model/gltf-binary",
+                filename=f"{model_id}.glb",
+            )
         raise HTTPException(status_code=404, detail="모델을 찾을 수 없습니다")
 
     return FileResponse(
