@@ -461,7 +461,9 @@ export function useParkingZone() {
         return [dx * cos + dy * sin + centerX, -dx * sin + dy * cos + centerY]
       }
 
-      const gridColor = Cesium.Color.fromCssColorString('#6366f1').withAlpha(0.8)
+      // 가시성 개선: 보라색이 위성 이미지에서 잘 안 보였음. 노란 톤으로 변경하고
+      // alpha 1.0, width 도 키워서 확실히 보이게 함.
+      const gridColor = Cesium.Color.fromCssColorString('#fde047').withAlpha(0.95)
       let lineId = 0
 
       // 수직선
@@ -478,7 +480,7 @@ export function useParkingZone() {
             id,
             polyline: {
               positions: Cesium.Cartesian3.fromDegreesArray([lon1, lat1, lon2, lat2]),
-              width: 1.5,
+              width: 3,
               material: gridColor,
               clampToGround: true,
             },
@@ -501,7 +503,7 @@ export function useParkingZone() {
             id,
             polyline: {
               positions: Cesium.Cartesian3.fromDegreesArray([lon1, lat1, lon2, lat2]),
-              width: 1.5,
+              width: 3,
               material: gridColor,
               clampToGround: true,
             },
