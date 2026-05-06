@@ -552,6 +552,8 @@ export interface AdminZoneRule {
   far: number
   height_max: number
   setback: number
+  setback_road?: number
+  setback_adjacent?: number
   updated_at: string | null
 }
 

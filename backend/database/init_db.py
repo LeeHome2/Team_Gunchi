@@ -89,6 +89,8 @@ _SEED_ZONE_RULES = [
         "far": 150.0,
         "height_max": 12.0,
         "setback": 1.5,
+        "setback_road": 1.0,       # 도로변(건축선) 이격
+        "setback_adjacent": 0.5,   # 인접대지 이격
     },
     {
         "zone": "제2종 일반주거지역",
@@ -97,6 +99,8 @@ _SEED_ZONE_RULES = [
         "far": 200.0,
         "height_max": 15.0,
         "setback": 1.5,
+        "setback_road": 1.0,
+        "setback_adjacent": 0.5,
     },
     {
         "zone": "제3종 일반주거지역",
@@ -105,6 +109,8 @@ _SEED_ZONE_RULES = [
         "far": 250.0,
         "height_max": 20.0,
         "setback": 2.0,
+        "setback_road": 1.0,
+        "setback_adjacent": 0.5,
     },
     {
         "zone": "일반상업지역",
@@ -113,6 +119,8 @@ _SEED_ZONE_RULES = [
         "far": 800.0,
         "height_max": 40.0,
         "setback": 1.0,
+        "setback_road": 0.0,       # 상업지역: 도로변 0m
+        "setback_adjacent": 0.0,   # 상업지역: 인접대지 0m
     },
     {
         "zone": "근린상업지역",
@@ -121,6 +129,8 @@ _SEED_ZONE_RULES = [
         "far": 500.0,
         "height_max": 30.0,
         "setback": 1.0,
+        "setback_road": 0.0,
+        "setback_adjacent": 0.0,
     },
     {
         "zone": "준주거지역",
@@ -129,6 +139,8 @@ _SEED_ZONE_RULES = [
         "far": 400.0,
         "height_max": 25.0,
         "setback": 1.5,
+        "setback_road": 1.0,
+        "setback_adjacent": 0.5,
     },
 ]
 
@@ -216,6 +228,8 @@ def seed_defaults(db: Session) -> None:
                 far=payload["far"],
                 height_max=payload["height_max"],
                 setback=payload["setback"],
+                setback_road=payload.get("setback_road", 1.0),
+                setback_adjacent=payload.get("setback_adjacent", 0.5),
             )
             logger.info(f"Seeded zone rule: {payload['zone']} / {payload['region']}")
 

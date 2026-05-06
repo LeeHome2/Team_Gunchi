@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useProjectStore } from '@/store/projectStore'
 import type { ParkingZoneData, ParkingLayoutPattern } from '@/store/projectStore'
 import { generateParkingLayout } from '@/lib/parkingLayout'
@@ -29,6 +29,8 @@ export default function ParkingZonePanel() {
     generatedMasses,
     parkingConfig,
     gridRotation,
+    parkingTransform,
+    entranceTransform,
     setParkingConfig,
     setParkingZone,
     setParkingEntrance,
@@ -248,16 +250,40 @@ export default function ParkingZonePanel() {
     const siteLocal = toLocal(siteFootprint)
     const { obstacles } = collectObstacles()
 
+    // transform 오프셋을 로컬 미터로 변환
+    const latRad = (modelTransform.latitude * Math.PI) / 180
+    const mPerDegLon = 111_320 * Math.cos(latRad)
+    const mPerDegLat = 111_320
+
+    // 입구 위치에 entranceTransform 오프셋 적용
+    const entranceX = parkingEntrance.cx + entranceTransform.longitude * mPerDegLon
+    const entranceY = parkingEntrance.cy + entranceTransform.latitude * mPerDegLat
+
+    // 주차구역 중심에 parkingTransform 오프셋 적용
+    const zoneX = parkingZone.zoneCenter[0] + parkingTransform.longitude * mPerDegLon
+    const zoneY = parkingZone.zoneCenter[1] + parkingTransform.latitude * mPerDegLat
+
     const path = findParkingPath({
-      start: [parkingEntrance.cx, parkingEntrance.cy],
-      goal: parkingZone.zoneCenter as [number, number],
+      start: [entranceX, entranceY],
+      goal: [zoneX, zoneY],
       siteFootprint: siteLocal,
       obstacles,
       gridSize: 2,
       returnGrid: showGrid,
     })
     setParkingPath(path)
-  }, [parkingZone, parkingEntrance, selectedBlockInfo, site, showGrid, collectObstacles, toLocal, setParkingPath])
+  }, [parkingZone, parkingEntrance, selectedBlockInfo, site, showGrid, collectObstacles, toLocal, setParkingPath,
+      modelTransform.latitude, parkingTransform.longitude, parkingTransform.latitude,
+      entranceTransform.longitude, entranceTransform.latitude])
+
+  // transform 변경 시 자동으로 경로 재계산
+  useEffect(() => {
+    if (parkingZone && parkingEntrance && isParkingVisible) {
+      handleRecalcPath()
+    }
+  }, [parkingTransform.longitude, parkingTransform.latitude, parkingTransform.rotation,
+      entranceTransform.longitude, entranceTransform.latitude, entranceTransform.rotation,
+      handleRecalcPath, parkingZone, parkingEntrance, isParkingVisible])
 
   // 제거
   const handleClear = () => {

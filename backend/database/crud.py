@@ -770,6 +770,8 @@ def create_zone_rule(
     far: float,
     height_max: float,
     setback: float,
+    setback_road: float = 1.0,
+    setback_adjacent: float = 0.5,
 ) -> RegulationZoneRule:
     rule = RegulationZoneRule(
         zone=zone,
@@ -778,6 +780,8 @@ def create_zone_rule(
         far=far,
         height_max=height_max,
         setback=setback,
+        setback_road=setback_road,
+        setback_adjacent=setback_adjacent,
     )
     db.add(rule)
     db.commit()

@@ -183,8 +183,8 @@ export const CORNER_CUT_RULES: CornerCutRule[] = [
 ]
 
 /**
- * 건축선으로부터의 이격거리 계산
- * 우선순위: 서버 override > 하드코딩 테이블
+ * 건축선으로부터의 이격거리 계산 (도로변)
+ * 우선순위: 서버 override (setback_road) > 하드코딩 테이블
  * @param zone 용도지역
  * @param buildingUse 건축물 용도
  * @returns 이격거리 (m)
@@ -195,8 +195,8 @@ export function getSetbackFromBuildingLine(
 ): number {
   // 서버 규정 우선 적용 (관리자 패널에서 설정한 값)
   if (_serverOverrides && _serverOverrides[zone]) {
-    const serverSetback = _serverOverrides[zone].setback
-    if (typeof serverSetback === 'number' && serverSetback > 0) {
+    const serverSetback = _serverOverrides[zone].setback_road
+    if (typeof serverSetback === 'number' && serverSetback >= 0) {
       return serverSetback
     }
   }
@@ -219,7 +219,7 @@ export function getSetbackFromBuildingLine(
 
 /**
  * 인접 대지경계선으로부터의 이격거리 계산
- * 우선순위: 서버 override > 하드코딩 테이블
+ * 우선순위: 서버 override (setback_adjacent) > 하드코딩 테이블
  * @param zone 용도지역
  * @param buildingUse 건축물 용도
  * @returns 이격거리 (m)
@@ -230,8 +230,8 @@ export function getSetbackFromAdjacentLot(
 ): number {
   // 서버 규정 우선 적용 (관리자 패널에서 설정한 값)
   if (_serverOverrides && _serverOverrides[zone]) {
-    const serverSetback = _serverOverrides[zone].setback
-    if (typeof serverSetback === 'number' && serverSetback > 0) {
+    const serverSetback = _serverOverrides[zone].setback_adjacent
+    if (typeof serverSetback === 'number' && serverSetback >= 0) {
       return serverSetback
     }
   }
@@ -318,31 +318,33 @@ export const DEFAULT_SETBACKS = {
  */
 export interface ZoneLimits {
   coverage: number       // 건폐율 한도 (%)
-  setback: number        // 인접 대지 최소 이격거리 (m)
+  setback: number        // 기본 이격거리 (m) - 하위 호환용
+  setback_road: number   // 도로변(건축선) 이격거리 (m)
+  setback_adjacent: number  // 인접대지 이격거리 (m)
   height: number | null  // 최고 높이 (m), null = 제한 없음
 }
 
 export const ZONE_LIMITS: Record<ZoneType, ZoneLimits> = {
-  '제1종전용주거지역': { coverage: 50, setback: 2.0, height: 10 },
-  '제2종전용주거지역': { coverage: 50, setback: 1.5, height: 12 },
-  '제1종일반주거지역': { coverage: 60, setback: 1.5, height: 16 },
-  '제2종일반주거지역': { coverage: 60, setback: 1.5, height: 20 },
-  '제3종일반주거지역': { coverage: 50, setback: 1.5, height: null },
-  '준주거지역':         { coverage: 70, setback: 1.0, height: null },
-  '중심상업지역':       { coverage: 90, setback: 0.0, height: null },
-  '일반상업지역':       { coverage: 80, setback: 0.0, height: null },
-  '근린상업지역':       { coverage: 70, setback: 0.5, height: null },
-  '유통상업지역':       { coverage: 80, setback: 0.0, height: null },
-  '전용공업지역':       { coverage: 70, setback: 1.0, height: null },
-  '일반공업지역':       { coverage: 70, setback: 1.0, height: null },
-  '준공업지역':         { coverage: 70, setback: 1.0, height: null },
-  '보전녹지지역':       { coverage: 20, setback: 1.5, height: null },
-  '생산녹지지역':       { coverage: 20, setback: 1.5, height: null },
-  '자연녹지지역':       { coverage: 20, setback: 1.5, height: null },
-  '관리지역':           { coverage: 40, setback: 1.0, height: null },
-  '농림지역':           { coverage: 20, setback: 1.5, height: null },
-  '자연환경보전지역':   { coverage: 20, setback: 1.5, height: null },
-  '미지정':             { coverage: 60, setback: 1.5, height: null },  // default
+  '제1종전용주거지역': { coverage: 50, setback: 2.0, setback_road: 1.0, setback_adjacent: 0.5, height: 10 },
+  '제2종전용주거지역': { coverage: 50, setback: 1.5, setback_road: 1.0, setback_adjacent: 0.5, height: 12 },
+  '제1종일반주거지역': { coverage: 60, setback: 1.5, setback_road: 1.0, setback_adjacent: 0.5, height: 16 },
+  '제2종일반주거지역': { coverage: 60, setback: 1.5, setback_road: 1.0, setback_adjacent: 0.5, height: 20 },
+  '제3종일반주거지역': { coverage: 50, setback: 1.5, setback_road: 1.0, setback_adjacent: 0.5, height: null },
+  '준주거지역':         { coverage: 70, setback: 1.0, setback_road: 1.0, setback_adjacent: 0.5, height: null },
+  '중심상업지역':       { coverage: 90, setback: 0.0, setback_road: 0.0, setback_adjacent: 0.0, height: null },
+  '일반상업지역':       { coverage: 80, setback: 0.0, setback_road: 0.0, setback_adjacent: 0.0, height: null },
+  '근린상업지역':       { coverage: 70, setback: 0.5, setback_road: 0.0, setback_adjacent: 0.0, height: null },
+  '유통상업지역':       { coverage: 80, setback: 0.0, setback_road: 0.0, setback_adjacent: 0.0, height: null },
+  '전용공업지역':       { coverage: 70, setback: 1.0, setback_road: 1.0, setback_adjacent: 0.5, height: null },
+  '일반공업지역':       { coverage: 70, setback: 1.0, setback_road: 1.0, setback_adjacent: 0.5, height: null },
+  '준공업지역':         { coverage: 70, setback: 1.0, setback_road: 1.0, setback_adjacent: 0.5, height: null },
+  '보전녹지지역':       { coverage: 20, setback: 1.5, setback_road: 2.0, setback_adjacent: 1.0, height: null },
+  '생산녹지지역':       { coverage: 20, setback: 1.5, setback_road: 2.0, setback_adjacent: 1.0, height: null },
+  '자연녹지지역':       { coverage: 20, setback: 1.5, setback_road: 2.0, setback_adjacent: 1.0, height: null },
+  '관리지역':           { coverage: 40, setback: 1.0, setback_road: 1.5, setback_adjacent: 1.0, height: null },
+  '농림지역':           { coverage: 20, setback: 1.5, setback_road: 2.0, setback_adjacent: 1.0, height: null },
+  '자연환경보전지역':   { coverage: 20, setback: 1.5, setback_road: 2.0, setback_adjacent: 1.0, height: null },
+  '미지정':             { coverage: 60, setback: 1.5, setback_road: 1.0, setback_adjacent: 0.5, height: null },  // default
 }
 
 // ─── 서버 override 메커니즘 ────────────────────────────────────────
@@ -382,9 +384,14 @@ export async function loadRegulationsFromServer(
       if (!v || typeof v !== 'object') continue
       // 공백 제거하여 정규화된 이름으로 저장 (프론트엔드 키와 일치하도록)
       const normalizedName = normalizeZoneName(zoneName)
+      // 서버에서 setback_road, setback_adjacent 가져오고, 폴백으로 setback 사용
+      const setbackRoad = typeof v.setback_road === 'number' ? v.setback_road : (typeof v.setback === 'number' ? v.setback : 1.0)
+      const setbackAdjacent = typeof v.setback_adjacent === 'number' ? v.setback_adjacent : 0.5
       overrides[normalizedName] = {
         coverage: typeof v.coverage === 'number' ? v.coverage : null,
         setback: typeof v.setback === 'number' ? v.setback : 1.5,
+        setback_road: setbackRoad,
+        setback_adjacent: setbackAdjacent,
         height: typeof v.height_max === 'number' ? v.height_max : null,
       }
     }
@@ -399,6 +406,8 @@ export async function loadRegulationsFromServer(
       overrides['미지정'] = {
         coverage: baseMap['coverage'] ?? 60,
         setback: baseMap['setback'] ?? 1.5,
+        setback_road: baseMap['setback_road'] ?? baseMap['setback'] ?? 1.0,
+        setback_adjacent: baseMap['setback_adjacent'] ?? 0.5,
         height: baseMap['height_max'] ?? null,
       }
     }

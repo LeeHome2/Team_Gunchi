@@ -126,6 +126,15 @@ export function useProjectPersistence(
         activeMassGlbUrl: store.loadedMassGlbUrl || null,
         currentTime: getCurrentTime(),
         projectName,
+        // 주차 관련 데이터
+        parkingZone: store.parkingZone,
+        parkingEntrance: store.parkingEntrance,
+        parkingPath: store.parkingPath,
+        parkingConfig: store.parkingConfig,
+        parkingTransform: store.parkingTransform,
+        entranceTransform: store.entranceTransform,
+        isParkingVisible: store.isParkingVisible,
+        gridRotation: store.gridRotation,
       })
 
       // DB에 저장 시도 (projectId가 있는 경우)
@@ -293,6 +302,46 @@ export function useProjectPersistence(
     // 9. 숨긴 OSM 건물 복원
     console.log('숨긴 건물 복원 중...')
     restoreHiddenBuildings(projectFile.hiddenBuildingIds)
+
+    // 10. 주차 관련 데이터 복원
+    if (projectFile.parkingZone || projectFile.parkingConfig) {
+      console.log('주차 데이터 복원 중...')
+      const {
+        setParkingZone,
+        setParkingEntrance,
+        setParkingPath,
+        setParkingConfig,
+        setParkingTransform,
+        setEntranceTransform,
+        setIsParkingVisible,
+        setGridRotation,
+      } = useProjectStore.getState()
+
+      if (projectFile.parkingConfig) {
+        setParkingConfig(projectFile.parkingConfig)
+      }
+      if (projectFile.parkingZone) {
+        setParkingZone(projectFile.parkingZone)
+      }
+      if (projectFile.parkingEntrance) {
+        setParkingEntrance(projectFile.parkingEntrance)
+      }
+      if (projectFile.parkingPath) {
+        setParkingPath(projectFile.parkingPath)
+      }
+      if (projectFile.parkingTransform) {
+        setParkingTransform(projectFile.parkingTransform)
+      }
+      if (projectFile.entranceTransform) {
+        setEntranceTransform(projectFile.entranceTransform)
+      }
+      if (projectFile.isParkingVisible !== undefined) {
+        setIsParkingVisible(projectFile.isParkingVisible)
+      }
+      if (projectFile.gridRotation !== undefined) {
+        setGridRotation(projectFile.gridRotation)
+      }
+    }
 
     viewer.scene.requestRender()
     console.log('프로젝트 복원 완료')

@@ -151,6 +151,8 @@ class ZoneRuleOut(BaseModel):
     far: float
     height_max: float
     setback: float
+    setback_road: float
+    setback_adjacent: float
     updated_at: Optional[str]
 
 
@@ -161,6 +163,8 @@ class ZoneRuleCreate(BaseModel):
     far: float
     height_max: float
     setback: float
+    setback_road: float = 1.0
+    setback_adjacent: float = 0.5
 
 
 class ZoneRuleUpdate(BaseModel):
@@ -170,6 +174,8 @@ class ZoneRuleUpdate(BaseModel):
     far: Optional[float] = None
     height_max: Optional[float] = None
     setback: Optional[float] = None
+    setback_road: Optional[float] = None
+    setback_adjacent: Optional[float] = None
 
 
 class ResultOut(BaseModel):
@@ -798,6 +804,8 @@ def _serialize_zone_rule(r) -> dict:
         "far": r.far,
         "height_max": r.height_max,
         "setback": r.setback,
+        "setback_road": getattr(r, 'setback_road', 1.0),
+        "setback_adjacent": getattr(r, 'setback_adjacent', 0.5),
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
@@ -848,6 +856,8 @@ def create_zone_rule(payload: ZoneRuleCreate, db: Session = Depends(get_db)):
         far=payload.far,
         height_max=payload.height_max,
         setback=payload.setback,
+        setback_road=payload.setback_road,
+        setback_adjacent=payload.setback_adjacent,
     )
     _cache.invalidate("regulations:zones")
     return _serialize_zone_rule(rule)

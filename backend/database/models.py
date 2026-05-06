@@ -363,7 +363,9 @@ class RegulationZoneRule(Base):
     coverage: Mapped[float] = mapped_column(Float, nullable=False)  # 건폐율 %
     far: Mapped[float] = mapped_column(Float, nullable=False)  # 용적률 %
     height_max: Mapped[float] = mapped_column(Float, nullable=False)  # 최고 높이 m
-    setback: Mapped[float] = mapped_column(Float, nullable=False)  # 이격 m
+    setback: Mapped[float] = mapped_column(Float, nullable=False)  # 이격 m (하위 호환용, deprecated)
+    setback_road: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)  # 도로변(건축선) 이격 m
+    setback_adjacent: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)  # 인접대지 이격 m
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

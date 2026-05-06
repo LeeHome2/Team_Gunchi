@@ -35,10 +35,9 @@ interface AStarNode {
   parent: AStarNode | null
 }
 
-/** 유클리디안 거리 */
+/** 맨해튼 거리 (4방향 그리드용) */
 function heuristic(x1: number, y1: number, x2: number, y2: number): number {
-  const dx = x2 - x1, dy = y2 - y1
-  return Math.sqrt(dx * dx + dy * dy)
+  return Math.abs(x2 - x1) + Math.abs(y2 - y1)
 }
 
 /** 그리드 키 */
@@ -150,12 +149,10 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
   const [startGx, startGy] = toGrid(start[0], start[1])
   const [goalGx, goalGy] = toGrid(goal[0], goal[1])
 
-  // 8방향
+  // 4방향 (상하좌우만 - 그리드를 따라 이동)
   const dirs = [
     [1, 0], [-1, 0], [0, 1], [0, -1],
-    [1, 1], [-1, 1], [1, -1], [-1, -1],
   ]
-  const diagCost = Math.SQRT2
 
   // 시작/끝이 blocked면 가장 가까운 unblocked로
   const unblock = (gx: number, gy: number): [number, number] => {
@@ -221,7 +218,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
       if (closed.has(nKey)) continue
       if (blocked.has(nKey)) continue
 
-      const moveCost = dx !== 0 && dy !== 0 ? diagCost : 1
+      const moveCost = 1  // 4방향 이동이므로 모든 이동 비용 동일
       const tentG = current.g + moveCost
 
       const existingG = gScores.get(nKey)
@@ -297,27 +294,30 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
   }
 }
 
-/** 경로 단순화 — 연속 직선 구간을 합침 */
+/** 경로 단순화 — 방향이 바뀌는 지점(꺾이는 점)만 유지 */
 function simplifyPath(
   path: [number, number][],
-  tolerance: number,
+  _tolerance: number,  // 이제 사용하지 않음 (그리드 경로용)
 ): [number, number][] {
   if (path.length <= 2) return [...path]
 
   const result: [number, number][] = [path[0]]
 
   for (let i = 1; i < path.length - 1; i++) {
-    const prev = result[result.length - 1]
-    const next = path[i + 1]
+    const prev = path[i - 1]
     const curr = path[i]
+    const next = path[i + 1]
 
-    const dx = next[0] - prev[0]
-    const dy = next[1] - prev[1]
-    const len = Math.sqrt(dx * dx + dy * dy)
-    if (len === 0) continue
+    // 이전→현재 방향
+    const dx1 = Math.sign(curr[0] - prev[0])
+    const dy1 = Math.sign(curr[1] - prev[1])
 
-    const dist = Math.abs(dx * (prev[1] - curr[1]) - dy * (prev[0] - curr[0])) / len
-    if (dist > tolerance) {
+    // 현재→다음 방향
+    const dx2 = Math.sign(next[0] - curr[0])
+    const dy2 = Math.sign(next[1] - curr[1])
+
+    // 방향이 바뀌면 꺾이는 지점이므로 유지
+    if (dx1 !== dx2 || dy1 !== dy2) {
       result.push(curr)
     }
   }

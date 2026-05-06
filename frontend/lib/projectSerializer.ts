@@ -16,6 +16,11 @@ import {
   SerializedSite,
   SerializedHumanModelTransform,
   SerializedGeneratedMass,
+  SerializedParkingZoneData,
+  SerializedParkingEntranceData,
+  SerializedParkingPathData,
+  SerializedParkingConfig,
+  SerializedParkingTransform,
 } from '@/types/projectFile'
 
 /**
@@ -114,6 +119,15 @@ export function createProjectFile(params: {
   activeMassGlbUrl: string | null
   currentTime: Date
   projectName?: string
+  // 주차 관련 데이터
+  parkingZone?: SerializedParkingZoneData | null
+  parkingEntrance?: SerializedParkingEntranceData | null
+  parkingPath?: SerializedParkingPathData | null
+  parkingConfig?: SerializedParkingConfig
+  parkingTransform?: SerializedParkingTransform
+  entranceTransform?: SerializedParkingTransform
+  isParkingVisible?: boolean
+  gridRotation?: number
 }): ProjectFile {
   const {
     viewer,
@@ -135,6 +149,15 @@ export function createProjectFile(params: {
     activeMassGlbUrl,
     currentTime,
     projectName,
+    // 주차 관련
+    parkingZone,
+    parkingEntrance,
+    parkingPath,
+    parkingConfig,
+    parkingTransform,
+    entranceTransform,
+    isParkingVisible,
+    gridRotation,
   } = params
 
   return {
@@ -165,6 +188,16 @@ export function createProjectFile(params: {
     generatedMasses,
     activeMassGlbUrl,
     humanModelTransform,
+
+    // 주차 관련 데이터
+    parkingZone,
+    parkingEntrance,
+    parkingPath,
+    parkingConfig,
+    parkingTransform,
+    entranceTransform,
+    isParkingVisible,
+    gridRotation,
   }
 }
 

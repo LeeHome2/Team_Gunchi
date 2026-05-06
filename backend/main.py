@@ -448,6 +448,8 @@ def get_public_regulations(db: Session = Depends(get_db)):
                 zone_dict[r.zone] = {
                     "coverage": r.coverage,
                     "setback": r.setback,
+                    "setback_road": getattr(r, 'setback_road', 1.0),
+                    "setback_adjacent": getattr(r, 'setback_adjacent', 0.5),
                     "height_max": r.height_max,
                     "far": r.far,
                 }

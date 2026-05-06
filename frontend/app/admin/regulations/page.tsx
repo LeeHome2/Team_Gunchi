@@ -94,6 +94,8 @@ export default function AdminRegulationsPage() {
         far: 200,
         height_max: 20,
         setback: 1.5,
+        setback_road: 1.0,
+        setback_adjacent: 0.5,
       })
       await load()
     } catch (e: any) {
@@ -118,15 +120,19 @@ export default function AdminRegulationsPage() {
     if (farStr === null) return
     const heightStr = prompt(`최고높이 (현재: ${r.height_max}m)`, String(r.height_max))
     if (heightStr === null) return
-    const setbackStr = prompt(`이격거리 (현재: ${r.setback}m)`, String(r.setback))
-    if (setbackStr === null) return
+    const setbackRoadStr = prompt(`도로변 이격거리 (현재: ${r.setback_road ?? 1.0}m)`, String(r.setback_road ?? 1.0))
+    if (setbackRoadStr === null) return
+    const setbackAdjStr = prompt(`인접대지 이격거리 (현재: ${r.setback_adjacent ?? 0.5}m)`, String(r.setback_adjacent ?? 0.5))
+    if (setbackAdjStr === null) return
 
     try {
       await adminApi.updateZoneRule(r.id, {
         coverage: Number(coverageStr),
         far: Number(farStr),
         height_max: Number(heightStr),
-        setback: Number(setbackStr),
+        setback: Number(setbackRoadStr),  // 하위 호환: setback = setback_road
+        setback_road: Number(setbackRoadStr),
+        setback_adjacent: Number(setbackAdjStr),
       })
       await load()
       alert('✅ 저장 완료. 사용자 측은 페이지 진입(또는 새로고침) 시 즉시 반영됩니다.')
@@ -217,7 +223,8 @@ export default function AdminRegulationsPage() {
               '건폐율',
               '용적률',
               '높이',
-              '이격',
+              '도로변',
+              '인접대지',
               '최종 수정',
               '관리',
             ]}
@@ -229,7 +236,8 @@ export default function AdminRegulationsPage() {
                 <Td className="font-mono">{r.coverage}%</Td>
                 <Td className="font-mono">{r.far}%</Td>
                 <Td className="font-mono">{r.height_max}m</Td>
-                <Td className="font-mono">{r.setback}m</Td>
+                <Td className="font-mono">{r.setback_road ?? r.setback}m</Td>
+                <Td className="font-mono">{r.setback_adjacent ?? 0.5}m</Td>
                 <Td className="text-white/50">{formatDate(r.updated_at)}</Td>
                 <Td>
                   <div className="flex gap-1.5">
@@ -246,7 +254,7 @@ export default function AdminRegulationsPage() {
             ))}
             {!loading && zoneRules.length === 0 && (
               <Tr>
-                <Td colSpan={8} className="text-center text-white/40">
+                <Td colSpan={9} className="text-center text-white/40">
                   등록된 지역별 규정이 없습니다.
                 </Td>
               </Tr>

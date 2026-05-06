@@ -1362,7 +1362,7 @@ export default function CesiumViewer() {
 
         entranceHookTransformRef.current = {
           ...entranceHookTransformRef.current,
-          rotation: (-angleDeg + 360) % 360,
+          rotation: (angleDeg + 360) % 360,
         }
 
         updateEntranceInPlace()
@@ -1419,7 +1419,7 @@ export default function CesiumViewer() {
 
         const angleRad = Math.atan2(deltaLon, deltaLat)
         const angleDeg = Cesium.Math.toDegrees(angleRad)
-        const newRotation = (-angleDeg + 360) % 360
+        const newRotation = (angleDeg + 360) % 360
 
         parkingHookTransformRef.current = {
           ...parkingHookTransformRef.current,

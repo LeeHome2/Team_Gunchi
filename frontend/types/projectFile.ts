@@ -128,6 +128,102 @@ export interface SerializedHumanModelTransform {
   latitude: number
 }
 
+// 주차 슬롯 데이터
+export interface SerializedParkingSlotData {
+  id: number
+  slot_type: 'standard' | 'disabled'
+  cx: number
+  cy: number
+  width: number
+  depth: number
+  heading: number
+  polygon: number[][]
+}
+
+// 주차 차로 데이터
+export interface SerializedParkingAisleData {
+  polygon: number[][]
+  direction: string
+}
+
+// 주차 출입 포인트
+export interface SerializedAccessPointData {
+  x: number
+  y: number
+  road_x: number | null
+  road_y: number | null
+  width: number
+}
+
+// 주차 영역 데이터
+export interface SerializedParkingZoneData {
+  slots: SerializedParkingSlotData[]
+  aisles: SerializedParkingAisleData[]
+  accessPoint: SerializedAccessPointData | null
+  zonePolygon: number[][]
+  zoneCenter: number[]
+  zoneRotation: number
+  zoneWidth: number
+  zoneDepth: number
+  totalSlots: number
+  standardSlots: number
+  disabledSlots: number
+  totalAreaM2: number
+  parkingAreaRatio: number
+  warnings: string[]
+}
+
+// 주차 입구 데이터
+export interface SerializedParkingEntranceData {
+  cx: number
+  cy: number
+  width: number
+  depth: number
+  heading: number
+  polygon: number[][]
+}
+
+// 주차 그리드 셀
+export interface SerializedParkingGridCell {
+  x: number
+  y: number
+  blocked: boolean
+}
+
+// 주차 그리드 데이터
+export interface SerializedParkingGridData {
+  cells: SerializedParkingGridCell[]
+  gridSize: number
+  cols: number
+  rows: number
+  bounds: { minX: number; minY: number; maxX: number; maxY: number }
+}
+
+// 주차 경로 데이터
+export interface SerializedParkingPathData {
+  points: number[][]
+  length: number
+  isValid: boolean
+  grid?: SerializedParkingGridData
+}
+
+// 주차 설정
+export interface SerializedParkingConfig {
+  buildingUse: string
+  grossFloorArea: number
+  ramp: boolean
+  requiredTotal: number | null
+  requiredDisabled: number | null
+  layoutPattern: 'perpendicular' | 'parallel'
+}
+
+// 주차/입구 변환 정보
+export interface SerializedParkingTransform {
+  longitude: number
+  latitude: number
+  rotation: number
+}
+
 // 전체 프로젝트 파일 구조
 export interface ProjectFile {
   // 메타데이터
@@ -165,6 +261,16 @@ export interface ProjectFile {
 
   // 휴먼 모델 상태
   humanModelTransform: SerializedHumanModelTransform | null
+
+  // 주차 관련 데이터
+  parkingZone?: SerializedParkingZoneData | null
+  parkingEntrance?: SerializedParkingEntranceData | null
+  parkingPath?: SerializedParkingPathData | null
+  parkingConfig?: SerializedParkingConfig
+  parkingTransform?: SerializedParkingTransform
+  entranceTransform?: SerializedParkingTransform
+  isParkingVisible?: boolean
+  gridRotation?: number
 }
 
 // 파일 검증 결과
