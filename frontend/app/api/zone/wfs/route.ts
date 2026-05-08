@@ -70,10 +70,10 @@ function xmlToGeoJSON(xmlText: string): any {
     const memberContent = memberMatch[1]
 
     // 용도지역 속성 추출
-    // lt_c_uq111 (도시지역 용도지역)
-    const uqNmMatch = /<lsmd:uq_nm>([^<]*)<\/lsmd:uq_nm>/i.exec(memberContent)
-    const uqCdMatch = /<lsmd:uq_cd>([^<]*)<\/lsmd:uq_cd>/i.exec(memberContent)
-    const pnuMatch = /<lsmd:pnu>([^<]*)<\/lsmd:pnu>/i.exec(memberContent)
+    // lt_c_uq111 (도시지역 용도지역) - sop 또는 lsmd 네임스페이스 지원
+    const uqNmMatch = /<(?:sop|lsmd):u(?:q_)?name?>([^<]*)<\/(?:sop|lsmd):u(?:q_)?name?>/i.exec(memberContent)
+    const uqCdMatch = /<(?:sop|lsmd):u(?:q_)?code?>([^<]*)<\/(?:sop|lsmd):u(?:q_)?code?>/i.exec(memberContent)
+    const pnuMatch = /<(?:sop|lsmd):pnu>([^<]*)<\/(?:sop|lsmd):pnu>/i.exec(memberContent)
 
     // LinearRing 내의 coordinates 또는 posList 추출
     const rings: number[][][] = []

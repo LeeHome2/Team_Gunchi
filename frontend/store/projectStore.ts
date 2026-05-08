@@ -304,6 +304,8 @@ interface ProjectState {
   isParkingVisible: boolean
   isParkingEditing: boolean
   parkingTransform: { longitude: number; latitude: number; rotation: number }
+  // 주차구역 원점 (건물과 독립적으로 고정)
+  parkingOrigin: { longitude: number; latitude: number } | null
   // 주차 입구 (독립 오브젝트)
   parkingEntrance: ParkingEntranceData | null
   entranceTransform: { longitude: number; latitude: number; rotation: number }
@@ -390,6 +392,7 @@ interface ProjectState {
   setIsParkingVisible: (visible: boolean) => void
   setIsParkingEditing: (editing: boolean) => void
   setParkingTransform: (transform: Partial<{ longitude: number; latitude: number; rotation: number }>) => void
+  setParkingOrigin: (origin: { longitude: number; latitude: number } | null) => void
   setParkingEntrance: (entrance: ParkingEntranceData | null) => void
   setEntranceTransform: (transform: Partial<{ longitude: number; latitude: number; rotation: number }>) => void
   setParkingPath: (path: ParkingPathData | null) => void
@@ -462,6 +465,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   isParkingVisible: false,
   isParkingEditing: false,
   parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+  parkingOrigin: null,
   parkingEntrance: null,
   entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
   parkingPath: null,
@@ -562,6 +566,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((state) => ({
       parkingTransform: { ...state.parkingTransform, ...transform },
     })),
+  setParkingOrigin: (origin) => set({ parkingOrigin: origin }),
   setParkingEntrance: (entrance) => set({ parkingEntrance: entrance }),
   setEntranceTransform: (transform) =>
     set((state) => ({
@@ -575,6 +580,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isParkingVisible: false,
       isParkingEditing: false,
       parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingOrigin: null,
       parkingEntrance: null,
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,
@@ -659,6 +665,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isParkingVisible: false,
       isParkingEditing: false,
       parkingTransform: { longitude: 0, latitude: 0, rotation: 0 },
+      parkingOrigin: null,
       parkingEntrance: null,
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,

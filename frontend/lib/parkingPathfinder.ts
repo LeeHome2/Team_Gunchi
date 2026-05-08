@@ -60,6 +60,8 @@ export interface PathfinderInput {
   obstacleMargin?: number
   /** 그리드 시각화 데이터 반환 여부 (기본 true) */
   returnGrid?: boolean
+  /** 그리드 회전 각도 (도, 기본 0) */
+  gridRotation?: number
 }
 
 /**
@@ -72,11 +74,71 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
   const {
     start, goal, siteFootprint, obstacles,
     gridSize = 2, obstacleMargin = 1, returnGrid = true,
+    gridRotation = 0,
   } = input
 
-  // 사이트 AABB (패딩 포함)
-  const xs = siteFootprint.map((p) => p[0])
-  const ys = siteFootprint.map((p) => p[1])
+  // 회전 중심 계산 (사이트 중심)
+  const allXs = siteFootprint.map((p) => p[0])
+  const allYs = siteFootprint.map((p) => p[1])
+  const centerX = (Math.min(...allXs) + Math.max(...allXs)) / 2
+  const centerY = (Math.min(...allYs) + Math.max(...allYs)) / 2
+
+  // 회전 함수 - 그리드가 +θ로 회전하면 좌표계는 -θ로 회전
+  const rotRad = (-gridRotation * Math.PI) / 180  // 부호 반전
+  const cos = Math.cos(rotRad)
+  const sin = Math.sin(rotRad)
+
+  // 좌표를 회전 (좌표계를 -θ 회전 = 점을 +θ 반대방향 회전)
+  const rotatePoint = (x: number, y: number): [number, number] => {
+    const dx = x - centerX
+    const dy = y - centerY
+    return [dx * cos - dy * sin + centerX, dx * sin + dy * cos + centerY]
+  }
+
+  // 역회전 (결과를 원래 좌표계로)
+  const unrotatePoint = (x: number, y: number): [number, number] => {
+    const dx = x - centerX
+    const dy = y - centerY
+    return [dx * cos + dy * sin + centerX, -dx * sin + dy * cos + centerY]
+  }
+
+  // 원본 좌표계의 AABB (시각화용 bounds)
+  // 회전 시 대각선이 더 길어지므로 패딩 확장 (최대 sqrt(2) ≈ 1.414 at 45°)
+  const width = Math.max(...allXs) - Math.min(...allXs)
+  const height = Math.max(...allYs) - Math.min(...allYs)
+  const diagonal = Math.sqrt(width * width + height * height)
+  // 회전 각도에 따른 확장 (0°에서 5m, 45°에서 대각선/2 + 5m)
+  const rotationFactor = Math.abs(Math.sin(2 * Math.abs(gridRotation) * Math.PI / 180))  // 0~1, 45°에서 최대
+  const padding = 5 + (diagonal / 2) * rotationFactor
+  const origMinX = Math.min(...allXs) - padding
+  const origMinY = Math.min(...allYs) - padding
+  const origMaxX = Math.max(...allXs) + padding
+  const origMaxY = Math.max(...allYs) + padding
+
+  // 입력값들을 회전 (내부 계산용)
+  const rotatedStart = rotatePoint(start[0], start[1])
+  const rotatedGoal = rotatePoint(goal[0], goal[1])
+  const rotatedFootprint = siteFootprint.map(([x, y]) => rotatePoint(x, y))
+  const rotatedObstacles = obstacles.map((obs) => {
+    const corners = [
+      rotatePoint(obs.minX, obs.minY),
+      rotatePoint(obs.maxX, obs.minY),
+      rotatePoint(obs.maxX, obs.maxY),
+      rotatePoint(obs.minX, obs.maxY),
+    ]
+    const rxs = corners.map((c) => c[0])
+    const rys = corners.map((c) => c[1])
+    return {
+      minX: Math.min(...rxs),
+      minY: Math.min(...rys),
+      maxX: Math.max(...rxs),
+      maxY: Math.max(...rys),
+    }
+  })
+
+  // 그리드 계산용 AABB (회전된 좌표 사용)
+  const xs = rotatedFootprint.map((p) => p[0])
+  const ys = rotatedFootprint.map((p) => p[1])
   const sMinX = Math.min(...xs) - 5
   const sMinY = Math.min(...ys) - 5
   const sMaxX = Math.max(...xs) + 5
@@ -97,10 +159,10 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     sMinY + gy * gridSize,
   ]
 
-  // 장애물 그리드 마크 (다중 장애물 지원)
+  // 장애물 그리드 마크 (다중 장애물 지원) - 회전된 장애물 사용
   const blocked = new Set<string>()
 
-  for (const obs of obstacles) {
+  for (const obs of rotatedObstacles) {
     const [g1x, g1y] = toGrid(obs.minX, obs.minY)
     const [g2x, g2y] = toGrid(obs.maxX, obs.maxY)
     for (let gx = g1x - obstacleMargin; gx <= g2x + obstacleMargin; gx++) {
@@ -110,17 +172,17 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     }
   }
 
-  // 사이트 외부 셀도 차단 (선택적 — 경로가 사이트 밖으로 나가지 않도록)
+  // 사이트 외부 셀도 차단 - 회전된 폴리곤 사용
   for (let gx = 0; gx <= cols; gx++) {
     for (let gy = 0; gy <= rows; gy++) {
       const [wx, wy] = toWorld(gx, gy)
-      if (!isInsidePolygon(wx, wy, siteFootprint)) {
+      if (!isInsidePolygon(wx, wy, rotatedFootprint)) {
         blocked.add(nodeKey(gx, gy))
       }
     }
   }
 
-  // 그리드 시각화 데이터 생성
+  // 그리드 시각화 데이터 생성 - 회전된 좌표계 사용
   let gridData: ParkingGridData | undefined
   if (returnGrid) {
     const cells: ParkingGridCell[] = []
@@ -128,10 +190,12 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     for (let gx = 0; gx <= cols; gx++) {
       for (let gy = 0; gy <= rows; gy++) {
         const [wx, wy] = toWorld(gx, gy)
-        if (isInsidePolygon(wx, wy, siteFootprint)) {
+        if (isInsidePolygon(wx, wy, rotatedFootprint)) {
+          // 셀 좌표는 원래 좌표계로 역변환하여 저장
+          const [origX, origY] = unrotatePoint(wx, wy)
           cells.push({
-            x: wx,
-            y: wy,
+            x: origX,
+            y: origY,
             blocked: blocked.has(nodeKey(gx, gy)),
           })
         }
@@ -142,12 +206,13 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
       gridSize,
       cols,
       rows,
-      bounds: { minX: sMinX, minY: sMinY, maxX: sMaxX, maxY: sMaxY },
+      bounds: { minX: origMinX, minY: origMinY, maxX: origMaxX, maxY: origMaxY },
     }
   }
 
-  const [startGx, startGy] = toGrid(start[0], start[1])
-  const [goalGx, goalGy] = toGrid(goal[0], goal[1])
+  // 회전된 시작/목표 좌표를 그리드로 변환
+  const [startGx, startGy] = toGrid(rotatedStart[0], rotatedStart[1])
+  const [goalGx, goalGy] = toGrid(rotatedGoal[0], rotatedGoal[1])
 
   // 4방향 (상하좌우만 - 그리드를 따라 이동)
   const dirs = [
@@ -253,17 +318,20 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     }
   }
 
+  // 회전된 좌표계에서 경로 복원 후 원래 좌표계로 역변환
   const gridPath: [number, number][] = []
   let node: AStarNode | null = found
   while (node) {
-    gridPath.unshift(toWorld(node.x, node.y))
+    const [rotX, rotY] = toWorld(node.x, node.y)
+    // 역회전하여 원래 좌표계로 변환
+    gridPath.unshift(unrotatePoint(rotX, rotY))
     node = node.parent
   }
 
   // 경로 단순화
   const simplified = simplifyPath(gridPath, gridSize * 0.8)
 
-  // 시작/끝을 정확한 좌표로 교체
+  // 시작/끝을 정확한 원래 좌표로 교체
   if (simplified.length > 0) {
     simplified[0] = start
     simplified[simplified.length - 1] = goal
@@ -278,7 +346,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     )
   }
 
-  // 경로 유효성 (모든 점이 사이트 내부 또는 근처)
+  // 경로 유효성 (모든 점이 사이트 내부 또는 근처) - 원래 좌표계 사용
   const isValid = simplified.every(
     ([x, y]) =>
       isInsidePolygon(x, y, siteFootprint) ||

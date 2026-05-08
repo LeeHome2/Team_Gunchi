@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
+import * as turf from '@turf/turf'
 import { useProjectStore } from '@/store/projectStore'
 import type { ParkingZoneData, ParkingLayoutPattern } from '@/store/projectStore'
 import { generateParkingLayout } from '@/lib/parkingLayout'
@@ -37,13 +38,14 @@ export default function ParkingZonePanel() {
     setParkingPath,
     setIsParkingVisible,
     setParkingTransform,
+    setParkingOrigin,
     setEntranceTransform,
     setGridRotation,
     clearParking,
     setError,
   } = useProjectStore()
 
-  const [parkingCount, setParkingCount] = useState(10)
+  const [parkingCount, setParkingCount] = useState(1)
   const [disabledCount, setDisabledCount] = useState(1)
   const [layoutPattern, setLayoutPattern] = useState<ParkingLayoutPattern>(
     parkingConfig.layoutPattern || 'perpendicular',
@@ -113,28 +115,46 @@ export default function ParkingZonePanel() {
       return
     }
 
-    // 선택된 모든 블록의 좌표를 합쳐서 하나의 큰 경계 폴리곤 생성
+    // 선택된 모든 블록의 좌표를 합쳐서 하나의 경계 폴리곤 생성
     let combinedFootprint: number[][] | null = null
     if (selectedBlockInfo?.coordinates && selectedBlockInfo.coordinates.length > 0) {
-      // 모든 블록의 점들을 합쳐서 convex hull 계산 대신, 모든 점들의 AABB를 사용
-      const allPoints: number[][] = []
-      for (const blockCoords of selectedBlockInfo.coordinates) {
-        allPoints.push(...blockCoords)
-      }
-      if (allPoints.length >= 3) {
-        // AABB 계산
-        const xs = allPoints.map(p => p[0])
-        const ys = allPoints.map(p => p[1])
-        const minX = Math.min(...xs)
-        const maxX = Math.max(...xs)
-        const minY = Math.min(...ys)
-        const maxY = Math.max(...ys)
-        combinedFootprint = [
-          [minX, minY],
-          [maxX, minY],
-          [maxX, maxY],
-          [minX, maxY],
-        ]
+      const blockCoords = selectedBlockInfo.coordinates
+
+      if (blockCoords.length === 1) {
+        // 단일 블록: 해당 블록의 폴리곤 그대로 사용
+        combinedFootprint = blockCoords[0]
+      } else {
+        // 다중 블록: turf.union으로 합필
+        try {
+          let merged = turf.polygon([blockCoords[0]])
+          for (let i = 1; i < blockCoords.length; i++) {
+            const nextPoly = turf.polygon([blockCoords[i]])
+            const unionResult = turf.union(turf.featureCollection([merged, nextPoly]))
+            if (unionResult) {
+              merged = unionResult as turf.Feature<turf.Polygon | turf.MultiPolygon>
+            }
+          }
+
+          // MultiPolygon인 경우 가장 큰 폴리곤 선택
+          if (merged.geometry.type === 'MultiPolygon') {
+            let largestArea = 0
+            let largestPoly: number[][] = merged.geometry.coordinates[0][0]
+            for (const poly of merged.geometry.coordinates) {
+              const area = turf.area(turf.polygon(poly))
+              if (area > largestArea) {
+                largestArea = area
+                largestPoly = poly[0]
+              }
+            }
+            combinedFootprint = largestPoly
+          } else {
+            combinedFootprint = merged.geometry.coordinates[0]
+          }
+        } catch (err) {
+          console.error('블록 합필 오류:', err)
+          // 실패 시 첫 번째 블록만 사용
+          combinedFootprint = blockCoords[0]
+        }
       }
     }
 
@@ -186,6 +206,12 @@ export default function ParkingZonePanel() {
       setParkingConfig({ layoutPattern })
       setIsParkingVisible(true)
 
+      // 주차구역 원점 고정 (건물 이동과 독립적으로 유지)
+      setParkingOrigin({
+        longitude: modelTransform.longitude,
+        latitude: modelTransform.latitude,
+      })
+
       // 변환 초기화
       setParkingTransform({ longitude: 0, latitude: 0, rotation: 0 })
       setEntranceTransform({ longitude: 0, latitude: 0, rotation: 0 })
@@ -199,6 +225,7 @@ export default function ParkingZonePanel() {
           obstacles,
           gridSize: 2,
           returnGrid: showGrid,
+          gridRotation,
         })
         setParkingPath(path)
       } else {
@@ -212,35 +239,55 @@ export default function ParkingZonePanel() {
   }, [
     parkingCount, disabledCount, layoutPattern, site, building, selectedBlockInfo,
     loadedModelEntity, generatedMasses, modelTransform, toLocal, showGrid,
-    collectObstacles,
+    collectObstacles, gridRotation,
     setParkingZone, setParkingEntrance, setParkingPath, setParkingConfig,
-    setIsParkingVisible, setParkingTransform, setEntranceTransform, setError,
+    setIsParkingVisible, setParkingTransform, setParkingOrigin, setEntranceTransform, setError,
   ])
 
   // 경로 재탐색 (입구/주차영역 이동 후)
   const handleRecalcPath = useCallback(() => {
     if (!parkingZone || !parkingEntrance) return
 
-    // 선택된 모든 블록의 좌표를 합쳐서 AABB 계산
+    // 선택된 모든 블록의 좌표를 합쳐서 하나의 경계 폴리곤 생성
     let combinedFootprint: number[][] | null = null
     if (selectedBlockInfo?.coordinates && selectedBlockInfo.coordinates.length > 0) {
-      const allPoints: number[][] = []
-      for (const blockCoords of selectedBlockInfo.coordinates) {
-        allPoints.push(...blockCoords)
-      }
-      if (allPoints.length >= 3) {
-        const xs = allPoints.map(p => p[0])
-        const ys = allPoints.map(p => p[1])
-        const minX = Math.min(...xs)
-        const maxX = Math.max(...xs)
-        const minY = Math.min(...ys)
-        const maxY = Math.max(...ys)
-        combinedFootprint = [
-          [minX, minY],
-          [maxX, minY],
-          [maxX, maxY],
-          [minX, maxY],
-        ]
+      const blockCoords = selectedBlockInfo.coordinates
+
+      if (blockCoords.length === 1) {
+        // 단일 블록: 해당 블록의 폴리곤 그대로 사용
+        combinedFootprint = blockCoords[0]
+      } else {
+        // 다중 블록: turf.union으로 합필
+        try {
+          let merged = turf.polygon([blockCoords[0]])
+          for (let i = 1; i < blockCoords.length; i++) {
+            const nextPoly = turf.polygon([blockCoords[i]])
+            const unionResult = turf.union(turf.featureCollection([merged, nextPoly]))
+            if (unionResult) {
+              merged = unionResult as turf.Feature<turf.Polygon | turf.MultiPolygon>
+            }
+          }
+
+          // MultiPolygon인 경우 가장 큰 폴리곤 선택
+          if (merged.geometry.type === 'MultiPolygon') {
+            let largestArea = 0
+            let largestPoly: number[][] = merged.geometry.coordinates[0][0]
+            for (const poly of merged.geometry.coordinates) {
+              const area = turf.area(turf.polygon(poly))
+              if (area > largestArea) {
+                largestArea = area
+                largestPoly = poly[0]
+              }
+            }
+            combinedFootprint = largestPoly
+          } else {
+            combinedFootprint = merged.geometry.coordinates[0]
+          }
+        } catch (err) {
+          console.error('블록 합필 오류:', err)
+          // 실패 시 첫 번째 블록만 사용
+          combinedFootprint = blockCoords[0]
+        }
       }
     }
 
@@ -270,20 +317,21 @@ export default function ParkingZonePanel() {
       obstacles,
       gridSize: 2,
       returnGrid: showGrid,
+      gridRotation,
     })
     setParkingPath(path)
   }, [parkingZone, parkingEntrance, selectedBlockInfo, site, showGrid, collectObstacles, toLocal, setParkingPath,
       modelTransform.latitude, parkingTransform.longitude, parkingTransform.latitude,
-      entranceTransform.longitude, entranceTransform.latitude])
+      entranceTransform.longitude, entranceTransform.latitude, gridRotation])
 
-  // transform 변경 시 자동으로 경로 재계산
+  // transform 변경 또는 그리드 회전 변경 시 자동으로 경로 재계산
   useEffect(() => {
     if (parkingZone && parkingEntrance && isParkingVisible) {
       handleRecalcPath()
     }
   }, [parkingTransform.longitude, parkingTransform.latitude, parkingTransform.rotation,
       entranceTransform.longitude, entranceTransform.latitude, entranceTransform.rotation,
-      handleRecalcPath, parkingZone, parkingEntrance, isParkingVisible])
+      handleRecalcPath, parkingZone, parkingEntrance, isParkingVisible, gridRotation])
 
   // 제거
   const handleClear = () => {

@@ -63,7 +63,21 @@ _SEED_BASE_RULES = [
         "label": "이격거리",
         "unit": "m",
         "value": 1.5,
-        "description": "대지경계선에서 건축물까지의 최소 이격거리",
+        "description": "대지경계선에서 건축물까지의 최소 이격거리 (하위 호환용)",
+    },
+    {
+        "key": "setback_road",
+        "label": "도로변 이격거리",
+        "unit": "m",
+        "value": 1.0,
+        "description": "건축선(도로경계선)에서 건축물까지의 최소 이격거리",
+    },
+    {
+        "key": "setback_adjacent",
+        "label": "인접대지 이격거리",
+        "unit": "m",
+        "value": 0.5,
+        "description": "인접 대지경계선에서 건축물까지의 최소 이격거리",
     },
     {
         "key": "height_max",

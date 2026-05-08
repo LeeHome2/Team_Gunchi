@@ -26,11 +26,16 @@ export function useParkingZone() {
   const parkingPath = useProjectStore((s) => s.parkingPath)
   const isParkingVisible = useProjectStore((s) => s.isParkingVisible)
   const modelTransform = useProjectStore((s) => s.modelTransform)
+  const parkingOrigin = useProjectStore((s) => s.parkingOrigin)
   const parkingTransform = useProjectStore((s) => s.parkingTransform)
   const entranceTransform = useProjectStore((s) => s.entranceTransform)
   const selectedBlockInfo = useProjectStore((s) => s.selectedBlockInfo)
   const site = useProjectStore((s) => s.site)
   const gridRotation = useProjectStore((s) => s.gridRotation)
+
+  // 주차구역 원점: parkingOrigin이 설정되어 있으면 사용, 아니면 modelTransform 사용
+  const originLon = parkingOrigin?.longitude ?? modelTransform.longitude
+  const originLat = parkingOrigin?.latitude ?? modelTransform.latitude
 
   const entityIdsRef = useRef<string[]>([])
 
@@ -48,8 +53,6 @@ export function useParkingZone() {
   // ── 좌표 변환 (주차영역용) — zoneCenter 기준 시계방향 회전 ──
   const toLatLonParking = useCallback(
     (localX: number, localY: number): [number, number] => {
-      const originLon = modelTransform.longitude
-      const originLat = modelTransform.latitude
       const latRad = (originLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
@@ -70,14 +73,12 @@ export function useParkingZone() {
       const lat = originLat + ry / mPerDegLat + pt.latitude
       return [lon, lat]
     },
-    [modelTransform.longitude, modelTransform.latitude],
+    [originLon, originLat],
   )
 
   // ── 좌표 변환 (입구용) — entrance center 기준 시계방향 회전 ──
   const toLatLonEntrance = useCallback(
     (localX: number, localY: number): [number, number] => {
-      const originLon = modelTransform.longitude
-      const originLat = modelTransform.latitude
       const latRad = (originLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
@@ -98,7 +99,7 @@ export function useParkingZone() {
       const lat = originLat + ry / mPerDegLat + et.latitude
       return [lon, lat]
     },
-    [modelTransform.longitude, modelTransform.latitude],
+    [originLon, originLat],
   )
 
   // 폴리곤 → Cesium Cartesian3
@@ -116,7 +117,7 @@ export function useParkingZone() {
 
   // ── 클리어 ──
   const clearEntities = useCallback(() => {
-    if (!viewer) return
+    if (!viewer?.entities) return
     for (const id of entityIdsRef.current) {
       const ent = viewer.entities.getById(id)
       if (ent) viewer.entities.remove(ent)
@@ -132,7 +133,7 @@ export function useParkingZone() {
   // ── 주차영역 렌더링 ──
   const renderZone = useCallback(
     (zone: ParkingZoneData, ids: string[]) => {
-      if (!viewer) return
+      if (!viewer?.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -258,7 +259,7 @@ export function useParkingZone() {
   // ── 입구 오브젝트 렌더링 ──
   const renderEntrance = useCallback(
     (entrance: ParkingEntranceData, ids: string[]) => {
-      if (!viewer) return
+      if (!viewer?.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -331,7 +332,7 @@ export function useParkingZone() {
   // ── 그리드 시각화 렌더링 (폴리라인 방식 - 선택 영역 내부만) ──
   const renderGrid = useCallback(
     (path: ParkingPathData, ids: string[]) => {
-      if (!viewer || !path.grid) return
+      if (!viewer?.entities || !path.grid) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -343,22 +344,23 @@ export function useParkingZone() {
       const sitePolygon = site?.footprint
       if (blockPolygons.length === 0 && !sitePolygon) return
 
-      const originLon = modelTransform.longitude
-      const originLat = modelTransform.latitude
-      const latRad = (originLat * Math.PI) / 180
+      // 주차구역 원점 사용
+      const gridOriginLon = useProjectStore.getState().parkingOrigin?.longitude ?? useProjectStore.getState().modelTransform.longitude
+      const gridOriginLat = useProjectStore.getState().parkingOrigin?.latitude ?? useProjectStore.getState().modelTransform.latitude
+      const latRad = (gridOriginLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
 
       // 위경도 → 로컬 미터 변환
       const toLocal = (lon: number, lat: number): [number, number] => [
-        (lon - originLon) * mPerDegLon,
-        (lat - originLat) * mPerDegLat,
+        (lon - gridOriginLon) * mPerDegLon,
+        (lat - gridOriginLat) * mPerDegLat,
       ]
 
       // 로컬 미터 → 위경도 변환
       const toLatLon = (x: number, y: number): [number, number] => [
-        originLon + x / mPerDegLon,
-        originLat + y / mPerDegLat,
+        gridOriginLon + x / mPerDegLon,
+        gridOriginLat + y / mPerDegLat,
       ]
 
       // 모든 블록 폴리곤을 로컬 좌표로 변환
@@ -445,9 +447,12 @@ export function useParkingZone() {
         return segments
       }
 
-      // 그리드 회전 (store에서 구독한 값 사용)
+      // 그리드 회전 - parkingPathfinder와 동일한 방식으로 처리
+      // 1. 먼저 footprint를 회전
+      // 2. 회전된 좌표계의 bounds에서 그리드 선 생성
+      // 3. 그리드 선을 역회전하여 원래 좌표계로 변환
       const currentGridRotation = useProjectStore.getState().gridRotation
-      const rotRad = (currentGridRotation * Math.PI) / 180
+      const rotRad = (-currentGridRotation * Math.PI) / 180  // parkingPathfinder와 동일
       const cos = Math.cos(rotRad)
       const sin = Math.sin(rotRad)
 
@@ -455,10 +460,84 @@ export function useParkingZone() {
       const centerX = (minX + maxX) / 2
       const centerY = (minY + maxY) / 2
 
-      // 회전 적용
-      const rotate = (x: number, y: number): [number, number] => {
+      // 점을 회전된 좌표계로 변환 (parkingPathfinder의 rotatePoint와 동일)
+      const rotatePoint = (x: number, y: number): [number, number] => {
+        const dx = x - centerX, dy = y - centerY
+        return [dx * cos - dy * sin + centerX, dx * sin + dy * cos + centerY]
+      }
+
+      // 회전된 좌표계에서 원래 좌표계로 역변환 (parkingPathfinder의 unrotatePoint와 동일)
+      const unrotatePoint = (x: number, y: number): [number, number] => {
         const dx = x - centerX, dy = y - centerY
         return [dx * cos + dy * sin + centerX, -dx * sin + dy * cos + centerY]
+      }
+
+      // 모든 폴리곤 점을 회전
+      const rotatedPolygons = localPolygons.map(poly =>
+        poly.map(([x, y]) => rotatePoint(x, y))
+      )
+
+      // 회전된 폴리곤의 AABB 계산
+      const allRotatedXs: number[] = []
+      const allRotatedYs: number[] = []
+      for (const poly of rotatedPolygons) {
+        for (const [x, y] of poly) {
+          allRotatedXs.push(x)
+          allRotatedYs.push(y)
+        }
+      }
+      const rotMinX = Math.min(...allRotatedXs) - 5
+      const rotMinY = Math.min(...allRotatedYs) - 5
+      const rotMaxX = Math.max(...allRotatedXs) + 5
+      const rotMaxY = Math.max(...allRotatedYs) + 5
+
+      // 회전된 폴리곤 내부 체크 함수
+      const isInsideRotatedPolygon = (px: number, py: number): boolean => {
+        return rotatedPolygons.some(poly => isInsidePolygon(px, py, poly))
+      }
+
+      // 선분을 회전된 폴리곤으로 클리핑하여 내부 세그먼트 반환
+      const clipLineToRotatedPolygons = (
+        x1: number, y1: number, x2: number, y2: number
+      ): Array<[[number, number], [number, number]]> => {
+        const segments: Array<[[number, number], [number, number]]> = []
+
+        // 모든 회전된 폴리곤과의 교차점 수집
+        const intersections: { t: number; point: [number, number] }[] = []
+        const dx = x2 - x1, dy = y2 - y1
+        const len = Math.sqrt(dx * dx + dy * dy)
+
+        for (const poly of rotatedPolygons) {
+          for (let i = 0; i < poly.length; i++) {
+            const j = (i + 1) % poly.length
+            const inter = lineIntersection(x1, y1, x2, y2, poly[i][0], poly[i][1], poly[j][0], poly[j][1])
+            if (inter) {
+              const t = len > 0 ? Math.sqrt((inter[0] - x1) ** 2 + (inter[1] - y1) ** 2) / len : 0
+              intersections.push({ t, point: inter })
+            }
+          }
+        }
+
+        // t 값으로 정렬
+        intersections.sort((a, b) => a.t - b.t)
+
+        // 시작점과 끝점 추가
+        const points: { t: number; point: [number, number] }[] = [
+          { t: 0, point: [x1, y1] },
+          ...intersections,
+          { t: 1, point: [x2, y2] },
+        ]
+
+        // 연속된 점들의 중점이 회전된 폴리곤 내부인 세그먼트만 추가
+        for (let i = 0; i < points.length - 1; i++) {
+          const midX = (points[i].point[0] + points[i + 1].point[0]) / 2
+          const midY = (points[i].point[1] + points[i + 1].point[1]) / 2
+          if (isInsideRotatedPolygon(midX, midY)) {
+            segments.push([points[i].point, points[i + 1].point])
+          }
+        }
+
+        return segments
       }
 
       // 가시성 개선: 보라색이 위성 이미지에서 잘 안 보였음. 노란 톤으로 변경하고
@@ -466,15 +545,22 @@ export function useParkingZone() {
       const gridColor = Cesium.Color.fromCssColorString('#fde047').withAlpha(0.95)
       let lineId = 0
 
-      // 수직선
-      for (let x = minX; x <= maxX; x += gridSize) {
-        const [rx1, ry1] = rotate(x, minY)
-        const [rx2, ry2] = rotate(x, maxY)
-        const segments = clipLineToPolygons(rx1, ry1, rx2, ry2)
+      // 회전된 좌표계에서 그리드 선 생성 후 역회전하여 원래 좌표계로 변환
+      // 수직선 (회전된 좌표계 기준)
+      for (let x = rotMinX; x <= rotMaxX; x += gridSize) {
+        // 페이지 전환 시 viewer가 destroy될 수 있으므로 체크
+        if (!viewer?.entities) return
+
+        // 회전된 좌표계에서 수직선
+        const segments = clipLineToRotatedPolygons(x, rotMinY, x, rotMaxY)
 
         for (const [[sx1, sy1], [sx2, sy2]] of segments) {
-          const [lon1, lat1] = toLatLon(sx1, sy1)
-          const [lon2, lat2] = toLatLon(sx2, sy2)
+          if (!viewer?.entities) return
+          // 역회전하여 원래 좌표계로
+          const [ox1, oy1] = unrotatePoint(sx1, sy1)
+          const [ox2, oy2] = unrotatePoint(sx2, sy2)
+          const [lon1, lat1] = toLatLon(ox1, oy1)
+          const [lon2, lat2] = toLatLon(ox2, oy2)
           const id = `_parking_grid_v_${lineId++}`
           viewer.entities.add({
             id,
@@ -489,15 +575,21 @@ export function useParkingZone() {
         }
       }
 
-      // 수평선
-      for (let y = minY; y <= maxY; y += gridSize) {
-        const [rx1, ry1] = rotate(minX, y)
-        const [rx2, ry2] = rotate(maxX, y)
-        const segments = clipLineToPolygons(rx1, ry1, rx2, ry2)
+      // 수평선 (회전된 좌표계 기준)
+      for (let y = rotMinY; y <= rotMaxY; y += gridSize) {
+        // 페이지 전환 시 viewer가 destroy될 수 있으므로 체크
+        if (!viewer?.entities) return
+
+        // 회전된 좌표계에서 수평선
+        const segments = clipLineToRotatedPolygons(rotMinX, y, rotMaxX, y)
 
         for (const [[sx1, sy1], [sx2, sy2]] of segments) {
-          const [lon1, lat1] = toLatLon(sx1, sy1)
-          const [lon2, lat2] = toLatLon(sx2, sy2)
+          if (!viewer?.entities) return
+          // 역회전하여 원래 좌표계로
+          const [ox1, oy1] = unrotatePoint(sx1, sy1)
+          const [ox2, oy2] = unrotatePoint(sx2, sy2)
+          const [lon1, lat1] = toLatLon(ox1, oy1)
+          const [lon2, lat2] = toLatLon(ox2, oy2)
           const id = `_parking_grid_h_${lineId++}`
           viewer.entities.add({
             id,
@@ -512,27 +604,27 @@ export function useParkingZone() {
         }
       }
     },
-    [viewer, modelTransform.longitude, modelTransform.latitude, selectedBlockInfo, site, gridRotation],
+    [viewer, selectedBlockInfo, site, gridRotation],
   )
 
   // ── 경로 렌더링 ──
   const renderPath = useCallback(
     (path: ParkingPathData, ids: string[]) => {
-      if (!viewer || path.points.length < 2) return
+      if (!viewer?.entities || path.points.length < 2) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
-      // 경로는 모델 원점 기준 로컬 좌표 → 주차 변환 없이 직접 변환
+      // 경로는 주차구역 원점 기준 로컬 좌표 → 주차 변환 없이 직접 변환
       // (경로는 이미 절대 로컬 좌표)
-      const originLon = modelTransform.longitude
-      const originLat = modelTransform.latitude
-      const latRad = (originLat * Math.PI) / 180
+      const pathOriginLon = useProjectStore.getState().parkingOrigin?.longitude ?? useProjectStore.getState().modelTransform.longitude
+      const pathOriginLat = useProjectStore.getState().parkingOrigin?.latitude ?? useProjectStore.getState().modelTransform.latitude
+      const latRad = (pathOriginLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
 
       const positions = path.points.map(([x, y]) => {
-        const lon = originLon + x / mPerDegLon
-        const lat = originLat + y / mPerDegLat
+        const lon = pathOriginLon + x / mPerDegLon
+        const lat = pathOriginLat + y / mPerDegLat
         return Cesium.Cartesian3.fromDegrees(lon, lat)
       })
 
@@ -559,8 +651,8 @@ export function useParkingZone() {
       // 경로 길이 라벨 (중간 지점)
       const midIdx = Math.floor(path.points.length / 2)
       const [mx, my] = path.points[midIdx]
-      const mLon = originLon + mx / mPerDegLon
-      const mLat = originLat + my / mPerDegLat
+      const mLon = pathOriginLon + mx / mPerDegLon
+      const mLat = pathOriginLat + my / mPerDegLat
       const pathLabelId = '_parking_path_label'
       viewer.entities.add({
         id: pathLabelId,
@@ -579,13 +671,13 @@ export function useParkingZone() {
       })
       ids.push(pathLabelId)
     },
-    [viewer, modelTransform.longitude, modelTransform.latitude],
+    [viewer],
   )
 
   // ── 전체 렌더 (외부 호출용 — 드래그 중 실시간) ──
   const render = useCallback(
     (zone: ParkingZoneData) => {
-      if (!viewer) return
+      if (!viewer?.entities) return
       clearEntities()
       const ids: string[] = []
 
@@ -608,7 +700,7 @@ export function useParkingZone() {
   // ── 회전/이동 중 기존 엔티티 위치만 인플레이스 업데이트 (삭제/재생성 없이 빠른 업데이트) ──
   const updatePositionsInPlace = useCallback(
     (zone: ParkingZoneData) => {
-      if (!viewer) return
+      if (!viewer?.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -713,7 +805,7 @@ export function useParkingZone() {
   // ── 입구만 인플레이스 업데이트 (회전/이동 중) ──
   const updateEntranceInPlace = useCallback(
     () => {
-      if (!viewer) return
+      if (!viewer?.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -757,7 +849,7 @@ export function useParkingZone() {
   // 입구만 리렌더 (드래그 중 — 경로 포함 전체 재생성)
   const renderEntranceOnly = useCallback(
     () => {
-      if (!viewer) return
+      if (!viewer?.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -790,7 +882,7 @@ export function useParkingZone() {
 
   // ── 상태 변화에 따른 렌더 / 클리어 ──
   useEffect(() => {
-    if (!viewer) return
+    if (!viewer?.entities) return
     if (isParkingVisible && parkingZone) {
       clearEntities()
       const ids: string[] = []
@@ -804,7 +896,7 @@ export function useParkingZone() {
       clearEntities()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewer, parkingZone, parkingEntrance, parkingPath, isParkingVisible, parkingTransform, entranceTransform, gridRotation])
+  }, [viewer, parkingZone, parkingEntrance, parkingPath, isParkingVisible, parkingTransform, entranceTransform, gridRotation, parkingOrigin])
 
   // 언마운트 시 클리어
   useEffect(() => {
