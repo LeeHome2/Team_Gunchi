@@ -118,7 +118,8 @@ def create_dxf_file(
     footprint: Optional[List[List[float]]] = None,
     area_sqm: Optional[float] = None,
     centroid: Optional[List[float]] = None,
-    bounds: Optional[Dict[str, float]] = None
+    bounds: Optional[Dict[str, float]] = None,
+    id: Optional[UUID] = None  # Optional explicit ID (to match disk file UUID)
 ) -> DxfFile:
     """Create a new DXF file record"""
     dxf_file = DxfFile(
@@ -133,6 +134,8 @@ def create_dxf_file(
         centroid=centroid,
         bounds=bounds
     )
+    if id:
+        dxf_file.id = id
     db.add(dxf_file)
     db.commit()
     db.refresh(dxf_file)
@@ -142,6 +145,14 @@ def create_dxf_file(
 def get_dxf_file(db: Session, dxf_file_id: UUID) -> Optional[DxfFile]:
     """Get DXF file by ID"""
     return db.query(DxfFile).filter(DxfFile.id == dxf_file_id).first()
+
+
+def get_dxf_by_filename(db: Session, project_id: UUID, filename: str) -> Optional[DxfFile]:
+    """Get DXF file by original filename within a project (for deduplication)"""
+    return db.query(DxfFile).filter(
+        DxfFile.project_id == project_id,
+        DxfFile.original_filename == filename
+    ).first()
 
 
 def get_dxf_files_by_project(db: Session, project_id: UUID) -> List[DxfFile]:

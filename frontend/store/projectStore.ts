@@ -547,7 +547,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setLoadedMassGlbUrl: (url: string | null) => set({ loadedMassGlbUrl: url }),
 
   addGeneratedMass: (mass) =>
-    set((state) => ({ generatedMasses: [...state.generatedMasses, mass] })),
+    set((state) => {
+      // 같은 fileName이 이미 있으면 교체, 없으면 추가
+      const existingIndex = state.generatedMasses.findIndex(
+        (m) => m.fileName === mass.fileName
+      )
+      if (existingIndex >= 0) {
+        // 기존 항목 교체
+        const updated = [...state.generatedMasses]
+        updated[existingIndex] = mass
+        return { generatedMasses: updated }
+      }
+      return { generatedMasses: [...state.generatedMasses, mass] }
+    }),
   removeGeneratedMass: (id) =>
     set((state) => ({ generatedMasses: state.generatedMasses.filter((m) => m.id !== id) })),
 

@@ -53,6 +53,7 @@ export interface ModelResult {
     height: number
   }
   build_steps?: BuildStep[]
+  lod_actual?: number  // 실제 적용된 LOD (요청과 다를 수 있음)
 }
 
 // ============= API Functions =============
@@ -260,7 +261,8 @@ export async function generateModelFromClassification(
   parseResult?: ParseResult,
   anchorLonLat?: [number, number],
   fileName?: string,
-  projectId?: string | null
+  projectId?: string | null,
+  lod: 1 | 2 | 3 = 1
 ): Promise<ModelResult> {
   let rawFootprint = parseResult?.site?.footprint || [[0, 0], [10, 0], [10, 10], [0, 10]]
   const anchor: [number, number] = anchorLonLat || [127.1388, 37.4449]
@@ -329,6 +331,7 @@ export async function generateModelFromClassification(
     convertedPosition: position,
     wallLayers,
     useWallMode: wallLayers.length > 0,
+    lod,
   })
 
   const body: Record<string, any> = {
@@ -343,11 +346,63 @@ export async function generateModelFromClassification(
     body.file_id = fileId
     body.wall_layers = wallLayers
     body.wall_thickness = 0.15
+    body.lod = lod
+
+    // LOD3: 개구부 레이어 추출
+    if (lod >= 3) {
+      let doorLayers: string[] = []
+      let windowLayers: string[] = []
+      let doorSource = 'none'
+      let windowSource = 'none'
+
+      // 1차: AI 분류 결과
+      if (classification.layer_decisions) {
+        doorLayers = Object.entries(classification.layer_decisions)
+          .filter(([, cls]) => cls === 'door')
+          .map(([layer]) => layer)
+        windowLayers = Object.entries(classification.layer_decisions)
+          .filter(([, cls]) => cls === 'window')
+          .map(([layer]) => layer)
+        if (doorLayers.length > 0) doorSource = 'ai'
+        if (windowLayers.length > 0) windowSource = 'ai'
+      }
+
+      // 2차: 하드코딩 폴백
+      if (doorLayers.length === 0 && fileName) {
+        doorLayers = getLayersByClass(fileName, 'door')
+        if (doorLayers.length > 0) doorSource = 'hardcoded'
+      }
+      if (windowLayers.length === 0 && fileName) {
+        windowLayers = getLayersByClass(fileName, 'window')
+        if (windowLayers.length > 0) windowSource = 'hardcoded'
+      }
+
+      // 3차: 키워드 휴리스틱 (AI가 other로 분류한 레이어 재검사)
+      if (doorLayers.length === 0 && classification.layers) {
+        doorLayers = classification.layers.filter((l) => classifyLayerByName(l) === 'door')
+        if (doorLayers.length > 0) doorSource = 'keyword'
+      }
+      if (windowLayers.length === 0 && classification.layers) {
+        windowLayers = classification.layers.filter((l) => classifyLayerByName(l) === 'window')
+        if (windowLayers.length > 0) windowSource = 'keyword'
+      }
+
+      console.log('[generateModel] LOD3 개구부 레이어:', {
+        doorLayers, doorSource,
+        windowLayers, windowSource,
+        allLayers: classification.layers,
+      })
+
+      if (doorLayers.length > 0) body.door_layers = doorLayers
+      if (windowLayers.length > 0) body.window_layers = windowLayers
+    }
   }
 
   const massUrl = projectId
     ? `${API_URL}/api/generate-mass?project_id=${projectId}`
     : `${API_URL}/api/generate-mass`
+
+  console.log('[generateModel] API request body:', body)
 
   const response = await fetch(massUrl, {
     method: 'POST',
@@ -373,6 +428,7 @@ export async function generateModelFromClassification(
     },
     bounding_box: data.bounding_box || undefined,
     build_steps: data.build_steps || undefined,
+    lod_actual: data.lod_actual || 1,
   }
 }
 
@@ -386,7 +442,8 @@ const HARDCODED_LAYER_MAP: Record<string, Record<string, string>> = {
   // 1.00.- ARQUITECTURA.dxf — 건축 도면 (스페인어 레이어)
   'arquitectura.dxf': {
     'MURO':       'wall',
-    'MURO BAJO':  'wall',
+    'MURO BAJO.': 'wall',  // 마침표 포함
+    'MuroBaj':    'wall',  // 추가 벽 레이어
     'VIGAS':      'wall',
     'CUADRO':     'wall',
     'PUERTAS':    'door',
@@ -506,13 +563,13 @@ export function generateHardcodedClassification(
  * AI 서버 응답에 layer_decisions가 없거나 일부 레이어만 매핑된 경우의 fallback.
  */
 const LAYER_KEYWORDS: Array<[string, string[]]> = [
-  ['wall', ['wall', '벽', '외벽', '내벽', 'wal', 'struct', 'structural', '조적']],
-  ['door', ['door', '문', 'dr', '출입']],
-  ['window', ['window', '창', 'win', 'wd', 'sash']],
-  ['stair', ['stair', '계단', 'step']],
-  ['furniture', ['furn', '가구', 'fixture', 'fix', 'equip']],
-  ['dimension', ['dim', '치수', 'anno']],
-  ['text', ['text', 'txt', '글자', 'label']],
+  ['wall', ['wall', '벽', '외벽', '내벽', 'wal', 'struct', 'structural', '조적', 'muro', 'muros', 'medianera', 'viga', 'cuadro']],
+  ['door', ['door', '문', 'dr', '출입', 'puerta', 'puertas']],
+  ['window', ['window', '창', 'win', 'wd', 'sash', 'ventana', 'ventanas']],
+  ['stair', ['stair', '계단', 'step', 'escalera']],
+  ['furniture', ['furn', '가구', 'fixture', 'fix', 'equip', 'mobiliario', 'sanitario']],
+  ['dimension', ['dim', '치수', 'anno', 'cota', 'nivel']],
+  ['text', ['text', 'txt', '글자', 'label', 'texto']],
 ]
 
 export function classifyLayerByName(layer: string): string {

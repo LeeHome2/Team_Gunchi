@@ -3,7 +3,7 @@ API Request/Response 모델 정의
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 
 # ─── 인증 (Auth) ───────────────────────────────────────────
@@ -82,6 +82,19 @@ class MassGenerateRequest(BaseModel):
         ge=0.05,
         le=1.0
     )
+    # LOD 레벨 (Phase 3 통합)
+    lod: Literal[1, 2, 3] = Field(
+        default=1,
+        description="LOD 레벨: 1=기본, 2=슬래브 포함, 3=개구부 포함"
+    )
+    door_layers: Optional[List[str]] = Field(
+        None,
+        description="문 레이어 이름 목록 (LOD3에서 사용)"
+    )
+    window_layers: Optional[List[str]] = Field(
+        None,
+        description="창문 레이어 이름 목록 (LOD3에서 사용)"
+    )
 
 
 class MeshStats(BaseModel):
@@ -114,6 +127,10 @@ class MassGenerateResponse(BaseModel):
     mesh_stats: Optional[MeshStats] = None
     bounding_box: Optional[BoundingBox] = None
     build_steps: Optional[List[BuildStep]] = None
+    lod_actual: int = Field(
+        default=1,
+        description="실제 적용된 LOD 레벨 (요청과 다를 수 있음, 폴백 시)"
+    )
 
 
 class ValidationRequest(BaseModel):

@@ -27,6 +27,8 @@ export interface AnalysisResult {
   glbUrl: string | null
   /** 백엔드에서 반환한 GLB 실제 바운딩 박스 (미터 단위) */
   boundingBox?: { width: number; depth: number; height: number }
+  /** 실제 적용된 LOD 레벨 (요청과 다를 수 있음) */
+  lod_actual?: number
 }
 
 interface AnalysisModalProps {
@@ -35,6 +37,7 @@ interface AnalysisModalProps {
   onComplete: (result: AnalysisResult) => void
   file: File | null
   anchorLonLat?: [number, number] // 모델 배치 기준 위경도
+  lod?: 1 | 2 | 3  // LOD 레벨 (기본 1)
 }
 
 // ============= Step Enums =============
@@ -77,6 +80,7 @@ export default function AnalysisModal({
   onComplete,
   file,
   anchorLonLat,
+  lod = 1,
 }: AnalysisModalProps) {
   // ============= State Management =============
 
@@ -173,7 +177,8 @@ export default function AnalysisModal({
           parseData,
           anchorLonLat,
           file?.name,
-          projectId
+          projectId,
+          lod
         )
         setModelResult(modelData)
 
@@ -229,6 +234,7 @@ export default function AnalysisModal({
       },
       glbUrl: modelResult?.glb_url || null,
       boundingBox: modelResult?.bounding_box || undefined,
+      lod_actual: modelResult?.lod_actual || 1,
     }
 
     onComplete(result)

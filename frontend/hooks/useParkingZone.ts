@@ -117,7 +117,8 @@ export function useParkingZone() {
 
   // ── 클리어 ──
   const clearEntities = useCallback(() => {
-    if (!viewer?.entities) return
+    if (!viewer || (viewer as any).isDestroyed?.()) return
+    if (!viewer.entities) return
     for (const id of entityIdsRef.current) {
       const ent = viewer.entities.getById(id)
       if (ent) viewer.entities.remove(ent)
@@ -133,7 +134,8 @@ export function useParkingZone() {
   // ── 주차영역 렌더링 ──
   const renderZone = useCallback(
     (zone: ParkingZoneData, ids: string[]) => {
-      if (!viewer?.entities) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -259,7 +261,8 @@ export function useParkingZone() {
   // ── 입구 오브젝트 렌더링 ──
   const renderEntrance = useCallback(
     (entrance: ParkingEntranceData, ids: string[]) => {
-      if (!viewer?.entities) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -332,7 +335,8 @@ export function useParkingZone() {
   // ── 그리드 시각화 렌더링 (폴리라인 방식 - 선택 영역 내부만) ──
   const renderGrid = useCallback(
     (path: ParkingPathData, ids: string[]) => {
-      if (!viewer?.entities || !path.grid) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities || !path.grid) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -549,13 +553,13 @@ export function useParkingZone() {
       // 수직선 (회전된 좌표계 기준)
       for (let x = rotMinX; x <= rotMaxX; x += gridSize) {
         // 페이지 전환 시 viewer가 destroy될 수 있으므로 체크
-        if (!viewer?.entities) return
+        if (!viewer || (viewer as any).isDestroyed?.() || !viewer.entities) return
 
         // 회전된 좌표계에서 수직선
         const segments = clipLineToRotatedPolygons(x, rotMinY, x, rotMaxY)
 
         for (const [[sx1, sy1], [sx2, sy2]] of segments) {
-          if (!viewer?.entities) return
+          if (!viewer || (viewer as any).isDestroyed?.() || !viewer.entities) return
           // 역회전하여 원래 좌표계로
           const [ox1, oy1] = unrotatePoint(sx1, sy1)
           const [ox2, oy2] = unrotatePoint(sx2, sy2)
@@ -578,13 +582,13 @@ export function useParkingZone() {
       // 수평선 (회전된 좌표계 기준)
       for (let y = rotMinY; y <= rotMaxY; y += gridSize) {
         // 페이지 전환 시 viewer가 destroy될 수 있으므로 체크
-        if (!viewer?.entities) return
+        if (!viewer || (viewer as any).isDestroyed?.() || !viewer.entities) return
 
         // 회전된 좌표계에서 수평선
         const segments = clipLineToRotatedPolygons(rotMinX, y, rotMaxX, y)
 
         for (const [[sx1, sy1], [sx2, sy2]] of segments) {
-          if (!viewer?.entities) return
+          if (!viewer || (viewer as any).isDestroyed?.() || !viewer.entities) return
           // 역회전하여 원래 좌표계로
           const [ox1, oy1] = unrotatePoint(sx1, sy1)
           const [ox2, oy2] = unrotatePoint(sx2, sy2)
@@ -610,7 +614,8 @@ export function useParkingZone() {
   // ── 경로 렌더링 ──
   const renderPath = useCallback(
     (path: ParkingPathData, ids: string[]) => {
-      if (!viewer?.entities || path.points.length < 2) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities || path.points.length < 2) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -677,7 +682,8 @@ export function useParkingZone() {
   // ── 전체 렌더 (외부 호출용 — 드래그 중 실시간) ──
   const render = useCallback(
     (zone: ParkingZoneData) => {
-      if (!viewer?.entities) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities) return
       clearEntities()
       const ids: string[] = []
 
@@ -700,7 +706,8 @@ export function useParkingZone() {
   // ── 회전/이동 중 기존 엔티티 위치만 인플레이스 업데이트 (삭제/재생성 없이 빠른 업데이트) ──
   const updatePositionsInPlace = useCallback(
     (zone: ParkingZoneData) => {
-      if (!viewer?.entities) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -805,7 +812,8 @@ export function useParkingZone() {
   // ── 입구만 인플레이스 업데이트 (회전/이동 중) ──
   const updateEntranceInPlace = useCallback(
     () => {
-      if (!viewer?.entities) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -849,7 +857,8 @@ export function useParkingZone() {
   // 입구만 리렌더 (드래그 중 — 경로 포함 전체 재생성)
   const renderEntranceOnly = useCallback(
     () => {
-      if (!viewer?.entities) return
+      if (!viewer || (viewer as any).isDestroyed?.()) return
+      if (!viewer.entities) return
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
@@ -882,7 +891,8 @@ export function useParkingZone() {
 
   // ── 상태 변화에 따른 렌더 / 클리어 ──
   useEffect(() => {
-    if (!viewer?.entities) return
+    if (!viewer || (viewer as any).isDestroyed?.()) return
+    if (!viewer.entities) return
     if (isParkingVisible && parkingZone) {
       clearEntities()
       const ids: string[] = []

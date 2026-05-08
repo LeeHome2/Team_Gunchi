@@ -1,0 +1,17 @@
+{
+  "dxf_file": "arquitectura.dxf",
+  "wall_layers": [
+    "MURO",
+    "MURO BAJO.",
+    "VIGAS",
+    "MuroBaj",
+    "CUADRO"
+  ],
+  "height": 4.0,
+  "wall_thickness": 0.15,
+  "vertex_count": 1556,
+  "face_count": 778,
+  "glb_md5": "a94d3025f968a67cbe373a00acd59c60",
+  "avg_time_ms": 477.15,
+  "runs": 5
+}

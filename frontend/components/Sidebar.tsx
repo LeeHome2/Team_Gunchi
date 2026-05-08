@@ -58,6 +58,7 @@ export default function Sidebar() {
   const projectId = useProjectStore((s) => s.projectId)
   const [dxfList, setDxfList] = useState<SidebarDxfFile[]>([])
   const [dxfListLoading, setDxfListLoading] = useState(false)
+  const [selectedLod, setSelectedLod] = useState<1 | 2 | 3>(1)  // LOD 선택
 
   const refreshDxfList = useCallback(async () => {
     if (!projectId) {
@@ -260,6 +261,15 @@ export default function Sidebar() {
 
   // Handle analysis modal completion — 생성된 매스를 목록에 추가 (즉시 배치 X)
   const handleAnalysisComplete = (result: AnalysisResult) => {
+    // LOD 폴백 알림
+    if (result.lod_actual && result.lod_actual < selectedLod) {
+      console.warn(`LOD${selectedLod} 요청 → LOD${result.lod_actual}로 폴백됨`)
+      // 간단한 토스트 대신 alert 사용 (실제로는 toast 라이브러리 권장)
+      setTimeout(() => {
+        alert(`LOD${selectedLod} 생성 실패로 LOD${result.lod_actual}로 폴백되었습니다.`)
+      }, 100)
+    }
+
     if (result.projectId) {
       useProjectStore.getState().setProjectId(result.projectId)
       // URL에 projectId 반영 (새로고침 시에도 프로젝트 유지)
@@ -411,6 +421,31 @@ export default function Sidebar() {
               CAD 도면(DXF)을 업로드하여 대지 경계를 추출합니다.
             </p>
 
+            {/* LOD 선택 - 업로드 전에 설정 */}
+            <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <h4 className="text-sm font-medium mb-2">매스 상세 레벨 (LOD)</h4>
+              <div className="flex gap-1">
+                {[1, 2, 3].map((lod) => (
+                  <button
+                    key={lod}
+                    onClick={() => setSelectedLod(lod as 1 | 2 | 3)}
+                    className={`flex-1 px-3 py-1.5 text-xs rounded transition-colors ${
+                      selectedLod === lod
+                        ? 'bg-blue-500 text-white shadow-sm'
+                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    LOD{lod}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1.5">
+                {selectedLod === 1 && 'LOD1: 기본 벽체만'}
+                {selectedLod === 2 && 'LOD2: 벽체 + 바닥/지붕 슬래브'}
+                {selectedLod === 3 && 'LOD3: 벽체 + 슬래브 + 문/창문 구멍'}
+              </p>
+            </div>
+
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
               <input
                 type="file"
@@ -530,6 +565,14 @@ export default function Sidebar() {
         {activeTab === 'mass' && (
           <div className="space-y-4">
             <h3 className="font-semibold text-lg">건물 매스 설정</h3>
+
+            {/* 현재 LOD 표시 */}
+            <div className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
+              현재 LOD: <span className="font-medium text-blue-600">LOD{selectedLod}</span>
+              <span className="ml-1">
+                ({selectedLod === 1 ? '기본 벽체' : selectedLod === 2 ? '벽체+슬래브' : '벽체+슬래브+개구부'})
+              </span>
+            </div>
 
             {/* 업로드된 DXF 파일 목록 (DB 기반) */}
             {projectId && (
@@ -1085,6 +1128,7 @@ export default function Sidebar() {
               ? [workArea.longitude, workArea.latitude]
               : undefined
         }
+        lod={selectedLod}
       />
     </div>
   )
