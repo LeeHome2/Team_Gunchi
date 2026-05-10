@@ -130,13 +130,13 @@ def build_multi_floor_mass(
             if isinstance(scene, trimesh.Scene):
                 for name, geom in scene.geometry.items():
                     if isinstance(geom, trimesh.Trimesh):
-                        # z 축 이동
+                        # Y 축 이동 (GLB 는 Y-up 좌표계)
                         translated = geom.copy()
-                        translated.apply_translation([0, 0, floor_idx * floor_height])
+                        translated.apply_translation([0, floor_idx * floor_height, 0])
                         combined_meshes.append(translated)
             elif isinstance(scene, trimesh.Trimesh):
                 translated = scene.copy()
-                translated.apply_translation([0, 0, floor_idx * floor_height])
+                translated.apply_translation([0, floor_idx * floor_height, 0])
                 combined_meshes.append(translated)
 
         if not combined_meshes:

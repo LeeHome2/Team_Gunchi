@@ -951,7 +951,8 @@ async def generate_multi_floor_mass(req: MultiFloorMassRequest):
         MultiFloorMassResponse (model_url, floors_count, main_entrance, primary_window_faces 등)
     """
     # 1. 매니페스트 로드
-    manifest = load_manifest(req.building_id)
+    manifest_path = _BACKEND_DIR / "data" / "processed" / req.building_id / "manifest.json"
+    manifest = load_manifest(manifest_path)
     if not manifest:
         raise HTTPException(status_code=404, detail=f"건물 매니페스트 없음: {req.building_id}")
 
