@@ -1214,3 +1214,125 @@ def database_switch(payload: DbSwitchRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB 전환 실패: {str(e)}")
+
+
+# ============================================================================
+# PREPROCESS (Phase D - 전처리 파이프라인)
+# ============================================================================
+
+
+class PreprocessRunRequest(BaseModel):
+    mock: bool = False  # vLLM mock 모드
+    limit: Optional[int] = None  # 처리 개수 제한
+
+
+@router.get("/preprocess/buildings")
+async def list_preprocess_buildings():
+    """전처리된 건물 목록 + 상태."""
+    from services.preprocess.scheduler import list_all_buildings
+    from pathlib import Path
+
+    buildings = list_all_buildings()
+    return {
+        "buildings": buildings,
+        "total": len(buildings),
+        "processed": sum(1 for b in buildings if b["processed"]),
+        "pending": sum(1 for b in buildings if not b["processed"]),
+    }
+
+
+@router.get("/preprocess/buildings/{building_id}")
+async def get_preprocess_building_detail(building_id: str):
+    """건물 상세: 매니페스트 + PNG URL 목록."""
+    from pathlib import Path
+    from services.preprocess.manifest import load_manifest, load_status
+
+    backend_dir = Path(__file__).parent.parent
+    processed_dir = backend_dir / "data" / "processed" / building_id
+
+    if not processed_dir.exists():
+        raise HTTPException(status_code=404, detail=f"건물 없음: {building_id}")
+
+    manifest = load_manifest(processed_dir / "manifest.json")
+    status = load_status(processed_dir / "status.json")
+
+    # PNG 파일 목록
+    png_files = list(processed_dir.glob("*.png"))
+    layers_dir = processed_dir / "layers"
+    if layers_dir.exists():
+        png_files.extend(layers_dir.glob("*.png"))
+
+    png_urls = [
+        f"/api/admin/preprocess/images/{building_id}/{f.name}"
+        for f in png_files
+    ]
+
+    return {
+        "building_id": building_id,
+        "manifest": manifest.model_dump() if manifest else None,
+        "status": status.model_dump() if status else None,
+        "png_urls": png_urls,
+    }
+
+
+@router.get("/preprocess/images/{building_id}/{filename}")
+async def serve_preprocess_image(building_id: str, filename: str):
+    """PNG 파일 서빙."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
+    backend_dir = Path(__file__).parent.parent
+    processed_dir = backend_dir / "data" / "processed" / building_id
+
+    # 직접 경로
+    file_path = processed_dir / filename
+    if not file_path.exists():
+        # layers 하위 확인
+        file_path = processed_dir / "layers" / filename
+
+    if not file_path.exists() or not file_path.suffix.lower() == ".png":
+        raise HTTPException(status_code=404, detail="이미지 없음")
+
+    return FileResponse(file_path, media_type="image/png")
+
+
+@router.post("/preprocess/run")
+async def trigger_preprocess(
+    payload: PreprocessRunRequest,
+    background_tasks=Depends(lambda: None),
+):
+    """전처리 트리거 (BackgroundTasks).
+
+    미처리 건물을 자동으로 처리 시작.
+    """
+    from fastapi import BackgroundTasks
+    from services.preprocess.scheduler import run_preprocess_sync
+
+    # 동기 실행 (실제로는 BackgroundTasks 사용 권장)
+    # 여기서는 간단히 바로 실행
+    try:
+        result = run_preprocess_sync(
+            mock=payload.mock,
+            limit=payload.limit,
+        )
+        return {
+            "success": True,
+            "message": "전처리 완료",
+            **result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"전처리 실패: {e}")
+
+
+@router.post("/preprocess/buildings/{building_id}/reprocess")
+async def reprocess_building(building_id: str):
+    """매니페스트 삭제 후 재처리."""
+    from pathlib import Path
+
+    backend_dir = Path(__file__).parent.parent
+    manifest_path = backend_dir / "data" / "processed" / building_id / "manifest.json"
+
+    if manifest_path.exists():
+        manifest_path.unlink()
+
+    return {"ok": True, "message": f"{building_id} 재처리 대기 상태로 변경됨"}
