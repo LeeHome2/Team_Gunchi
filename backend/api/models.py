@@ -133,6 +133,51 @@ class MassGenerateResponse(BaseModel):
     )
 
 
+class MultiFloorMassRequest(BaseModel):
+    """다층 매스 생성 요청 (매니페스트 기반)"""
+    building_id: str = Field(
+        ...,
+        description="건물 ID (매니페스트 lookup)"
+    )
+    floor_height: float = Field(
+        default=3.5,
+        description="층당 높이 (m)",
+        ge=2.5,
+        le=6.0
+    )
+
+
+class EntranceInfo(BaseModel):
+    """메인 출입구 정보"""
+    center: List[float] = Field(description="[x, y] DXF 좌표")
+    width: float = Field(description="출입구 폭 (m)")
+    confidence: float = Field(default=1.0, description="신뢰도")
+
+
+class WindowFaceInfo(BaseModel):
+    """주 창문면 정보"""
+    floor_index: int = Field(description="층 인덱스")
+    midpoint: List[float] = Field(description="[x, y] 중점 좌표")
+    direction: List[float] = Field(description="[dx, dy] 방향 벡터")
+    length: float = Field(description="길이 (m)")
+    window_count: int = Field(description="창문 개수")
+    confidence: float = Field(default=1.0, description="신뢰도")
+
+
+class MultiFloorMassResponse(BaseModel):
+    """다층 매스 생성 응답"""
+    success: bool
+    model_id: Optional[str] = None
+    model_url: Optional[str] = None
+    building_id: str
+    floors_count: int
+    total_height: float = 0.0
+    main_entrance: Optional[EntranceInfo] = None
+    primary_window_faces: List[WindowFaceInfo] = []
+    mesh_stats: Optional[MeshStats] = None
+    error: Optional[str] = None
+
+
 class ValidationRequest(BaseModel):
     """배치 검토 요청"""
     site_footprint: List[List[float]] = Field(

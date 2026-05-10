@@ -22,12 +22,18 @@ import logging
 from services.dxf_parser import parse_dxf_file
 from services.gltf_exporter import create_building_gltf, create_wall_building_gltf
 from services.lod import reconstruct_centerline, build_lod2, build_lod2_with_openings, build_lod3, build_lod3_simple
+from services.lod.multi_floor import build_multi_floor_mass
+from services.preprocess.manifest import load_manifest
 from services.coordinate_transform import transform_coordinates
 from api.models import (
     ProjectCreate,
     ProjectResponse,
     MassGenerateRequest,
     MassGenerateResponse,
+    MultiFloorMassRequest,
+    MultiFloorMassResponse,
+    EntranceInfo,
+    WindowFaceInfo,
     ValidationRequest,
     ValidationResponse,
     ParkingRequirementRequest,
@@ -927,6 +933,94 @@ async def generate_mass(
         )
     except Exception as e:
         logger.error(f"Error generating mass: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate-mass-multi", response_model=MultiFloorMassResponse)
+async def generate_multi_floor_mass(req: MultiFloorMassRequest):
+    """
+    매니페스트 기반 다층 매스 생성.
+
+    BuildingManifest 를 읽고 각 층별 LOD3 매스를 생성하여
+    z 축으로 스택. 출입구/창문 메타 포함 반환.
+
+    Args:
+        req: MultiFloorMassRequest (building_id, floor_height)
+
+    Returns:
+        MultiFloorMassResponse (model_url, floors_count, main_entrance, primary_window_faces 등)
+    """
+    # 1. 매니페스트 로드
+    manifest = load_manifest(req.building_id)
+    if not manifest:
+        raise HTTPException(status_code=404, detail=f"건물 매니페스트 없음: {req.building_id}")
+
+    # 2. 출력 경로 준비
+    model_id = str(uuid.uuid4())
+    output_path = MODELS_DIR / f"{model_id}.glb"
+
+    try:
+        # 3. 다층 매스 생성
+        result = build_multi_floor_mass(
+            manifest=manifest,
+            floor_height=req.floor_height,
+            output_path=str(output_path),
+        )
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "다층 매스 생성 실패")
+            )
+
+        # 4. 응답 구성
+        main_entrance = None
+        if result.get("main_entrance"):
+            me = result["main_entrance"]
+            main_entrance = EntranceInfo(
+                center=me["center"],
+                width=me["width"],
+                confidence=me.get("confidence", 1.0),
+            )
+
+        primary_window_faces = []
+        for wf in result.get("primary_window_faces", []):
+            primary_window_faces.append(WindowFaceInfo(
+                floor_index=wf["floor_index"],
+                midpoint=wf["midpoint"],
+                direction=wf["direction"],
+                length=wf["length"],
+                window_count=wf["window_count"],
+                confidence=wf.get("confidence", 1.0),
+            ))
+
+        mesh_stats = None
+        if result.get("mesh_stats"):
+            ms = result["mesh_stats"]
+            mesh_stats = {
+                "wall_meshes": ms.get("face_count", 0),
+                "vertices": ms.get("vertex_count", 0),
+                "faces": ms.get("face_count", 0),
+            }
+
+        logger.info(f"다층 매스 생성 완료: {req.building_id}, {result['floors_count']}층")
+
+        return MultiFloorMassResponse(
+            success=True,
+            model_id=model_id,
+            model_url=f"/models/{model_id}.glb",
+            building_id=req.building_id,
+            floors_count=result["floors_count"],
+            total_height=result.get("total_height", 0.0),
+            main_entrance=main_entrance,
+            primary_window_faces=primary_window_faces,
+            mesh_stats=mesh_stats,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"다층 매스 생성 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
