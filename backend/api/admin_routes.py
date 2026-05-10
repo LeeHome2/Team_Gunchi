@@ -1262,16 +1262,13 @@ async def get_preprocess_building_detail(building_id: str):
     if layers_dir.exists():
         png_files.extend(layers_dir.glob("*.png"))
 
-    png_urls = [
-        f"/api/admin/preprocess/images/{building_id}/{f.name}"
-        for f in png_files
-    ]
+    images = [f.name for f in png_files]
 
     return {
         "building_id": building_id,
         "manifest": manifest.model_dump() if manifest else None,
         "status": status.model_dump() if status else None,
-        "png_urls": png_urls,
+        "images": images,
     }
 
 
@@ -1336,3 +1333,26 @@ async def reprocess_building(building_id: str):
         manifest_path.unlink()
 
     return {"ok": True, "message": f"{building_id} 재처리 대기 상태로 변경됨"}
+
+
+@router.get("/preprocess/buildings/{building_id}/status")
+async def get_preprocess_status(building_id: str):
+    """건물 처리 상태 조회 (폴링용)."""
+    from pathlib import Path
+    from services.preprocess.manifest import load_status
+
+    backend_dir = Path(__file__).parent.parent
+    status_path = backend_dir / "data" / "processed" / building_id / "status.json"
+
+    status = load_status(status_path)
+    if not status:
+        return {
+            "building_id": building_id,
+            "status": "pending",
+            "step": "waiting",
+            "progress": 0,
+            "error": None,
+            "updated_at": None,
+        }
+
+    return status.model_dump()

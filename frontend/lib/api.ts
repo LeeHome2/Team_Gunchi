@@ -820,4 +820,89 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ target }),
     }),
+
+  // Preprocess (DXF 전처리 갤러리)
+  listPreprocessBuildings: () =>
+    adminFetch<{ buildings: PreprocessBuilding[] }>('/preprocess/buildings'),
+  getPreprocessBuilding: (buildingId: string) =>
+    adminFetch<PreprocessBuildingDetail>(`/preprocess/buildings/${buildingId}`),
+  getPreprocessImageUrl: (buildingId: string, filename: string) =>
+    `${API_URL}/api/admin/preprocess/images/${buildingId}/${filename}`,
+  runPreprocess: (params?: { mock?: boolean; limit?: number }) =>
+    adminFetch<PreprocessRunResult>('/preprocess/run', {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }),
+  reprocessBuilding: (buildingId: string) =>
+    adminFetch<{ building_id: string; status: string }>(`/preprocess/buildings/${buildingId}/reprocess`, {
+      method: 'POST',
+    }),
+  getPreprocessStatus: (buildingId: string) =>
+    adminFetch<PreprocessStatus>(`/preprocess/buildings/${buildingId}/status`),
+}
+
+/* ============================================================================
+ * Preprocess Types (Phase E)
+ * ==========================================================================*/
+
+export interface PreprocessBuilding {
+  building_id: string
+  file_count: number
+  files: string[]
+  processed: boolean
+  floor_count: number
+}
+
+export interface PreprocessBuildingDetail {
+  building_id: string
+  manifest: {
+    building_id: string
+    files: string[]
+    floors: Array<{
+      floor_index: number
+      floor_label: string
+      file_id: string
+      wall_layers: string[]
+      door_layers: string[]
+      window_layers: string[]
+      main_entrance: {
+        center: [number, number]
+        width: number
+        confidence: number
+      } | null
+      primary_window_face: {
+        midpoint: [number, number]
+        direction: [number, number]
+        length: number
+        window_count: number
+        confidence: number
+      } | null
+    }>
+    coordinate_alignment: string
+    created_at: string
+    updated_at: string
+  } | null
+  images: string[]
+  status: PreprocessStatus | null
+}
+
+export interface PreprocessStatus {
+  building_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  step: string
+  progress: number
+  error: string | null
+  updated_at: string
+}
+
+export interface PreprocessRunResult {
+  total: number
+  processed: number
+  skipped: number
+  failed: number
+  results: Array<{
+    building_id: string
+    status: string
+    error: string | null
+  }>
 }

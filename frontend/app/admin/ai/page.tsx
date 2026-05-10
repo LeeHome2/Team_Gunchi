@@ -14,6 +14,7 @@ import ExperimentDetailModal from '@/components/admin/ExperimentDetailModal'
 import AIJobModal from '@/components/admin/AIJobModal'
 import DatasetUploadModal from '@/components/admin/DatasetUploadModal'
 import DatasetsPanel from '@/components/admin/DatasetsPanel'
+import PreprocessGallery from '@/components/admin/PreprocessGallery'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -284,6 +285,12 @@ export default function AdminAiPage() {
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
           highlightDatasetId={highlightDatasetId}
+        />
+
+        {/* DXF 전처리 갤러리 (Phase E) */}
+        <PreprocessGallery
+          aiUrl={aiUrl}
+          refreshKey={datasetsRefreshKey}
         />
 
         {/* 관리 작업 */}
