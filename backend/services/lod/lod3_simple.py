@@ -63,16 +63,63 @@ def _extract_lines_from_layer(msp, layers: List[str], dxf_scale: float = 1.0) ->
     return segments
 
 
-def _extract_inserts_from_layer(msp, layers: List[str], dxf_scale: float = 1.0) -> List[Tuple[float, float]]:
-    """레이어에서 INSERT(블록 참조) 위치 추출."""
+def _extract_inserts_from_layer(msp, layers: List[str], dxf_scale: float = 1.0) -> List[Tuple[float, float, float]]:
+    """레이어에서 INSERT(블록 참조) 위치 + 회전 각도 추출.
+
+    Returns:
+        [(x, y, rotation_deg), ...]
+    """
     positions = []
     for entity in msp:
         if entity.dxf.layer not in layers:
             continue
         if entity.dxftype() == 'INSERT':
             pos = entity.dxf.insert
-            positions.append((pos[0] * dxf_scale, pos[1] * dxf_scale))
+            rotation = getattr(entity.dxf, 'rotation', 0.0)  # 회전 각도 (도)
+            positions.append((pos[0] * dxf_scale, pos[1] * dxf_scale, rotation))
     return positions
+
+
+def _find_nearest_wall_direction(
+    x: float, y: float,
+    wall_segments: List[Tuple[Tuple[float, float], Tuple[float, float]]],
+    max_distance: float = 5.0
+) -> float:
+    """주어진 위치에서 가장 가까운 벽 선분의 방향(각도)을 찾음.
+
+    Args:
+        x, y: 개구부 위치
+        wall_segments: 벽 선분 리스트 [((x1, y1), (x2, y2)), ...]
+        max_distance: 최대 탐색 거리 (m)
+
+    Returns:
+        벽 선분 방향 각도 (도), 찾지 못하면 0
+    """
+    import math
+
+    best_dist = float('inf')
+    best_angle = 0.0
+
+    for (x1, y1), (x2, y2) in wall_segments:
+        # 선분과 점 사이의 최단 거리 계산
+        dx = x2 - x1
+        dy = y2 - y1
+        seg_len_sq = dx * dx + dy * dy
+
+        if seg_len_sq < 0.0001:  # 점에 가까운 선분
+            dist = math.sqrt((x - x1)**2 + (y - y1)**2)
+        else:
+            # 선분 위 투영점 계산
+            t = max(0, min(1, ((x - x1) * dx + (y - y1) * dy) / seg_len_sq))
+            proj_x = x1 + t * dx
+            proj_y = y1 + t * dy
+            dist = math.sqrt((x - proj_x)**2 + (y - proj_y)**2)
+
+        if dist < best_dist and dist < max_distance:
+            best_dist = dist
+            best_angle = math.degrees(math.atan2(dy, dx))
+
+    return best_angle
 
 
 def _extract_door_rectangles(msp, layers: List[str], dxf_scale: float = 1.0) -> List[Tuple[float, float, float, float, float]]:
@@ -121,11 +168,43 @@ def _extract_door_rectangles(msp, layers: List[str], dxf_scale: float = 1.0) -> 
     return doors
 
 
-def _detect_dxf_scale(msp) -> float:
-    """DXF 좌표 범위로 스케일 자동 감지.
+def _detect_dxf_scale(doc) -> float:
+    """DXF 단위 자동 감지.
 
-    LOD1 (gltf_exporter.py)와 동일한 로직 사용.
+    1차: DXF 헤더의 $INSUNITS 메타데이터 사용 (가장 신뢰도 높음)
+    2차: 좌표 범위(extent) 기반 휴리스틱 추정
+
+    $INSUNITS 코드:
+    0=Unspecified, 1=Inches, 2=Feet, 4=mm, 5=cm, 6=m
     """
+    msp = doc.modelspace()
+
+    # === 1차: DXF 헤더 메타데이터 확인 ===
+    UNIT_SCALES = {
+        1: (0.0254, "inches"),    # 1 inch = 0.0254 m
+        2: (0.3048, "feet"),      # 1 foot = 0.3048 m
+        4: (0.001, "mm"),         # 1 mm = 0.001 m
+        5: (0.01, "cm"),          # 1 cm = 0.01 m
+        6: (1.0, "m"),            # 1 m = 1 m
+        7: (1000.0, "km"),        # 1 km = 1000 m
+        8: (0.0000254, "microinches"),
+        9: (0.0000254, "mils"),   # 1 mil = 0.001 inch
+        10: (0.9144, "yards"),    # 1 yard = 0.9144 m
+        14: (0.1, "dm"),          # 1 dm = 0.1 m
+    }
+
+    try:
+        insunits = doc.header.get('$INSUNITS', 0)
+        if insunits in UNIT_SCALES:
+            scale, unit_name = UNIT_SCALES[insunits]
+            logger.info(f"DXF header $INSUNITS={insunits} ({unit_name}) -> scale={scale}")
+            return scale
+        elif insunits != 0:
+            logger.warning(f"Unknown $INSUNITS value: {insunits}, falling back to extent detection")
+    except Exception as e:
+        logger.warning(f"Failed to read $INSUNITS: {e}")
+
+    # === 2차: Extent 기반 휴리스틱 ===
     xs, ys = [], []
     for ent in msp:
         et = ent.dxftype()
@@ -142,33 +221,110 @@ def _detect_dxf_scale(msp) -> float:
                 ys.append(v.dxf.location[1])
 
     if not xs or not ys:
+        logger.warning("No geometry found for extent detection")
         return 1.0
 
     extent = max(max(xs) - min(xs), max(ys) - min(ys))
-    logger.info(f"DXF extent: {extent:.2f}")
+    logger.info(f"DXF extent: {extent:.2f} (no valid $INSUNITS, using heuristics)")
 
-    # 500 이상: 확실히 mm 단위 (일반 건물 <200m)
-    if extent > 500:
-        logger.info(f"Auto-detected mm units: extent={extent:.0f}")
+    # 단위별 변환값 계산
+    as_mm = extent / 1000      # mm -> m
+    as_cm = extent / 100       # cm -> m
+    as_inch = extent * 0.0254  # inch -> m
+    as_feet = extent * 0.3048  # feet -> m
+
+    # 합리적인 건물 크기 범위 (3m ~ 300m)
+    MIN_BUILDING = 3
+    MAX_BUILDING = 300
+
+    def is_valid_building(size_m):
+        return MIN_BUILDING <= size_m <= MAX_BUILDING
+
+    # 10000 이상: 확실히 mm 단위 (10m+ 건물)
+    if extent > 10000:
+        logger.info(f"Heuristic: mm units (extent={extent:.0f}mm -> {as_mm:.1f}m)")
         return 0.001
 
-    # 200~500: 애매한 구간, m 또는 mm 가능
-    # 200m 건물은 드물지만 mm로 200~500이면 20~50cm로 너무 작음
-    # → m로 가정
+    # 500~10000: cm, inch, mm 중 선택
+    if extent > 500:
+        candidates = []
+        if is_valid_building(as_cm):
+            candidates.append(('cm', 0.01, as_cm))
+        if is_valid_building(as_inch):
+            candidates.append(('inch', 0.0254, as_inch))
+        if is_valid_building(as_mm):
+            candidates.append(('mm', 0.001, as_mm))
+
+        if candidates:
+            # 10m~50m 범위 선호
+            def score(c):
+                size = c[2]
+                if 10 <= size <= 50:
+                    return 0
+                elif 5 <= size <= 100:
+                    return 1
+                return 2
+            candidates.sort(key=score)
+            unit, scale, size = candidates[0]
+            logger.info(f"Heuristic: {unit} units (extent={extent:.0f} -> {size:.1f}m)")
+            return scale
+        logger.info(f"Heuristic: fallback cm (extent={extent:.0f}cm -> {as_cm:.1f}m)")
+        return 0.01
+
+    # 200~500: inch, feet, m 중 선택
     if extent > 200:
-        logger.info(f"Assuming meters: extent={extent:.1f}m (200-500 range)")
+        candidates = []
+        if is_valid_building(as_inch):
+            candidates.append(('inch', 0.0254, as_inch))
+        if is_valid_building(as_feet):
+            candidates.append(('feet', 0.3048, as_feet))
+        if is_valid_building(extent):
+            candidates.append(('m', 1.0, extent))
+
+        if candidates:
+            def score(c):
+                size = c[2]
+                if 10 <= size <= 50:
+                    return 0
+                elif 5 <= size <= 100:
+                    return 1
+                return 2
+            candidates.sort(key=score)
+            unit, scale, size = candidates[0]
+            logger.info(f"Heuristic: {unit} units (extent={extent:.1f} -> {size:.1f}m)")
+            return scale
+        logger.info(f"Heuristic: meters (extent={extent:.1f}m, large building)")
         return 1.0
 
-    # 5~200: 합리적인 건물 크기 범위 (5m~200m)
+    # 5~200: m, feet, inch 중 선택
     if extent >= 5:
-        logger.info(f"Assuming meters: extent={extent:.1f}m")
+        candidates = []
+        if is_valid_building(extent):
+            candidates.append(('m', 1.0, extent))
+        if is_valid_building(as_feet):
+            candidates.append(('feet', 0.3048, as_feet))
+        if is_valid_building(as_inch):
+            candidates.append(('inch', 0.0254, as_inch))
+
+        if candidates:
+            def score(c):
+                size = c[2]
+                if 10 <= size <= 50:
+                    return 0
+                elif 5 <= size <= 100:
+                    return 1
+                return 2
+            candidates.sort(key=score)
+            unit, scale, size = candidates[0]
+            logger.info(f"Heuristic: {unit} units (extent={extent:.1f} -> {size:.1f}m)")
+            return scale
+        logger.info(f"Heuristic: meters (extent={extent:.1f}m)")
         return 1.0
 
-    # 1~5: feet 단위 가능성 (1ft=0.3m, 5ft=1.5m)
+    # 1~5: feet 또는 m
     if extent >= 1:
-        converted = extent * 0.3048
-        if 0.3 < converted < 100:
-            logger.info(f"Auto-detected feet: extent={extent:.2f}ft → {converted:.2f}m")
+        if is_valid_building(as_feet):
+            logger.info(f"Heuristic: feet (extent={extent:.2f}ft -> {as_feet:.2f}m)")
             return 0.3048
         return 1.0
 
@@ -176,17 +332,17 @@ def _detect_dxf_scale(msp) -> float:
     if extent >= 0.1:
         scaled = extent * 100
         if 5 < scaled < 200:
-            logger.info(f"Auto-detected 1:100 scale: extent={extent:.3f} → {scaled:.1f}m")
+            logger.info(f"Heuristic: 1:100 scale (extent={extent:.3f} -> {scaled:.1f}m)")
             return 100.0
         return 1.0
 
-    # 0.1 미만: 1:1000 축척 또는 매우 작은 도면
+    # 0.1 미만: 1:1000 축척
     scaled = extent * 1000
     if 5 < scaled < 500:
-        logger.info(f"Auto-detected 1:1000 scale: extent={extent:.4f} → {scaled:.1f}m")
+        logger.info(f"Heuristic: 1:1000 scale (extent={extent:.4f} -> {scaled:.1f}m)")
         return 1000.0
 
-    logger.info(f"Using default scale 1.0: extent={extent}")
+    logger.info(f"Heuristic: default scale 1.0 (extent={extent})")
     return 1.0
 
 
@@ -387,28 +543,75 @@ def _segments_to_quads(
 
 
 def _inserts_to_quads(
-    positions: List[Tuple[float, float]],
+    positions: List[Tuple[float, float, float]],
     cx: float, cy: float,
     width: float,
     height: float,
-    base_z: float = 0.0
+    base_z: float = 0.0,
+    wall_segments: Optional[List[Tuple[Tuple[float, float], Tuple[float, float]]]] = None,
+    is_door: bool = False
 ) -> Tuple[List[List[float]], List[List[int]]]:
-    """INSERT 위치를 정사각형 quad로 변환."""
+    """INSERT 위치를 벽 방향에 맞춘 quad로 변환.
+
+    Args:
+        positions: [(x, y, rotation_deg), ...] — INSERT 위치 + 원래 회전 각도
+        cx, cy: 모델 중심점
+        width: 개구부 폭
+        height: 개구부 높이
+        base_z: 바닥 높이
+        wall_segments: 벽 선분 리스트 (방향 결정용, 스케일 적용 전 원본)
+        is_door: True이면 닫힌 문 형태 (INSERT에서 벽 방향으로 확장)
+
+    Returns:
+        (vertices, faces)
+    """
+    import math
+
     vertices = []
     faces = []
-    half_w = width / 2
 
-    for (x, y) in positions:
+    for item in positions:
+        x, y = item[0], item[1]
+        # 원래 회전 각도 (있으면)
+        orig_rotation = item[2] if len(item) > 2 else 0.0
+
+        # 가장 가까운 벽 선분 방향 찾기 (wall_segments는 스케일 적용된 좌표)
+        if wall_segments:
+            wall_angle = _find_nearest_wall_direction(x, y, wall_segments, max_distance=10.0)
+        else:
+            wall_angle = orig_rotation  # 폴백: INSERT 원래 회전 사용
+
         # 중심점 기준 정규화
         x, y = x - cx, y - cy
 
+        # 벽 방향 각도 (라디안)
+        angle_rad = math.radians(wall_angle)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+
+        if is_door:
+            # 닫힌 문: INSERT(경첩 위치)에서 벽 방향으로 문 폭만큼 확장
+            # INSERT 위치 = 경첩 위치 (한쪽 끝)
+            x1 = x
+            y1 = y
+            # 벽 방향으로 문 폭만큼 확장
+            x2 = x + width * cos_a
+            y2 = y + width * sin_a
+            logger.debug(f"[Door] hinge=({x:.2f},{y:.2f}), wall_angle={wall_angle:.1f}, end=({x2:.2f},{y2:.2f})")
+        else:
+            # 창문: INSERT 위치를 중심으로 양쪽 확장
+            half_w = width / 2
+            x1 = x - half_w * cos_a
+            y1 = y - half_w * sin_a
+            x2 = x + half_w * cos_a
+            y2 = y + half_w * sin_a
+
         idx = len(vertices)
-        # 정사각형 quad (문/창문 표시용)
         vertices.extend([
-            [x - half_w, y, base_z],
-            [x + half_w, y, base_z],
-            [x + half_w, y, base_z + height],
-            [x - half_w, y, base_z + height],
+            [x1, y1, base_z],
+            [x2, y2, base_z],
+            [x2, y2, base_z + height],
+            [x1, y1, base_z + height],
         ])
         faces.append([idx, idx + 1, idx + 2])
         faces.append([idx, idx + 2, idx + 3])
@@ -416,36 +619,35 @@ def _inserts_to_quads(
     return vertices, faces
 
 
-def _create_roof_from_segments(
+def _create_wall_cap(
     segments: List[Tuple[Tuple[float, float], Tuple[float, float]]],
     cx: float, cy: float,
     z: float,
-    thickness: float = 0.02  # 최소 두께 (벽 밖으로 튀어나오지 않게)
+    thickness: float = 0.1  # 벽 두께 (10cm)
 ) -> Tuple[List[List[float]], List[List[int]]]:
-    """벽 선분에서 지붕(상단 면) 생성.
+    """벽 선분을 따라가는 얇은 상단 캡 생성.
 
-    벽 선분들을 아주 작은 buffer로 확장하여 폴리곤을 만들고,
-    trimesh를 사용하여 삼각화.
+    벽 선분들을 buffer로 확장 후 병합하여 자연스러운 벽 상단 표현.
     """
     from shapely.geometry import LineString
     from shapely.ops import unary_union
-    import trimesh
 
-    # 선분들을 최소 buffer로 확장하여 폴리곤 생성 (벽 밖으로 거의 튀어나오지 않음)
+    if not segments:
+        return [], []
+
+    # 선분들을 buffer로 확장
     buffered = []
     for (x1, y1), (x2, y2) in segments:
         line = LineString([(x1 - cx, y1 - cy), (x2 - cx, y2 - cy)])
-        buf = line.buffer(thickness / 2, cap_style=2)  # flat ends, 최소 버퍼
+        buf = line.buffer(thickness / 2, cap_style=2)  # flat ends
         if not buf.is_empty:
             buffered.append(buf)
 
     if not buffered:
         return [], []
 
-    # 모든 버퍼 합치기
     merged = unary_union(buffered)
 
-    # 폴리곤 또는 멀티폴리곤에서 외곽 좌표 추출
     polygons = []
     if merged.geom_type == 'Polygon':
         polygons = [merged]
@@ -462,23 +664,14 @@ def _create_roof_from_segments(
             continue
 
         try:
-            # trimesh의 extrude_polygon으로 얇은 슬래브 생성 후 상단 면만 추출
-            # 또는 직접 삼각화
             from trimesh.creation import extrude_polygon
-
-            # 아주 얇은 높이로 압출 (0.01m)
             mesh = extrude_polygon(poly, height=0.01)
-
-            # 상단 면의 정점만 추출 (z가 최대인 정점들)
-            max_z = mesh.vertices[:, 2].max()
-            top_mask = mesh.vertices[:, 2] >= max_z - 0.001
-
-            # 상단 면 인덱스
+            max_z_val = mesh.vertices[:, 2].max()
+            top_mask = mesh.vertices[:, 2] >= max_z_val - 0.001
             top_indices = np.where(top_mask)[0]
             if len(top_indices) < 3:
                 continue
 
-            # 상단 면에 해당하는 face 찾기
             top_faces = []
             for face in mesh.faces:
                 if all(top_mask[v] for v in face):
@@ -487,23 +680,111 @@ def _create_roof_from_segments(
             if not top_faces:
                 continue
 
-            # 정점을 새 리스트에 추가 (z를 원하는 높이로 조정)
             base_idx = len(vertices)
             idx_map = {}
             for i, old_idx in enumerate(top_indices):
                 v = mesh.vertices[old_idx]
-                vertices.append([v[0], v[1], z])
+                vertices.append([float(v[0]), float(v[1]), z])
                 idx_map[old_idx] = base_idx + i
 
-            # 면 인덱스 재매핑
             for face in top_faces:
                 new_face = [idx_map[v] for v in face if v in idx_map]
                 if len(new_face) == 3:
                     faces.append(new_face)
 
         except Exception as e:
-            logger.debug(f"지붕 삼각화 실패: {e}")
+            logger.debug(f"벽 캡 삼각화 실패: {e}")
             continue
+
+    logger.info(f"벽 캡 생성: {len(vertices)}개 정점, {len(faces)}개 면")
+    return vertices, faces
+
+
+def _create_roof_slab(
+    segments: List[Tuple[Tuple[float, float], Tuple[float, float]]],
+    cx: float, cy: float,
+    z: float,
+    thickness: float = 0.15  # 슬래브 두께 (15cm)
+) -> Tuple[List[List[float]], List[List[int]]]:
+    """건물 전체를 덮는 하나의 천장 슬래브 생성.
+
+    모든 벽 선분의 끝점들을 모아 Convex Hull로 건물 전체 외곽을 찾고,
+    상단 면만 생성 (매끈한 단일 면).
+    """
+    from shapely.geometry import MultiPoint
+    import math
+
+    if not segments:
+        return [], []
+
+    # 모든 벽 끝점 수집 (중심 기준 좌표)
+    all_points = []
+    for (x1, y1), (x2, y2) in segments:
+        all_points.append((x1 - cx, y1 - cy))
+        all_points.append((x2 - cx, y2 - cy))
+
+    if len(all_points) < 3:
+        return [], []
+
+    # 중복 제거
+    unique_points = list(set(all_points))
+    if len(unique_points) < 3:
+        return [], []
+
+    # Convex Hull로 건물 전체 외곽 찾기
+    try:
+        outline = MultiPoint(unique_points).convex_hull
+        if outline.geom_type != 'Polygon' or outline.is_empty:
+            logger.error("Convex hull 생성 실패")
+            return [], []
+        logger.info(f"슬래브 외곽선 (Convex Hull): area={outline.area:.1f}m2")
+    except Exception as e:
+        logger.error(f"Convex hull 실패: {e}")
+        return [], []
+
+    # 외곽선 좌표 추출 (반시계 방향)
+    coords = list(outline.exterior.coords)[:-1]  # 마지막 중복 점 제거
+    if len(coords) < 3:
+        return [], []
+
+    vertices = []
+    faces = []
+
+    # 상단 면 (z + thickness) - Fan triangulation
+    top_z = z + thickness
+    n = len(coords)
+
+    # 정점 추가 (상단 면)
+    for x, y in coords:
+        vertices.append([float(x), float(y), float(top_z)])
+
+    # 삼각형 면 생성 (fan triangulation - 중심에서 방사형)
+    # 반시계 방향으로 면 생성 (법선이 위를 향하도록)
+    for i in range(1, n - 1):
+        faces.append([0, i, i + 1])
+
+    # 하단 면 (z) - 옵션: 두께가 필요하면 추가
+    if thickness > 0.01:
+        base_idx = len(vertices)
+        for x, y in coords:
+            vertices.append([float(x), float(y), float(z)])
+
+        # 하단 면 (시계 방향 - 법선이 아래를 향하도록)
+        for i in range(1, n - 1):
+            faces.append([base_idx, base_idx + i + 1, base_idx + i])
+
+        # 측면 (상단과 하단 연결)
+        for i in range(n):
+            next_i = (i + 1) % n
+            # 상단 정점: i, next_i
+            # 하단 정점: base_idx + i, base_idx + next_i
+            top1, top2 = i, next_i
+            bot1, bot2 = base_idx + i, base_idx + next_i
+            # 두 개의 삼각형으로 사각형 면 생성
+            faces.append([top1, bot1, bot2])
+            faces.append([top1, bot2, top2])
+
+    logger.info(f"천장 슬래브 생성: {len(vertices)}개 정점, {len(faces)}개 면, 면적={outline.area:.1f}m2")
 
     return vertices, faces
 
@@ -757,7 +1038,8 @@ def build_lod3_simple(
     window_layers: List[str],
     height: float = 4.0,
     output_path: str = "building_lod3.glb",
-    bounds: Optional[Dict[str, float]] = None  # {"min_x", "max_x", "min_y", "max_y"}
+    bounds: Optional[Dict[str, float]] = None,  # {"min_x", "max_x", "min_y", "max_y"}
+    include_roof: bool = True  # ★ 천장 슬래브 포함 여부
 ) -> Optional[Dict[str, Any]]:
     """LOD3 Simple 빌드 — LOD1 방식 + 문/창문 색상.
 
@@ -769,6 +1051,7 @@ def build_lod3_simple(
         height: 건물 높이 (m)
         output_path: 출력 GLB 경로
         bounds: 범위 필터 (선택) - min_x, max_x, min_y, max_y
+        include_roof: 천장 슬래브 포함 여부 (기본: True)
 
     Returns:
         성공 시 {"success": True, "mesh_stats": {...}, "steps": [...]}
@@ -786,27 +1069,43 @@ def build_lod3_simple(
     steps = []
     steps.append({"label": "DXF 파일 읽기", "detail": os.path.basename(dxf_path)})
 
-    # 스케일 감지
-    dxf_scale = _detect_dxf_scale(msp)
+    # 스케일 감지 (헤더 $INSUNITS 우선, 없으면 extent 휴리스틱)
+    dxf_scale = _detect_dxf_scale(doc)
     logger.info(f"DXF scale: {dxf_scale}")
+
+    # bounds에도 스케일 적용 (벽 선분과 동일한 좌표계로 변환)
+    scaled_bounds = None
+    if bounds and dxf_scale != 1.0:
+        scaled_bounds = {
+            "min_x": bounds["min_x"] * dxf_scale,
+            "max_x": bounds["max_x"] * dxf_scale,
+            "min_y": bounds["min_y"] * dxf_scale,
+            "max_y": bounds["max_y"] * dxf_scale,
+        }
+        logger.info(f"Bounds 스케일 적용: {dxf_scale} → {scaled_bounds}")
+    elif bounds:
+        scaled_bounds = bounds
 
     # 범위 필터링 함수
     def in_bounds(x: float, y: float) -> bool:
-        if not bounds:
+        if not scaled_bounds:
             return True
-        return (bounds.get("min_x", float("-inf")) <= x <= bounds.get("max_x", float("inf")) and
-                bounds.get("min_y", float("-inf")) <= y <= bounds.get("max_y", float("inf")))
+        return (scaled_bounds.get("min_x", float("-inf")) <= x <= scaled_bounds.get("max_x", float("inf")) and
+                scaled_bounds.get("min_y", float("-inf")) <= y <= scaled_bounds.get("max_y", float("inf")))
 
     def filter_segments(segments):
         if not bounds:
             return segments
+        # 엄격한 필터: 양 끝점 모두 bbox 내에 있어야 포함 (인접 평면도 제외)
         return [((x1, y1), (x2, y2)) for (x1, y1), (x2, y2) in segments
-                if in_bounds((x1 + x2) / 2, (y1 + y2) / 2)]
+                if in_bounds(x1, y1) and in_bounds(x2, y2)]
 
     def filter_positions(positions):
+        """INSERT 위치 필터링 (회전 각도 유지)."""
         if not bounds:
             return positions
-        return [(x, y) for x, y in positions if in_bounds(x, y)]
+        # (x, y, rotation) 형식 유지
+        return [p for p in positions if in_bounds(p[0], p[1])]
 
     def filter_rectangles(rects):
         if not bounds:
@@ -814,12 +1113,27 @@ def build_lod3_simple(
         return [(cx, cy, w, h, a) for cx, cy, w, h, a in rects if in_bounds(cx, cy)]
 
     # 1. 벽 선분 추출
-    wall_segments = _extract_lines_from_layer(msp, wall_layers, dxf_scale)
-    wall_segments = filter_segments(wall_segments)
+    wall_segments_raw = _extract_lines_from_layer(msp, wall_layers, dxf_scale)
+    logger.info(f"벽 선분 추출 (필터 전): {len(wall_segments_raw)}개")
+
+    # 필터 전 범위 계산
+    if wall_segments_raw:
+        raw_xs = [x for seg in wall_segments_raw for x in [seg[0][0], seg[1][0]]]
+        raw_ys = [y for seg in wall_segments_raw for y in [seg[0][1], seg[1][1]]]
+        logger.info(f"필터 전 범위: X=[{min(raw_xs):.1f}, {max(raw_xs):.1f}], Y=[{min(raw_ys):.1f}, {max(raw_ys):.1f}]")
+
+    wall_segments = filter_segments(wall_segments_raw)
+    logger.info(f"벽 선분 추출 (필터 후): {len(wall_segments)}개, scaled_bounds={scaled_bounds}")
+
+    # 필터 후 범위 계산
+    if wall_segments:
+        filt_xs = [x for seg in wall_segments for x in [seg[0][0], seg[1][0]]]
+        filt_ys = [y for seg in wall_segments for y in [seg[0][1], seg[1][1]]]
+        logger.info(f"필터 후 범위: X=[{min(filt_xs):.1f}, {max(filt_xs):.1f}], Y=[{min(filt_ys):.1f}, {max(filt_ys):.1f}]")
     if not wall_segments:
         logger.error(f"벽 레이어에서 선분을 찾을 수 없음: {wall_layers}")
         return None
-    steps.append({"label": "벽 선분 추출", "detail": f"{len(wall_segments)}개"})
+    steps.append({"label": "벽 선분 추출", "detail": f"{len(wall_segments)}개 (필터 전: {len(wall_segments_raw)}개)"})
 
     # 2. 문 추출 (닫힌 문 사각형으로 변환, ARC 제외)
     door_rectangles = _extract_door_rectangles(msp, door_layers, dxf_scale)
@@ -857,7 +1171,8 @@ def build_lod3_simple(
         door_verts.extend(dv)
         door_faces.extend(df)
     if door_inserts:
-        dv, df = _inserts_to_quads(door_inserts, cx, cy, 0.9, 2.1, base_z=FOUNDATION_HEIGHT)  # 폭 0.9m
+        # wall_segments를 전달하여 벽 방향에 맞춤, is_door=True로 닫힌 문 형태
+        dv, df = _inserts_to_quads(door_inserts, cx, cy, 0.9, 2.1, base_z=FOUNDATION_HEIGHT, wall_segments=wall_segments, is_door=True)
         offset = len(door_verts)
         door_verts.extend(dv)
         door_faces.extend([[f[0]+offset, f[1]+offset, f[2]+offset] for f in df])
@@ -879,7 +1194,8 @@ def build_lod3_simple(
             wangle = math.degrees(math.atan2(y2-y1, x2-x1))
             window_rectangles.append((wcx, wcy, wwidth, 1.2, wangle))
     if window_inserts:
-        wv, wf = _inserts_to_quads(window_inserts, cx, cy, 1.2, 1.2, base_z=window_sill_z)
+        # wall_segments를 전달하여 벽 방향에 맞춤, is_door=False로 중심 기준 확장
+        wv, wf = _inserts_to_quads(window_inserts, cx, cy, 1.2, 1.2, base_z=window_sill_z, wall_segments=wall_segments, is_door=False)
         offset = len(window_verts)
         window_verts.extend(wv)
         window_faces.extend([[f[0]+offset, f[1]+offset, f[2]+offset] for f in wf])
@@ -902,21 +1218,35 @@ def build_lod3_simple(
         opening_wall_faces.extend([[f[0]+offset, f[1]+offset, f[2]+offset] for f in owf])
         steps.append({"label": "창문 상/하 벽체", "detail": f"{len(window_rectangles)}개"})
 
-    # 8. 지붕(상단 면) 생성
-    roof_verts, roof_faces = _create_roof_from_segments(wall_segments, cx, cy, z=height, thickness=0.02)
-    if roof_verts:
-        steps.append({"label": "지붕 생성", "detail": f"{len(roof_faces)}개 삼각형"})
+    # 8. 천장 슬래브 또는 벽 상단 캡 생성
+    roof_verts, roof_faces = [], []
+    wall_cap_verts, wall_cap_faces = [], []
 
-    # 8. 메쉬 리스트 구성
+    if include_roof:
+        # 슬래브 ON: 건물 전체를 덮는 지붕 슬래브 생성
+        roof_verts, roof_faces = _create_roof_slab(wall_segments, cx, cy, z=height, thickness=0.15)
+        if roof_verts:
+            steps.append({"label": "천장 슬래브", "detail": f"{len(roof_faces)}개 삼각형"})
+    else:
+        # 슬래브 OFF: 벽 상단 캡만 생성 (roof_slab과 동일한 Convex Hull 사용)
+        wall_cap_verts, wall_cap_faces = _create_wall_cap(wall_segments, cx, cy, z=height, thickness=0.02)
+        if wall_cap_verts:
+            steps.append({"label": "벽 상단 캡", "detail": f"{len(wall_cap_faces)}개 삼각형"})
+
+    # 10. 메쉬 리스트 구성
     meshes = []
 
-    # 벽 + 개구부 주변 벽체 합치기
+    # 벽 + 개구부 주변 벽체 + 벽 상단 캡 합치기
     all_wall_verts = wall_verts.copy()
     all_wall_faces = wall_faces.copy()
     if opening_wall_verts:
         offset = len(all_wall_verts)
         all_wall_verts.extend(opening_wall_verts)
         all_wall_faces.extend([[f[0]+offset, f[1]+offset, f[2]+offset] for f in opening_wall_faces])
+    if wall_cap_verts:
+        offset = len(all_wall_verts)
+        all_wall_verts.extend(wall_cap_verts)
+        all_wall_faces.extend([[f[0]+offset, f[1]+offset, f[2]+offset] for f in wall_cap_faces])
 
     if all_wall_verts:
         meshes.append((
@@ -942,6 +1272,7 @@ def build_lod3_simple(
             "windows"
         ))
 
+    # 천장 슬래브 (include_roof=True일 때만 roof_verts가 있음)
     if roof_verts:
         meshes.append((
             np.array(roof_verts, dtype=np.float32),
@@ -961,6 +1292,124 @@ def build_lod3_simple(
 
         logger.info(f"LOD3 Simple 완료: {mesh_stats}")
 
+        # 개구부 위치 목록 생성 (Cesium 마커용)
+        openings = []
+
+        # 건물 외곽선 계산 (주 출입문 판단용)
+        # 벽 세그먼트 끝점들로 convex hull 생성
+        from shapely.geometry import MultiPoint, Point
+        wall_points = []
+        for seg in wall_segments:
+            # seg = ((x1, y1), (x2, y2)) 형식
+            (x1, y1), (x2, y2) = seg
+            wall_points.append((x1, y1))
+            wall_points.append((x2, y2))
+
+        exterior_boundary = None
+        if len(wall_points) >= 3:
+            try:
+                from shapely.geometry import Polygon as ShapelyPolygon
+                mp = MultiPoint(wall_points)
+                hull = mp.convex_hull
+                # convex_hull이 Polygon인 경우에만 exterior 사용
+                if isinstance(hull, ShapelyPolygon) and hull.exterior:
+                    exterior_boundary = hull.exterior
+            except Exception as e:
+                logger.warning(f"외곽선 계산 실패: {e}")
+                pass
+
+        # 모든 문(door_rectangles + door_inserts)의 외곽선 거리 계산
+        all_door_distances = []
+
+        # door_rectangles (ARC 기반)
+        for rect in door_rectangles:
+            door_cx, door_cy = rect[0], rect[1]
+            dist_to_exterior = float('inf')
+            if exterior_boundary:
+                try:
+                    pt = Point(door_cx, door_cy)
+                    dist_to_exterior = exterior_boundary.distance(pt)
+                except:
+                    pass
+            all_door_distances.append(dist_to_exterior)
+
+        # door_inserts (INSERT 블록 기반)
+        for ins in door_inserts:
+            door_x, door_y = ins[0], ins[1]
+            dist_to_exterior = float('inf')
+            if exterior_boundary:
+                try:
+                    pt = Point(door_x, door_y)
+                    dist_to_exterior = exterior_boundary.distance(pt)
+                except:
+                    pass
+            all_door_distances.append(dist_to_exterior)
+
+        # 가장 외곽에 가까운 문 찾기 (거리가 가장 작은 문)
+        main_entrance_threshold = float('inf')
+        if all_door_distances:
+            min_dist = min(all_door_distances)
+            main_entrance_threshold = min_dist + 0.5  # 0.5m 오차 허용
+
+        for rect in door_rectangles:
+            door_cx, door_cy = rect[0], rect[1]
+            dist_to_exterior = float('inf')
+            if exterior_boundary:
+                try:
+                    pt = Point(door_cx, door_cy)
+                    dist_to_exterior = exterior_boundary.distance(pt)
+                except:
+                    pass
+
+            is_main_entrance = dist_to_exterior <= main_entrance_threshold
+
+            openings.append({
+                "x": float(rect[0] - cx),  # 모델 중심 기준
+                "y": float(rect[1] - cy),
+                "width": float(rect[2]),
+                "height": 2.1,  # 문 높이 고정
+                "rotation": float(rect[4]) if len(rect) > 4 else 0,
+                "type": "door",
+                "isMainEntrance": is_main_entrance,
+                "distToExterior": round(dist_to_exterior, 2) if dist_to_exterior != float('inf') else None
+            })
+
+        # 문 INSERT 위치 (door_inserts: (x, y, rotation_deg))
+        for ins in door_inserts:
+            door_x, door_y = ins[0], ins[1]
+            door_rot = ins[2] if len(ins) > 2 else 0
+            dist_to_exterior = float('inf')
+            if exterior_boundary:
+                try:
+                    pt = Point(door_x, door_y)
+                    dist_to_exterior = exterior_boundary.distance(pt)
+                except:
+                    pass
+            is_main_entrance = dist_to_exterior <= main_entrance_threshold
+
+            openings.append({
+                "x": float(door_x - cx),
+                "y": float(door_y - cy),
+                "width": 0.9,  # INSERT 문 기본 폭
+                "height": 2.1,
+                "rotation": float(door_rot),
+                "type": "door",
+                "isMainEntrance": is_main_entrance,
+                "distToExterior": round(dist_to_exterior, 2) if dist_to_exterior != float('inf') else None
+            })
+
+        # 창문 위치 (window_rectangles: (cx, cy, width, height, angle))
+        for rect in window_rectangles:
+            openings.append({
+                "x": float(rect[0] - cx),
+                "y": float(rect[1] - cy),
+                "width": float(rect[2]),
+                "height": float(rect[3]) if len(rect) > 3 else 1.2,
+                "rotation": float(rect[4]) if len(rect) > 4 else 0,
+                "type": "window",
+                "isMainEntrance": False
+            })
+
         return {
             "success": True,
             "lod": 3,
@@ -969,6 +1418,7 @@ def build_lod3_simple(
             "wall_segments": len(wall_segments),
             "door_count": len(door_rectangles) + len(door_inserts),
             "window_count": len(window_segments) + len(window_inserts),
+            "openings": openings,
         }
     except Exception as e:
         logger.error(f"GLB 생성 실패: {e}")

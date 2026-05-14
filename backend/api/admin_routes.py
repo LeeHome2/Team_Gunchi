@@ -1224,6 +1224,7 @@ def database_switch(payload: DbSwitchRequest):
 class PreprocessRunRequest(BaseModel):
     mock: bool = False  # vLLM mock 모드
     limit: Optional[int] = None  # 처리 개수 제한
+    force_single: bool = True  # ★ v1.0: 단일 평면도 기본 (vLLM detect-floorplan skip)
 
 
 @router.get("/preprocess/buildings")
@@ -1301,6 +1302,7 @@ async def trigger_preprocess(
     """전처리 트리거 (BackgroundTasks).
 
     미처리 건물을 자동으로 처리 시작.
+    force_single=True (기본) 면 vLLM detect-floorplan 호출 skip.
     """
     from fastapi import BackgroundTasks
     from services.preprocess.scheduler import run_preprocess_sync
@@ -1311,19 +1313,28 @@ async def trigger_preprocess(
         result = run_preprocess_sync(
             mock=payload.mock,
             limit=payload.limit,
+            assume_single_floorplan=payload.force_single,
         )
         return {
             "success": True,
             "message": "전처리 완료",
+            "single_mode": payload.force_single,
             **result,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"전처리 실패: {e}")
 
 
+class ReprocessRequest(BaseModel):
+    force_single: bool = True  # ★ v1.0: 단일 평면도 기본
+
+
 @router.post("/preprocess/buildings/{building_id}/reprocess")
-async def reprocess_building(building_id: str):
-    """매니페스트 삭제 후 재처리."""
+async def reprocess_building(building_id: str, payload: Optional[ReprocessRequest] = None):
+    """매니페스트 삭제 후 재처리 대기 상태로 변경.
+
+    force_single=True (기본) 면 다음 전처리 시 vLLM detect-floorplan skip.
+    """
     from pathlib import Path
 
     backend_dir = Path(__file__).parent.parent
@@ -1332,7 +1343,12 @@ async def reprocess_building(building_id: str):
     if manifest_path.exists():
         manifest_path.unlink()
 
-    return {"ok": True, "message": f"{building_id} 재처리 대기 상태로 변경됨"}
+    force_single = payload.force_single if payload else True
+    return {
+        "ok": True,
+        "message": f"{building_id} 재처리 대기 상태로 변경됨",
+        "single_mode": force_single,
+    }
 
 
 @router.get("/preprocess/buildings/{building_id}/status")

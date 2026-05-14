@@ -82,10 +82,10 @@ class MassGenerateRequest(BaseModel):
         ge=0.05,
         le=1.0
     )
-    # LOD 레벨 (Phase 3 통합)
+    # LOD 레벨 — v1.0 부터 항상 LOD3 사용 (이 필드는 무시됨)
     lod: Literal[1, 2, 3] = Field(
-        default=1,
-        description="LOD 레벨: 1=기본, 2=슬래브 포함, 3=개구부 포함"
+        default=3,
+        description="[DEPRECATED] v1.0부터 항상 LOD3 사용. 이 필드는 무시됨."
     )
     door_layers: Optional[List[str]] = Field(
         None,
@@ -117,19 +117,39 @@ class BuildStep(BaseModel):
     detail: str
 
 
+class OpeningPosition(BaseModel):
+    """개구부 (문/창문) 위치 정보"""
+    x: float = Field(..., description="로컬 X 좌표 (모델 중심 기준, 미터)")
+    y: float = Field(..., description="로컬 Y 좌표 (모델 중심 기준, 미터)")
+    width: float = Field(..., description="개구부 폭 (미터)")
+    height: float = Field(..., description="개구부 높이 (미터)")
+    rotation: float = Field(default=0, description="회전 각도 (도)")
+    type: str = Field(..., description="개구부 유형: door 또는 window")
+    isMainEntrance: Optional[bool] = Field(default=False, description="주 출입문 여부")
+    distToExterior: Optional[float] = Field(default=None, description="외곽선까지 거리 (미터)")
+
+
 class MassGenerateResponse(BaseModel):
     """3D 매스 생성 응답"""
     success: bool
     model_id: str
     model_url: str
+    model_url_no_roof: Optional[str] = Field(
+        default=None,
+        description="천장 슬래브 없는 GLB URL (토글용)"
+    )
     height: float
     floors: int
     mesh_stats: Optional[MeshStats] = None
     bounding_box: Optional[BoundingBox] = None
     build_steps: Optional[List[BuildStep]] = None
     lod_actual: int = Field(
-        default=1,
-        description="실제 적용된 LOD 레벨 (요청과 다를 수 있음, 폴백 시)"
+        default=3,
+        description="실제 적용된 LOD 레벨 (v1.0부터 항상 3)"
+    )
+    openings: Optional[List[OpeningPosition]] = Field(
+        default=None,
+        description="문/창문 위치 목록 (Cesium 마커용)"
     )
 
 

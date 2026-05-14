@@ -105,8 +105,13 @@ function tryPlaceSlot(
   exclusions: AABB[],
 ): ParkingSlotData | null {
   const poly = rectPolygon(cx, cy, w, d)
-  if (!rectFullyInside(poly, siteFootprint)) return null
-  if (rectOverlapsExclusion(poly, exclusions)) return null
+  const insideSite = rectFullyInside(poly, siteFootprint)
+  const overlapsExclusion = rectOverlapsExclusion(poly, exclusions)
+
+  console.log(`[주차] tryPlaceSlot id=${id} type=${slotType} pos=(${cx.toFixed(1)},${cy.toFixed(1)}) size=${w}x${d} inside=${insideSite} overlaps=${overlapsExclusion}`)
+
+  if (!insideSite) return null
+  if (overlapsExclusion) return null
   return {
     id,
     slot_type: slotType,
@@ -238,19 +243,39 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
   const siteCx = (siteAABB.minX + siteAABB.maxX) / 2
   const siteCy = (siteAABB.minY + siteAABB.maxY) / 2
 
+  console.log(`[주차] 사이트 크기: ${siteW.toFixed(1)}m x ${siteH.toFixed(1)}m, 요청: 총 ${requiredTotal}대 (장애인 ${requiredDisabled}대)`)
+
   // 건물 배제 영역 (다중 건물 지원)
   const exclusions: AABB[] = []
+  const BUILDING_MARGIN = 0.5  // 건물 주변 마진 (0.5m로 축소)
+
   const allFootprints = [
     buildingFootprint,
     ...additionalFootprints,
   ].filter((fp) => fp.length >= 3)
 
+  // 중복 제거를 위한 키 생성
+  const addedKeys = new Set<string>()
+
   for (const fp of allFootprints) {
     const bAABB = polygonAABB(fp)
-    exclusions.push({
-      minX: bAABB.minX - 1.5, minY: bAABB.minY - 1.5,
-      maxX: bAABB.maxX + 1.5, maxY: bAABB.maxY + 1.5,
-    })
+    const key = `${bAABB.minX.toFixed(1)},${bAABB.minY.toFixed(1)},${bAABB.maxX.toFixed(1)},${bAABB.maxY.toFixed(1)}`
+
+    // 중복 체크
+    if (addedKeys.has(key)) {
+      console.log(`[주차] 건물 배제영역 중복 스킵: ${key}`)
+      continue
+    }
+    addedKeys.add(key)
+
+    const excl = {
+      minX: bAABB.minX - BUILDING_MARGIN,
+      minY: bAABB.minY - BUILDING_MARGIN,
+      maxX: bAABB.maxX + BUILDING_MARGIN,
+      maxY: bAABB.maxY + BUILDING_MARGIN,
+    }
+    exclusions.push(excl)
+    console.log(`[주차] 건물 배제영역: (${excl.minX.toFixed(1)},${excl.minY.toFixed(1)}) ~ (${excl.maxX.toFixed(1)},${excl.maxY.toFixed(1)})`)
   }
 
   // 직각/평행에 따른 슬롯 치수

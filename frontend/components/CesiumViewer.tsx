@@ -60,6 +60,8 @@ export default function CesiumViewer() {
     setRunReviewCheckFn, setStartSunlightFn, setToggleSunlightHeatmapFn, setClearSunlightFn, setSetSunlightHeatmapModeFn,
     setSaveProjectFn, setLoadProjectFn, setLoadFromDbFn, setIsSavingProject, setIsLoadingProject, setProjectError,
     selectedBlockInfo,
+    showRoof, showOpeningMarkers, generatedMasses, loadedMassGlbUrl,
+    mainEntrance, setMainEntrance,
   } = useProjectStore()
 
   // === 로컬 상태 ===
@@ -100,6 +102,11 @@ export default function CesiumViewer() {
   const isEntranceDraggingRef = useRef(false)
   const isEntranceRotatingRef = useRef(false)
   const entranceDragStartRef = useRef<{ offsetLon: number; offsetLat: number } | null>(null)
+
+  // 메인 출입구 마커 Refs
+  const mainEntranceEntityRef = useRef<any>(null)
+  const isMainEntranceDraggingRef = useRef(false)
+  const mainEntranceDragStartRef = useRef<{ offsetX: number; offsetY: number } | null>(null)
 
   // === 뷰포트 상태 복원 함수 ===
   const restoreViewportState = useCallback((viewer: any) => {
@@ -759,7 +766,8 @@ export default function CesiumViewer() {
 
       // 매스 모델 바운딩 박스: 백엔드에서 계산된 실제 GLB 크기 우선 사용
       const latestState = useProjectStore.getState()
-      const placedMass = latestState.generatedMasses.find(m => m.glbUrl === glbUrl)
+      // glbUrl 또는 glbUrlNoRoof 둘 다 매칭 (슬래브 토글 시 동일한 바운딩 박스 사용)
+      const placedMass = latestState.generatedMasses.find(m => m.glbUrl === glbUrl || m.glbUrlNoRoof === glbUrl)
 
       if (placedMass?.boundingBox) {
         // 백엔드가 반환한 실제 GLB 바운딩 박스 (미터 단위)
@@ -876,6 +884,9 @@ export default function CesiumViewer() {
       // 현재 로드된 매스 URL 저장 (프로젝트 저장용)
       useProjectStore.getState().setLoadedMassGlbUrl(glbUrl)
 
+      // 새 매스 로드 시 메인 출입구 마커 초기화 (새로 설정하도록)
+      useProjectStore.getState().setMainEntrance(null)
+
       console.log('[매스 GLB] 모델 배치 완료:', glbUrl, 'at', [lon, lat])
 
       // 모델 로드 완료 후 지연된 바운더리 재체크 트리거
@@ -898,6 +909,374 @@ export default function CesiumViewer() {
       loadMassGlb(massGlbToLoad)
     }
   }, [massGlbToLoad, isLoaded, isLoadingModel, loadMassGlb])
+
+  // === 천장 슬래브 토글 (showRoof 변경 감지) ===
+  useEffect(() => {
+    if (!loadedMassGlbUrl || !loadedModelEntity || !viewerRef.current || !isLoaded) return
+
+    // 현재 로드된 매스 찾기
+    const currentMass = generatedMasses.find(
+      m => m.glbUrl === loadedMassGlbUrl || m.glbUrlNoRoof === loadedMassGlbUrl
+    )
+    if (!currentMass) return
+
+    // 전환할 URL 결정
+    const targetUrl = showRoof ? currentMass.glbUrl : currentMass.glbUrlNoRoof
+    if (!targetUrl || targetUrl === loadedMassGlbUrl) return
+
+    console.log('[천장 토글] 전환:', showRoof ? '천장 ON' : '천장 OFF', targetUrl)
+
+    // 현재 위치/회전 저장
+    const currentTransform = { ...useProjectStore.getState().modelTransform }
+
+    // 새 GLB로 재로드
+    useProjectStore.getState().setMassGlbToLoad(targetUrl, {
+      longitude: currentTransform.longitude,
+      latitude: currentTransform.latitude,
+      height: currentTransform.height,
+      rotation: currentTransform.rotation,
+      scale: currentTransform.scale,
+    })
+  }, [showRoof, loadedMassGlbUrl, generatedMasses, loadedModelEntity, isLoaded])
+
+  // === 문/창문 마커 렌더링 (바닥 폴리라인) ===
+  const openingMarkersRef = useRef<any[]>([])
+
+  useEffect(() => {
+    if (!viewerRef.current || !isLoaded) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+
+    // 기존 마커 제거
+    openingMarkersRef.current.forEach(entity => {
+      try { viewer.entities.remove(entity) } catch {}
+    })
+    openingMarkersRef.current = []
+
+    // 마커 표시 OFF이거나 로드된 매스가 없으면 종료
+    if (!showOpeningMarkers || !loadedMassGlbUrl) {
+      console.log('[개구부 마커] 표시 OFF 또는 로드된 매스 없음:', { showOpeningMarkers, loadedMassGlbUrl })
+      return
+    }
+
+    // 현재 로드된 매스 찾기
+    const currentMass = generatedMasses.find(
+      m => m.glbUrl === loadedMassGlbUrl || m.glbUrlNoRoof === loadedMassGlbUrl
+    )
+    console.log('[개구부 마커] currentMass:', currentMass ? { id: currentMass.id, openingsCount: currentMass.openings?.length } : 'not found')
+
+    if (!currentMass?.openings || currentMass.openings.length === 0) {
+      console.log('[개구부 마커] openings 데이터 없음')
+      return
+    }
+
+    // 모델 위치 및 회전 가져오기
+    const { longitude, latitude, rotation } = modelTransform
+    const rotRad = Cesium.Math.toRadians(rotation)
+
+    // 위경도 → 미터 변환 계수
+    const latRad = latitude * Math.PI / 180
+    const mPerDegLon = 111320 * Math.cos(latRad)
+    const mPerDegLat = 111320
+
+    // 각 개구부에 폴리라인 마커 추가
+    currentMass.openings.forEach((opening, idx) => {
+      // GLB 변환 + 시계방향 90도 + Y축 반전
+      const openingX = -opening.y
+      const openingY = opening.x   // Y축 반전 적용
+
+      // 개구부의 로컬 회전 - 시계방향 90도 추가
+      const openingRotRad = (-(opening.rotation || 0) - 90) * Math.PI / 180
+
+      // 개구부 폭의 절반
+      const halfWidth = (opening.width || 1) / 2
+
+      // 로컬 좌표에서 폴리라인 시작/끝점 계산
+      const localDx = Math.cos(openingRotRad) * halfWidth
+      const localDy = Math.sin(openingRotRad) * halfWidth
+
+      const localStartX = openingX - localDx
+      const localStartY = openingY - localDy
+      const localEndX = openingX + localDx
+      const localEndY = openingY + localDy
+
+      // 모델 회전 적용 (시계방향 회전 - GLB 모델과 일치)
+      const cosR = Math.cos(rotRad)
+      const sinR = Math.sin(rotRad)
+
+      const startX = localStartX * cosR + localStartY * sinR
+      const startY = -localStartX * sinR + localStartY * cosR
+      const endX = localEndX * cosR + localEndY * sinR
+      const endY = -localEndX * sinR + localEndY * cosR
+
+      // 미터 → 위경도 변환
+      const startLon = longitude + startX / mPerDegLon
+      const startLat = latitude + startY / mPerDegLat
+      const endLon = longitude + endX / mPerDegLon
+      const endLat = latitude + endY / mPerDegLat
+
+      // 주 출입문 여부 확인 (백엔드에서 계산된 값 사용)
+      const isMainDoor = opening.type === 'door' && opening.isMainEntrance === true
+
+      // 색상 결정
+      let lineColor: any
+      let lineWidth: number
+      if (opening.type === 'door') {
+        if (isMainDoor) {
+          lineColor = Cesium.Color.fromCssColorString('#FF4500')  // 주황-빨강 (주 출입문)
+          lineWidth = 6
+        } else {
+          lineColor = Cesium.Color.fromCssColorString('#8B4513')  // 갈색 (일반 문)
+          lineWidth = 4
+        }
+      } else {
+        lineColor = Cesium.Color.fromCssColorString('#00BFFF')  // 하늘색 (창문)
+        lineWidth = 3
+      }
+
+      // 바닥 폴리라인 엔티티 생성 (지형에 붙음)
+      const entity = viewer.entities.add({
+        id: `opening-line-${idx}`,
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            startLon, startLat,
+            endLon, endLat
+          ]),
+          width: lineWidth,
+          material: lineColor,
+          clampToGround: true,
+        },
+      })
+      openingMarkersRef.current.push(entity)
+
+      // 주 출입문 화살표는 별도 드래그 가능 마커로 대체됨 (메인 출입구 마커 useEffect 참조)
+    })
+
+    // 디버깅: 타입별 분포 확인
+    const doors = currentMass.openings.filter(o => o.type === 'door')
+    const windows = currentMass.openings.filter(o => o.type === 'window')
+    const mainDoorCount = currentMass.openings.filter(o => o.isMainEntrance).length
+    console.log(`[개구부 마커] 총 ${currentMass.openings.length}개 (문 ${doors.length}, 창문 ${windows.length}, 주출입구 ${mainDoorCount})`)
+    if (currentMass.openings.length > 0) {
+      console.log('[개구부 마커] 샘플 데이터:', currentMass.openings[0])
+    }
+
+    viewer.scene.requestRender()
+  }, [showOpeningMarkers, loadedMassGlbUrl, generatedMasses, modelTransform.longitude, modelTransform.latitude, modelTransform.rotation, isLoaded])
+
+  // === 메인 출입구 마커 (드래그 가능) ===
+  useEffect(() => {
+    if (!viewerRef.current || !isLoaded) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+
+    // 기존 마커 제거
+    if (mainEntranceEntityRef.current) {
+      viewer.entities.remove(mainEntranceEntityRef.current)
+      mainEntranceEntityRef.current = null
+    }
+
+    // 매스가 로드되지 않았으면 표시 안함
+    if (!loadedMassGlbUrl) return
+
+    const { longitude, latitude, rotation } = modelTransform
+    const rotRad = (rotation || 0) * Math.PI / 180
+
+    // 메인 출입구 데이터 (없으면 기본 위치 설정)
+    let entrance = mainEntrance
+    if (!entrance) {
+      // 기본 위치: 건물 앞쪽 (Y축 음의 방향) 5m 거리
+      entrance = {
+        localX: 0,
+        localY: -5,
+        heading: 0,  // 북쪽을 향함
+        size: 2,
+      }
+      setMainEntrance(entrance)
+    }
+
+    // 로컬 좌표 → 글로벌 좌표 변환
+    const latRad = latitude * Math.PI / 180
+    const mPerDegLon = 111320 * Math.cos(latRad)
+    const mPerDegLat = 111320
+
+    // 모델 회전 적용 (시계방향)
+    const cosR = Math.cos(rotRad)
+    const sinR = Math.sin(rotRad)
+    const worldX = entrance.localX * cosR + entrance.localY * sinR
+    const worldY = -entrance.localX * sinR + entrance.localY * cosR
+
+    const markerLon = longitude + worldX / mPerDegLon
+    const markerLat = latitude + worldY / mPerDegLat
+
+    // 화살표 폴리곤 생성 (크기 조정 가능)
+    const arrowSize = entrance.size
+    const headingRad = entrance.heading * Math.PI / 180  // 화살표 자체 방향 (로컬)
+
+    // 화살표 모양 정의 (로컬 좌표, 중심이 원점)
+    const arrowPoints = [
+      [0, arrowSize],           // 앞쪽 꼭지점
+      [-arrowSize * 0.5, 0],    // 왼쪽
+      [-arrowSize * 0.3, 0],    // 왼쪽 안쪽
+      [-arrowSize * 0.3, -arrowSize * 0.8],  // 왼쪽 뒤
+      [arrowSize * 0.3, -arrowSize * 0.8],   // 오른쪽 뒤
+      [arrowSize * 0.3, 0],     // 오른쪽 안쪽
+      [arrowSize * 0.5, 0],     // 오른쪽
+    ]
+
+    // 회전 및 위치 변환 적용
+    const transformedPositions: number[] = []
+    arrowPoints.forEach(([px, py]) => {
+      // 1. 화살표 자체 방향 회전 (heading)
+      const cosH = Math.cos(headingRad)
+      const sinH = Math.sin(headingRad)
+      const hx = px * cosH - py * sinH
+      const hy = px * sinH + py * cosH
+
+      // 2. 모델 회전 적용 (시계방향, 위치 변환과 동일)
+      const rx = hx * cosR + hy * sinR
+      const ry = -hx * sinR + hy * cosR
+
+      // 글로벌 좌표로 변환
+      const ptLon = markerLon + rx / mPerDegLon
+      const ptLat = markerLat + ry / mPerDegLat
+      transformedPositions.push(ptLon, ptLat)
+    })
+
+    // 폴리곤 엔티티 생성
+    const entity = viewer.entities.add({
+      id: 'main-entrance-marker',
+      polygon: {
+        hierarchy: Cesium.Cartesian3.fromDegreesArray(transformedPositions),
+        material: Cesium.Color.fromCssColorString('#FF6B00').withAlpha(0.8),
+        outline: true,
+        outlineColor: Cesium.Color.WHITE,
+        outlineWidth: 2,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      },
+    })
+    mainEntranceEntityRef.current = entity
+
+    viewer.scene.requestRender()
+  }, [mainEntrance, loadedMassGlbUrl, modelTransform.longitude, modelTransform.latitude, modelTransform.rotation, isLoaded])
+
+  // === 메인 출입구 드래그 핸들러 ===
+  useEffect(() => {
+    if (!viewerRef.current || !isLoaded) return
+
+    const Cesium = (window as any).Cesium
+    if (!Cesium) return
+
+    const viewer = viewerRef.current
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+
+    // 마우스 다운: 드래그 시작
+    handler.setInputAction((movement: any) => {
+      const pickedObject = viewer.scene.pick(movement.position)
+      if (Cesium.defined(pickedObject) && pickedObject.id?.id === 'main-entrance-marker') {
+        isMainEntranceDraggingRef.current = true
+        viewer.scene.screenSpaceCameraController.enableRotate = false
+        viewer.scene.screenSpaceCameraController.enableTranslate = false
+
+        // 클릭 위치와 마커 위치의 오프셋 계산
+        const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid)
+        if (cartesian) {
+          const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
+          const clickLon = Cesium.Math.toDegrees(cartographic.longitude)
+          const clickLat = Cesium.Math.toDegrees(cartographic.latitude)
+
+          const { longitude, latitude, rotation } = modelTransform
+          const rotRad = (rotation || 0) * Math.PI / 180
+          const latRad = latitude * Math.PI / 180
+          const mPerDegLon = 111320 * Math.cos(latRad)
+          const mPerDegLat = 111320
+
+          // 클릭 위치를 로컬 좌표로 변환
+          const deltaLon = clickLon - longitude
+          const deltaLat = clickLat - latitude
+          const worldX = deltaLon * mPerDegLon
+          const worldY = deltaLat * mPerDegLat
+
+          // 역회전 (글로벌 → 로컬)
+          const cosR = Math.cos(-rotRad)
+          const sinR = Math.sin(-rotRad)
+          const localX = worldX * cosR + worldY * sinR
+          const localY = -worldX * sinR + worldY * cosR
+
+          const currentEntrance = useProjectStore.getState().mainEntrance
+          if (currentEntrance) {
+            mainEntranceDragStartRef.current = {
+              offsetX: currentEntrance.localX - localX,
+              offsetY: currentEntrance.localY - localY,
+            }
+          }
+        }
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
+
+    // 마우스 이동: 드래그 중
+    handler.setInputAction((movement: any) => {
+      if (!isMainEntranceDraggingRef.current || !mainEntranceDragStartRef.current) return
+
+      const cartesian = viewer.camera.pickEllipsoid(movement.endPosition, viewer.scene.globe.ellipsoid)
+      if (!cartesian) return
+
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
+      const mouseLon = Cesium.Math.toDegrees(cartographic.longitude)
+      const mouseLat = Cesium.Math.toDegrees(cartographic.latitude)
+
+      const { longitude, latitude, rotation } = modelTransform
+      const rotRad = (rotation || 0) * Math.PI / 180
+      const latRad = latitude * Math.PI / 180
+      const mPerDegLon = 111320 * Math.cos(latRad)
+      const mPerDegLat = 111320
+
+      // 마우스 위치를 로컬 좌표로 변환
+      const deltaLon = mouseLon - longitude
+      const deltaLat = mouseLat - latitude
+      const worldX = deltaLon * mPerDegLon
+      const worldY = deltaLat * mPerDegLat
+
+      // 역회전 (글로벌 → 로컬)
+      const cosR = Math.cos(-rotRad)
+      const sinR = Math.sin(-rotRad)
+      const localX = worldX * cosR + worldY * sinR
+      const localY = -worldX * sinR + worldY * cosR
+
+      // 오프셋 적용하여 새 위치 계산
+      const newLocalX = localX + mainEntranceDragStartRef.current.offsetX
+      const newLocalY = localY + mainEntranceDragStartRef.current.offsetY
+
+      const currentEntrance = useProjectStore.getState().mainEntrance
+      if (currentEntrance) {
+        setMainEntrance({
+          ...currentEntrance,
+          localX: newLocalX,
+          localY: newLocalY,
+        })
+      }
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
+
+    // 마우스 업: 드래그 종료
+    handler.setInputAction(() => {
+      if (isMainEntranceDraggingRef.current) {
+        isMainEntranceDraggingRef.current = false
+        mainEntranceDragStartRef.current = null
+        viewer.scene.screenSpaceCameraController.enableRotate = true
+        viewer.scene.screenSpaceCameraController.enableTranslate = true
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_UP)
+
+    return () => {
+      handler.destroy()
+    }
+  }, [isLoaded, modelTransform.longitude, modelTransform.latitude, modelTransform.rotation])
 
   // === 휴먼 스케일 모델 ===
   useEffect(() => {

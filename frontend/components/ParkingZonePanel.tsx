@@ -28,6 +28,8 @@ export default function ParkingZonePanel() {
     selectedBlockInfo,
     loadedModelEntity,
     generatedMasses,
+    loadedMassGlbUrl,  // 현재 로드된 매스 GLB URL
+    parkingOrigin,     // 주차구역 원점 (고정)
     parkingConfig,
     gridRotation,
     parkingTransform,
@@ -55,11 +57,11 @@ export default function ParkingZonePanel() {
 
   const areaM2 = selectedBlockInfo?.totalArea ?? site?.area ?? 0
 
-  // 경위도 → 로컬 미터
+  // 경위도 → 로컬 미터 (parkingOrigin 기준, 없으면 modelTransform 사용)
   const toLocal = useCallback(
     (footprint: number[][]): number[][] => {
-      const originLon = modelTransform.longitude
-      const originLat = modelTransform.latitude
+      const originLon = parkingOrigin?.longitude ?? modelTransform.longitude
+      const originLat = parkingOrigin?.latitude ?? modelTransform.latitude
       const latRad = (originLat * Math.PI) / 180
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
@@ -68,45 +70,111 @@ export default function ParkingZonePanel() {
         (lat - originLat) * mPerDegLat,
       ])
     },
-    [modelTransform.longitude, modelTransform.latitude],
+    [parkingOrigin, modelTransform.longitude, modelTransform.latitude],
   )
 
   // 모든 건물 footprint를 로컬 좌표 AABB 장애물로 변환
-  // 메인 건물은 generateParkingLayout의 buildingFootprint로 별도 전달되므로 여기서는 제외
+  // GLB boundingBox가 있으면 더 정확한 크기를 사용
   const collectObstacles = useCallback(() => {
     const obstacles: { minX: number; minY: number; maxX: number; maxY: number }[] = []
     const additionalFootprintsLocal: number[][][] = []
+    const addedKeys = new Set<string>()  // 중복 감지용
 
-    // 1. 메인 건물 - obstacles에만 추가 (buildingFootprint로 별도 전달되므로 additionalFootprints에는 미포함)
-    // 마진은 generateParkingLayout에서 1.5m가 적용되므로 여기서는 추가하지 않음
-    if (loadedModelEntity && building?.footprint && building.footprint.length >= 3) {
-      const local = toLocal(building.footprint)
-      obstacles.push({
-        minX: Math.min(...local.map(p => p[0])),
-        minY: Math.min(...local.map(p => p[1])),
-        maxX: Math.max(...local.map(p => p[0])),
-        maxY: Math.max(...local.map(p => p[1])),
-      })
-      // additionalFootprintsLocal에는 추가하지 않음 (중복 방지)
+    // AABB 키 생성 (중복 체크용) - 크기 기반으로 변경
+    const makeKey = (width: number, height: number) =>
+      `${width.toFixed(0)},${height.toFixed(0)}`
+
+    // 장애물 추가 헬퍼 (중복 방지)
+    const addObstacle = (
+      minX: number, minY: number, maxX: number, maxY: number,
+      source: string
+    ) => {
+      const width = maxX - minX
+      const height = maxY - minY
+      const key = makeKey(width, height)
+
+      if (addedKeys.has(key)) {
+        console.log(`[collectObstacles] 중복 스킵 (${source}): ${width.toFixed(1)} x ${height.toFixed(1)} m`)
+        return false
+      }
+
+      addedKeys.add(key)
+      obstacles.push({ minX, minY, maxX, maxY })
+      console.log(`[collectObstacles] 추가 (${source}): ${width.toFixed(1)} x ${height.toFixed(1)} m`)
+      return true
     }
 
-    // 2. 생성된 매스 모델들 (다중 건물) - 이들만 additionalFootprints에 추가
-    // 마진은 generateParkingLayout에서 1.5m가 적용되므로 여기서는 추가하지 않음
+    // 1. 생성된 매스 모델들 중 현재 로드된 것만 사용 (GLB boundingBox 우선)
     for (const mass of generatedMasses) {
-      if (mass.footprint && mass.footprint.length >= 3) {
+      // 현재 로드된 매스만 장애물로 추가 (loadedMassGlbUrl과 매칭)
+      const isCurrentlyLoaded = loadedMassGlbUrl && (
+        mass.glbUrl === loadedMassGlbUrl ||
+        mass.glbUrlNoRoof === loadedMassGlbUrl
+      )
+
+      if (!isCurrentlyLoaded) {
+        console.log(`[collectObstacles] 스킵 (미로드): mass[${mass.id?.substring(0, 8)}]`)
+        continue
+      }
+
+      if (mass.boundingBox) {
+        // GLB boundingBox 사용
+        // 건물 위치를 parkingOrigin 기준 로컬 좌표로 계산
+        const { width, depth } = mass.boundingBox
+        const halfW = width / 2
+        const halfD = depth / 2
+
+        // 건물 중심(modelTransform)의 parkingOrigin 기준 오프셋 계산
+        const originLon = parkingOrigin?.longitude ?? modelTransform.longitude
+        const originLat = parkingOrigin?.latitude ?? modelTransform.latitude
+        const latRad = (originLat * Math.PI) / 180
+        const mPerDegLon = 111_320 * Math.cos(latRad)
+        const mPerDegLat = 111_320
+        const offsetX = (modelTransform.longitude - originLon) * mPerDegLon
+        const offsetY = (modelTransform.latitude - originLat) * mPerDegLat
+
+        const minX = offsetX - halfW
+        const minY = offsetY - halfD
+        const maxX = offsetX + halfW
+        const maxY = offsetY + halfD
+
+        if (addObstacle(minX, minY, maxX, maxY, `mass.boundingBox[${mass.id?.substring(0, 8)}]`)) {
+          additionalFootprintsLocal.push([
+            [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]
+          ])
+        }
+      } else if (mass.footprint && mass.footprint.length >= 3) {
+        // boundingBox 없으면 footprint 사용
         const local = toLocal(mass.footprint)
-        obstacles.push({
-          minX: Math.min(...local.map(p => p[0])),
-          minY: Math.min(...local.map(p => p[1])),
-          maxX: Math.max(...local.map(p => p[0])),
-          maxY: Math.max(...local.map(p => p[1])),
-        })
-        additionalFootprintsLocal.push(local)
+        const minX = Math.min(...local.map(p => p[0]))
+        const minY = Math.min(...local.map(p => p[1]))
+        const maxX = Math.max(...local.map(p => p[0]))
+        const maxY = Math.max(...local.map(p => p[1]))
+
+        if (addObstacle(minX, minY, maxX, maxY, `mass.footprint[${mass.id?.substring(0, 8)}]`)) {
+          additionalFootprintsLocal.push(local)
+        }
       }
     }
 
+    // 2. 메인 건물 - generatedMasses에서 boundingBox로 추가된 게 있으면 스킵
+    // (DXF footprint는 GLB boundingBox보다 부정확하므로 GLB가 있으면 사용 안 함)
+    const hasAnyBoundingBox = generatedMasses.some(m => m.boundingBox)
+    if (!hasAnyBoundingBox && loadedModelEntity && building?.footprint && building.footprint.length >= 3) {
+      const local = toLocal(building.footprint)
+      const minX = Math.min(...local.map(p => p[0]))
+      const minY = Math.min(...local.map(p => p[1]))
+      const maxX = Math.max(...local.map(p => p[0]))
+      const maxY = Math.max(...local.map(p => p[1]))
+
+      addObstacle(minX, minY, maxX, maxY, 'building.footprint (fallback)')
+    } else if (hasAnyBoundingBox && loadedModelEntity && building?.footprint) {
+      console.log('[collectObstacles] building.footprint 스킵 (GLB boundingBox 사용)')
+    }
+
+    console.log(`[collectObstacles] 총 ${obstacles.length}개 장애물`)
     return { obstacles, additionalFootprintsLocal }
-  }, [building, loadedModelEntity, generatedMasses, toLocal])
+  }, [building, loadedModelEntity, generatedMasses, loadedMassGlbUrl, toLocal, modelTransform.longitude, modelTransform.latitude, parkingOrigin])
 
   // 주차구역 + 입구 생성
   const handleGenerate = useCallback(() => {
@@ -126,12 +194,12 @@ export default function ParkingZonePanel() {
       } else {
         // 다중 블록: turf.union으로 합필
         try {
-          let merged = turf.polygon([blockCoords[0]])
+          let merged: any = turf.polygon([blockCoords[0]])
           for (let i = 1; i < blockCoords.length; i++) {
             const nextPoly = turf.polygon([blockCoords[i]])
             const unionResult = turf.union(turf.featureCollection([merged, nextPoly]))
             if (unionResult) {
-              merged = unionResult as turf.Feature<turf.Polygon | turf.MultiPolygon>
+              merged = unionResult
             }
           }
 
@@ -259,12 +327,12 @@ export default function ParkingZonePanel() {
       } else {
         // 다중 블록: turf.union으로 합필
         try {
-          let merged = turf.polygon([blockCoords[0]])
+          let merged: any = turf.polygon([blockCoords[0]])
           for (let i = 1; i < blockCoords.length; i++) {
             const nextPoly = turf.polygon([blockCoords[i]])
             const unionResult = turf.union(turf.featureCollection([merged, nextPoly]))
             if (unionResult) {
-              merged = unionResult as turf.Feature<turf.Polygon | turf.MultiPolygon>
+              merged = unionResult
             }
           }
 

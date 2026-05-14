@@ -14,6 +14,17 @@ import { useProjectStore } from '@/store/projectStore'
 
 // ============= Type Definitions =============
 
+/** 개구부 (문/창문) 위치 정보 */
+interface OpeningPosition {
+  x: number       // 로컬 X 좌표 (모델 중심 기준, 미터)
+  y: number       // 로컬 Y 좌표 (모델 중심 기준, 미터)
+  width: number   // 개구부 폭 (미터)
+  height: number  // 개구부 높이 (미터)
+  rotation: number // 회전 각도 (도)
+  type: 'door' | 'window'  // 개구부 유형
+  isMainEntrance?: boolean  // 주 출입문 여부
+}
+
 export interface AnalysisResult {
   projectId: string | null
   fileId: string
@@ -25,10 +36,14 @@ export interface AnalysisResult {
     layers: string[]
   }
   glbUrl: string | null
+  /** 천장 없는 GLB URL (토글용) */
+  glbUrlNoRoof?: string | null
   /** 백엔드에서 반환한 GLB 실제 바운딩 박스 (미터 단위) */
   boundingBox?: { width: number; depth: number; height: number }
   /** 실제 적용된 LOD 레벨 (요청과 다를 수 있음) */
   lod_actual?: number
+  /** 문/창문 위치 목록 (Cesium 마커용) */
+  openings?: OpeningPosition[]
 }
 
 interface AnalysisModalProps {
@@ -95,6 +110,7 @@ export default function AnalysisModal({
   const [modelResult, setModelResult] = useState<ModelResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const isRunningRef = useRef(false)
 
   // ============= Main Analysis Effect =============
@@ -116,6 +132,7 @@ export default function AnalysisModal({
     setModelResult(null)
     setError(null)
     setCurrentProjectId(null)
+    setPreviewImageUrl(null)
 
     const runAnalysis = async () => {
       try {
@@ -162,8 +179,27 @@ export default function AnalysisModal({
         )
         setClassificationResult(classifyData)
 
+        // 분류 결과 미리보기 이미지 로드
+        if (classifyData.layer_decisions) {
+          const wallLayers = Object.entries(classifyData.layer_decisions)
+            .filter(([, cls]) => cls === 'wall')
+            .map(([l]) => l)
+            .join(',')
+          const doorLayers = Object.entries(classifyData.layer_decisions)
+            .filter(([, cls]) => cls === 'door')
+            .map(([l]) => l)
+            .join(',')
+          const windowLayers = Object.entries(classifyData.layer_decisions)
+            .filter(([, cls]) => cls === 'window')
+            .map(([l]) => l)
+            .join(',')
+
+          const previewUrl = `/api/dxf-preview/${parseData.file_id}?wall_layers=${encodeURIComponent(wallLayers)}&door_layers=${encodeURIComponent(doorLayers)}&window_layers=${encodeURIComponent(windowLayers)}`
+          setPreviewImageUrl(previewUrl)
+        }
+
         // Simulate classification processing time
-        await new Promise((r) => setTimeout(r, 1200))
+        await new Promise((r) => setTimeout(r, 800))
         setStep2Status(StepStatus.COMPLETE)
 
         // Step 3: Generate 3D model
@@ -233,10 +269,13 @@ export default function AnalysisModal({
         layers: classificationResult.layers,
       },
       glbUrl: modelResult?.glb_url || null,
+      glbUrlNoRoof: modelResult?.model_url_no_roof || null,
       boundingBox: modelResult?.bounding_box || undefined,
-      lod_actual: modelResult?.lod_actual || 1,
+      lod_actual: modelResult?.lod_actual || 3,
+      openings: modelResult?.openings || undefined,  // 문/창문 위치
     }
 
+    console.log('[AnalysisModal] 결과 전달 - openings:', result.openings?.length || 0, '개')
     onComplete(result)
   }
 
@@ -340,6 +379,32 @@ export default function AnalysisModal({
           >
             {step2Status === StepStatus.COMPLETE && classificationResult && (
               <div className="space-y-4">
+                {/* 미리보기 이미지 */}
+                {previewImageUrl && (
+                  <div className="border rounded-lg overflow-hidden bg-gray-50">
+                    <div className="text-xs text-gray-500 px-2 py-1 bg-gray-100 border-b flex items-center justify-between">
+                      <span>분류 결과 미리보기</span>
+                      <div className="flex gap-2 text-[10px]">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 bg-[#1a1a1a] rounded-sm"></span>Wall
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 bg-[#ff8c00] rounded-sm"></span>Door
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 bg-[#00b4ff] rounded-sm"></span>Window
+                        </span>
+                      </div>
+                    </div>
+                    <img
+                      src={previewImageUrl}
+                      alt="분류 미리보기"
+                      className="w-full h-auto max-h-48 object-contain"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+
                 {/* Classification Results */}
                 <div className="space-y-3">
                   {Object.entries(classificationResult.class_counts)

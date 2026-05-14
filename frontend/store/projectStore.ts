@@ -134,7 +134,8 @@ export interface ParkingEntranceData {
 export interface ParkingGridCell {
   x: number // 로컬 m
   y: number // 로컬 m
-  blocked: boolean // true=장애물(건물)
+  blocked: boolean // true=장애물(건물) 또는 사이트 외부
+  isBuilding?: boolean // true=건물 영역 (별도 표시용)
 }
 
 export interface ParkingGridData {
@@ -143,6 +144,8 @@ export interface ParkingGridData {
   cols: number
   rows: number
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
+  /** 회전된 좌표계에서의 그리드 원점 및 회전 중심 (그리드 선과 셀 정렬용) */
+  rotatedOrigin?: { x: number; y: number; rotation: number; centerX: number; centerY: number }
 }
 
 export interface ParkingPathData {
@@ -154,6 +157,8 @@ export interface ParkingPathData {
   isValid: boolean
   /** 그리드 시각화 데이터 */
   grid?: ParkingGridData
+  /** 차량 너비 (m) - 경로 시각화용 */
+  vehicleWidth?: number
 }
 
 export type ParkingLayoutPattern = 'perpendicular' | 'parallel'
@@ -202,11 +207,34 @@ interface AvailableModel {
 }
 
 // DXF 파싱 후 생성된 매스 모델
+/** 개구부 (문/창문) 위치 정보 */
+export interface OpeningPosition {
+  x: number       // 로컬 X 좌표 (모델 중심 기준, 미터)
+  y: number       // 로컬 Y 좌표 (모델 중심 기준, 미터)
+  width: number   // 개구부 폭 (미터)
+  height: number  // 개구부 높이 (미터)
+  rotation: number // 회전 각도 (도)
+  type: 'door' | 'window'  // 개구부 유형
+  isMainEntrance?: boolean  // 주 출입문 여부
+}
+
+/** 메인 출입구 마커 (드래그 가능, 매스에 종속) */
+export interface MainEntranceData {
+  /** 로컬 좌표 (매스 중심 기준, 미터) */
+  localX: number
+  localY: number
+  /** 마커 방향 (도, 화살표가 가리키는 방향) */
+  heading: number
+  /** 마커 크기 (미터) */
+  size: number
+}
+
 export interface GeneratedMass {
   id: string
   fileName: string       // 원본 DXF 파일명
   label: string          // 표시명
-  glbUrl: string         // 백엔드 GLB URL
+  glbUrl: string         // 백엔드 GLB URL (천장 포함)
+  glbUrlNoRoof?: string  // 천장 없는 GLB URL (토글용)
   footprint: number[][]  // 위경도 변환된 footprint
   centroid: number[]     // 위경도 centroid
   area: number           // 면적 (m²)
@@ -219,6 +247,8 @@ export interface GeneratedMass {
   }
   /** GLB 실제 바운딩 박스 (미터 단위, 백엔드 계산) */
   boundingBox?: { width: number; depth: number; height: number }
+  /** 문/창문 위치 목록 (Cesium 마커용) */
+  openings?: OpeningPosition[]
   createdAt: number      // timestamp
 }
 
@@ -291,6 +321,15 @@ interface ProjectState {
 
   // 생성된 매스 모델 목록
   generatedMasses: GeneratedMass[]
+
+  // 천장 슬래브 표시 여부 (토글용)
+  showRoof: boolean
+
+  // 문/창문 마커 표시 여부
+  showOpeningMarkers: boolean
+
+  // 메인 출입구 마커 (드래그 가능)
+  mainEntrance: MainEntranceData | null
 
   // 모델 로딩 중
   isLoadingModel: boolean
@@ -385,6 +424,9 @@ interface ProjectState {
   setLoadedMassGlbUrl: (url: string | null) => void
   addGeneratedMass: (mass: GeneratedMass) => void
   removeGeneratedMass: (id: string) => void
+  setShowRoof: (show: boolean) => void
+  setShowOpeningMarkers: (show: boolean) => void
+  setMainEntrance: (entrance: MainEntranceData | null) => void
   setIsLoadingModel: (loading: boolean) => void
   setHumanScaleModelLoaded: (loaded: boolean) => void
   setParkingConfig: (config: Partial<ParkingConfig>) => void
@@ -451,6 +493,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
   massGlbRestoreTransform: null,
   loadedMassGlbUrl: null,
   generatedMasses: [],
+  showRoof: true,  // 천장 슬래브 기본 표시
+  showOpeningMarkers: true,  // 문/창문 마커 기본 표시
+  mainEntrance: null,  // 메인 출입구 마커 (사용자가 드래그로 위치 설정)
   isLoadingModel: false,
   humanScaleModelLoaded: false,
   parkingConfig: {
@@ -563,6 +608,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
   removeGeneratedMass: (id) =>
     set((state) => ({ generatedMasses: state.generatedMasses.filter((m) => m.id !== id) })),
 
+  setShowRoof: (show) => set({ showRoof: show }),
+
+  setShowOpeningMarkers: (show) => set({ showOpeningMarkers: show }),
+  setMainEntrance: (entrance) => set({ mainEntrance: entrance }),
+
   setIsLoadingModel: (loading) => set({ isLoadingModel: loading }),
 
   setHumanScaleModelLoaded: (loaded) => set({ humanScaleModelLoaded: loaded }),
@@ -665,6 +715,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       generatedMasses: [],
       isLoadingModel: false,
       humanScaleModelLoaded: false,
+      mainEntrance: null,
       parkingConfig: {
         buildingUse: '근린생활시설',
         grossFloorArea: 0,

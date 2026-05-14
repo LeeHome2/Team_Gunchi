@@ -189,6 +189,7 @@ async def preprocess_building(
     files: List[Path],
     ai_server_url: str = AI_SERVER_URL,
     mock: bool = False,
+    assume_single_floorplan: bool = True,  # ★ v1.0: 단일 평면도 기본, vLLM skip
 ) -> BuildingManifest:
     """건물 1개 처리. 호출 즉시 status.json 업데이트 + 모든 PNG 생성."""
     output_dir = PROCESSED_DIR / building_id
@@ -223,17 +224,47 @@ async def preprocess_building(
             door_layers = [l for l, c in layer_decisions.items() if c == "door"]
             window_layers = [l for l, c in layer_decisions.items() if c == "window"]
 
-            # 3. 평면도 검출 (학과서버 /api/detect-floorplan)
+            # 3. 평면도 검출
             update_status(building_id, "running", "detect_floorplan", base_progress + 30, processed_dir=PROCESSED_DIR)
-            try:
-                floorplan_result = await call_detect_floorplan(dxf, ai_server_url, mock=mock)
-            except Exception as e:
-                logger.warning(f"평면도 검출 실패 {dxf.name}: {e}")
+
+            if assume_single_floorplan:
+                # ★ 단일 평면도 모드 — vLLM detect-floorplan 호출 skip
+                from ezdxf import bbox as ezbbox
+                try:
+                    doc_for_extent = ezdxf.readfile(str(dxf))
+                    ext = ezbbox.extents(doc_for_extent.modelspace(), fast=True)
+                    if ext and ext.has_data:
+                        extent = {
+                            "min_x": float(ext.extmin.x), "min_y": float(ext.extmin.y),
+                            "max_x": float(ext.extmax.x), "max_y": float(ext.extmax.y),
+                        }
+                    else:
+                        extent = {"min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1}
+                except Exception:
+                    extent = {"min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1}
+
                 floorplan_result = {
-                    "floorplans_found": False,
-                    "floorplans": [],
-                    "extent_dxf": {"min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1},
+                    "floorplans_found": True,
+                    "floorplans": [{
+                        "label": "1F",
+                        "floor_index": 0,
+                        "bbox": {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0},
+                        "reason": "single floorplan mode (vLLM skipped)",
+                    }],
+                    "extent_dxf": extent,
                 }
+                logger.info(f"단일 평면도 모드: {dxf.name} — vLLM skip")
+            else:
+                # 기존 vLLM 호출 (v1.1 이후 다중 평면도 지원 시)
+                try:
+                    floorplan_result = await call_detect_floorplan(dxf, ai_server_url, mock=mock)
+                except Exception as e:
+                    logger.warning(f"평면도 검출 실패 {dxf.name}: {e}")
+                    floorplan_result = {
+                        "floorplans_found": False,
+                        "floorplans": [],
+                        "extent_dxf": {"min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1},
+                    }
 
             # 4. 출입구/창문 분석 (휴리스틱, AWS 측)
             update_status(building_id, "running", "openings", base_progress + 45, processed_dir=PROCESSED_DIR)

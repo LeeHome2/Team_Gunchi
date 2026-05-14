@@ -39,9 +39,20 @@ export interface BuildStep {
   detail: string
 }
 
+export interface OpeningPosition {
+  x: number       // 로컬 X 좌표 (모델 중심 기준, 미터)
+  y: number       // 로컬 Y 좌표 (모델 중심 기준, 미터)
+  width: number   // 개구부 폭 (미터)
+  height: number  // 개구부 높이 (미터)
+  rotation: number // 회전 각도 (도)
+  type: 'door' | 'window'  // 개구부 유형
+  isMainEntrance?: boolean  // 주 출입문 여부
+}
+
 export interface ModelResult {
   file_id: string
   glb_url: string
+  model_url_no_roof?: string | null  // 천장 없는 GLB URL (토글용)
   mesh_stats: {
     wall_meshes: number
     vertices: number
@@ -54,6 +65,7 @@ export interface ModelResult {
   }
   build_steps?: BuildStep[]
   lod_actual?: number  // 실제 적용된 LOD (요청과 다를 수 있음)
+  openings?: OpeningPosition[]  // 문/창문 위치 (Cesium 마커용)
 }
 
 // ============= API Functions =============
@@ -398,37 +410,59 @@ export async function generateModelFromClassification(
     }
   }
 
+  // Next.js 프록시 타임아웃 문제 방지: 직접 백엔드 호출 (개발 환경)
+  const BACKEND_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : API_URL
+
   const massUrl = projectId
-    ? `${API_URL}/api/generate-mass?project_id=${projectId}`
-    : `${API_URL}/api/generate-mass`
+    ? `${BACKEND_URL}/api/generate-mass?project_id=${projectId}`
+    : `${BACKEND_URL}/api/generate-mass`
 
   console.log('[generateModel] API request body:', body)
+  console.log('[generateModel] Using URL:', massUrl)
 
-  const response = await fetch(massUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
+  // 긴 요청을 위한 타임아웃 설정 (120초 - AI API 호출 + 모델 생성 시간 고려)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 120000)
 
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '3D 모델 생성 실패')
-  }
+  try {
+    const response = await fetch(massUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
 
-  const data = await response.json()
-  return {
-    file_id: fileId,
-    glb_url: data.model_url || data.glb_url || null,
-    mesh_stats: {
-      wall_meshes: data.mesh_stats?.wall_meshes || 4,
-      vertices: data.mesh_stats?.vertices || 24,
-      faces: data.mesh_stats?.faces || 12,
-    },
-    bounding_box: data.bounding_box || undefined,
-    build_steps: data.build_steps || undefined,
-    lod_actual: data.lod_actual || 1,
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || '3D 모델 생성 실패')
+    }
+
+    const data = await response.json()
+    return {
+      file_id: fileId,
+      glb_url: data.model_url || data.glb_url || null,
+      model_url_no_roof: data.model_url_no_roof || null,  // 천장 없는 GLB URL
+      mesh_stats: {
+        wall_meshes: data.mesh_stats?.wall_meshes || 4,
+        vertices: data.mesh_stats?.vertices || 24,
+        faces: data.mesh_stats?.faces || 12,
+      },
+      bounding_box: data.bounding_box || undefined,
+      build_steps: data.build_steps || undefined,
+      lod_actual: data.lod_actual || 1,
+      openings: data.openings || undefined,  // 문/창문 위치 (Cesium 마커용)
+    }
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('요청 시간 초과 (120초). 다시 시도해주세요.')
+    }
+    throw err
   }
 }
 
@@ -510,6 +544,9 @@ const HARDCODED_LAYER_MAP: Record<string, Record<string, string>> = {
 /**
  * 파일명으로부터 하드코딩 분류를 생성합니다.
  * 매핑이 존재하면 entity의 layer를 기반으로 실제 카운트를 계산합니다.
+ *
+ * 중요: 하드코딩된 레이어가 실제 파일의 레이어와 일치하는지 검증합니다.
+ * 일치하지 않으면 null을 반환하여 AI 분류로 넘깁니다.
  */
 export function generateHardcodedClassification(
   fileId: string,
@@ -524,13 +561,32 @@ export function generateHardcodedClassification(
 
   if (!layerMap) return null
 
+  // 실제 파일에서 사용된 레이어 추출
+  const entities = parseResult.entities || []
+  const actualLayers = new Set<string>()
+  for (const entity of entities) {
+    if (entity.layer) actualLayers.add(entity.layer)
+  }
+
+  // 하드코딩된 레이어가 실제 파일에 존재하는지 검증
+  // 최소 2개 이상의 하드코딩 레이어가 실제 파일에 있어야 함
+  const hardcodedLayers = Object.keys(layerMap)
+  const matchedLayers = hardcodedLayers.filter(l => actualLayers.has(l))
+
+  if (matchedLayers.length < 2 && actualLayers.size > 0) {
+    console.log(`[하드코딩 분류 스킵] 파일명 '${fileName}'이 매핑에 해당하지만, 레이어 불일치`)
+    console.log(`  - 하드코딩 레이어: ${hardcodedLayers.slice(0, 5).join(', ')}...`)
+    console.log(`  - 실제 레이어: ${Array.from(actualLayers).slice(0, 5).join(', ')}...`)
+    console.log(`  - 일치 레이어: ${matchedLayers.length}개 → AI 분류로 전환`)
+    return null  // AI 분류로 넘김
+  }
+
   // entity의 layer 기반으로 실제 클래스별 카운트
   const classCounts: Record<string, number> = {
     wall: 0, door: 0, window: 0, stair: 0,
     furniture: 0, dimension: 0, text: 0, other: 0,
   }
 
-  const entities = parseResult.entities || []
   for (const entity of entities) {
     const layer = entity.layer || ''
     const cls = layerMap[layer] || 'other'

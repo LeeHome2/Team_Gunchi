@@ -35,6 +35,7 @@ async def run_preprocess_for_unprocessed(
     ai_server_url: str = AI_SERVER_URL,
     mock: bool = False,
     limit: Optional[int] = None,
+    assume_single_floorplan: bool = True,  # ★ v1.0: 단일 평면도 기본
 ) -> dict:
     """raw_dir 의 모든 건물 폴더 검사 → manifest 없는 건물 처리.
 
@@ -44,6 +45,7 @@ async def run_preprocess_for_unprocessed(
         ai_server_url: 학과 AI 서버 URL
         mock: vLLM mock 모드
         limit: 처리 개수 제한
+        assume_single_floorplan: True 면 vLLM detect-floorplan skip
 
     Returns:
         {
@@ -102,6 +104,7 @@ async def run_preprocess_for_unprocessed(
                 files,
                 ai_server_url=ai_server_url,
                 mock=mock,
+                assume_single_floorplan=assume_single_floorplan,
             )
             results.append({"building_id": building_id, "status": "completed", "error": None})
             processed_count += 1
@@ -128,6 +131,7 @@ def run_preprocess_sync(
     ai_server_url: str = AI_SERVER_URL,
     mock: bool = False,
     limit: Optional[int] = None,
+    assume_single_floorplan: bool = True,  # ★ v1.0: 단일 평면도 기본
 ) -> dict:
     """동기 버전 (asyncio.run 래퍼)."""
     return asyncio.run(run_preprocess_for_unprocessed(
@@ -136,6 +140,7 @@ def run_preprocess_sync(
         ai_server_url=ai_server_url,
         mock=mock,
         limit=limit,
+        assume_single_floorplan=assume_single_floorplan,
     ))
 
 

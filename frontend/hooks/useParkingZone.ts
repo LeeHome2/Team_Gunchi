@@ -340,7 +340,7 @@ export function useParkingZone() {
       const Cesium = (window as any).Cesium
       if (!Cesium) return
 
-      const { gridSize, bounds } = path.grid
+      const { gridSize, bounds, cells } = path.grid
       if (!bounds) return
 
       // 선택된 블록 폴리곤 가져오기 (위경도)
@@ -452,17 +452,17 @@ export function useParkingZone() {
       }
 
       // 그리드 회전 - parkingPathfinder와 동일한 방식으로 처리
-      // 1. 먼저 footprint를 회전
-      // 2. 회전된 좌표계의 bounds에서 그리드 선 생성
-      // 3. 그리드 선을 역회전하여 원래 좌표계로 변환
-      const currentGridRotation = useProjectStore.getState().gridRotation
+      // rotatedOrigin에서 회전 정보와 중심점 가져오기
+      const rotatedOrigin = path.grid.rotatedOrigin
+      const currentGridRotation = rotatedOrigin?.rotation ?? useProjectStore.getState().gridRotation
       const rotRad = (-currentGridRotation * Math.PI) / 180  // parkingPathfinder와 동일
       const cos = Math.cos(rotRad)
       const sin = Math.sin(rotRad)
 
+      // 회전 중심: rotatedOrigin이 있으면 사용, 없으면 bounds 중심 사용
       const { minX, minY, maxX, maxY } = bounds
-      const centerX = (minX + maxX) / 2
-      const centerY = (minY + maxY) / 2
+      const centerX = rotatedOrigin?.centerX ?? (minX + maxX) / 2
+      const centerY = rotatedOrigin?.centerY ?? (minY + maxY) / 2
 
       // 점을 회전된 좌표계로 변환 (parkingPathfinder의 rotatePoint와 동일)
       const rotatePoint = (x: number, y: number): [number, number] => {
@@ -481,19 +481,33 @@ export function useParkingZone() {
         poly.map(([x, y]) => rotatePoint(x, y))
       )
 
-      // 회전된 폴리곤의 AABB 계산
-      const allRotatedXs: number[] = []
-      const allRotatedYs: number[] = []
-      for (const poly of rotatedPolygons) {
-        for (const [x, y] of poly) {
-          allRotatedXs.push(x)
-          allRotatedYs.push(y)
+      // 회전된 좌표계의 그리드 원점 사용 (parkingPathfinder와 일치시키기 위해)
+      // rotatedOrigin이 있으면 사용, 없으면 기존 방식으로 계산
+      let rotMinX: number, rotMinY: number, rotMaxX: number, rotMaxY: number
+
+      if (path.grid.rotatedOrigin) {
+        // parkingPathfinder에서 전달된 원점 사용
+        const { x: originX, y: originY } = path.grid.rotatedOrigin
+        const { cols, rows } = path.grid
+        rotMinX = originX
+        rotMinY = originY
+        rotMaxX = originX + cols * gridSize
+        rotMaxY = originY + rows * gridSize
+      } else {
+        // fallback: 회전된 폴리곤의 AABB 계산
+        const allRotatedXs: number[] = []
+        const allRotatedYs: number[] = []
+        for (const poly of rotatedPolygons) {
+          for (const [x, y] of poly) {
+            allRotatedXs.push(x)
+            allRotatedYs.push(y)
+          }
         }
+        rotMinX = Math.min(...allRotatedXs) - 5
+        rotMinY = Math.min(...allRotatedYs) - 5
+        rotMaxX = Math.max(...allRotatedXs) + 5
+        rotMaxY = Math.max(...allRotatedYs) + 5
       }
-      const rotMinX = Math.min(...allRotatedXs) - 5
-      const rotMinY = Math.min(...allRotatedYs) - 5
-      const rotMaxX = Math.max(...allRotatedXs) + 5
-      const rotMaxY = Math.max(...allRotatedYs) + 5
 
       // 회전된 폴리곤 내부 체크 함수
       const isInsideRotatedPolygon = (px: number, py: number): boolean => {
@@ -607,6 +621,168 @@ export function useParkingZone() {
           ids.push(id)
         }
       }
+
+      // ── 건물 영역 그리드 선 렌더링 (빨간색 폴리라인) ──
+      // 건물 boundingBox를 가져와서 회전 적용 후 그리드 선 그리기
+      const state = useProjectStore.getState()
+      const masses = state.generatedMasses
+      const loadedUrl = state.loadedMassGlbUrl
+      const mt = state.modelTransform
+      const po = state.parkingOrigin
+
+      // 현재 로드된 매스의 boundingBox 찾기
+      const currentMass = masses.find(m =>
+        m.glbUrl === loadedUrl || m.glbUrlNoRoof === loadedUrl
+      )
+
+      if (currentMass?.boundingBox) {
+        const { width, depth } = currentMass.boundingBox
+        const halfW = width / 2
+        const halfD = depth / 2
+
+        // 건물 중심 (parkingOrigin 기준 로컬 좌표)
+        const originLon = po?.longitude ?? mt.longitude
+        const originLat = po?.latitude ?? mt.latitude
+        const latRadB = (originLat * Math.PI) / 180
+        const mPerDegLonB = 111_320 * Math.cos(latRadB)
+        const mPerDegLatB = 111_320
+        const buildingCenterX = (mt.longitude - originLon) * mPerDegLonB
+        const buildingCenterY = (mt.latitude - originLat) * mPerDegLatB
+
+        // 매스 회전 (modelTransform.rotation)
+        const massRotRad = (mt.rotation * Math.PI) / 180
+        const cosM = Math.cos(massRotRad)
+        const sinM = Math.sin(massRotRad)
+
+        // 건물 4개 코너 (회전 적용)
+        const buildingCorners = [
+          [-halfW, -halfD],
+          [halfW, -halfD],
+          [halfW, halfD],
+          [-halfW, halfD],
+        ].map(([x, y]) => {
+          // 회전 적용
+          const rx = x * cosM - y * sinM
+          const ry = x * sinM + y * cosM
+          return [buildingCenterX + rx, buildingCenterY + ry]
+        })
+
+        // 건물 폴리곤 AABB (회전된 상태)
+        const bXs = buildingCorners.map(c => c[0])
+        const bYs = buildingCorners.map(c => c[1])
+        const bMinX = Math.min(...bXs)
+        const bMinY = Math.min(...bYs)
+        const bMaxX = Math.max(...bXs)
+        const bMaxY = Math.max(...bYs)
+
+        // 점이 건물 폴리곤 내부인지 확인
+        const isInsideBuildingPoly = (px: number, py: number): boolean => {
+          let inside = false
+          const poly = buildingCorners
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i][0], yi = poly[i][1]
+            const xj = poly[j][0], yj = poly[j][1]
+            const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi
+            if (intersect) inside = !inside
+          }
+          return inside
+        }
+
+        // 선분을 건물 폴리곤으로 클리핑
+        const clipLineToBuildingPoly = (
+          x1: number, y1: number, x2: number, y2: number
+        ): Array<[[number, number], [number, number]]> => {
+          const segments: Array<[[number, number], [number, number]]> = []
+          const intersections: { t: number; point: [number, number] }[] = []
+          const dx = x2 - x1, dy = y2 - y1
+          const len = Math.sqrt(dx * dx + dy * dy)
+          if (len < 0.001) return segments
+
+          const poly = buildingCorners
+          for (let i = 0; i < poly.length; i++) {
+            const j = (i + 1) % poly.length
+            const inter = lineIntersection(x1, y1, x2, y2, poly[i][0], poly[i][1], poly[j][0], poly[j][1])
+            if (inter) {
+              const t = Math.sqrt((inter[0] - x1) ** 2 + (inter[1] - y1) ** 2) / len
+              intersections.push({ t, point: inter })
+            }
+          }
+
+          intersections.sort((a, b) => a.t - b.t)
+          const points: { t: number; point: [number, number] }[] = [
+            { t: 0, point: [x1, y1] },
+            ...intersections,
+            { t: 1, point: [x2, y2] },
+          ]
+
+          for (let i = 0; i < points.length - 1; i++) {
+            const midX = (points[i].point[0] + points[i + 1].point[0]) / 2
+            const midY = (points[i].point[1] + points[i + 1].point[1]) / 2
+            if (isInsideBuildingPoly(midX, midY)) {
+              segments.push([points[i].point, points[i + 1].point])
+            }
+          }
+          return segments
+        }
+
+        const buildingGridColor = Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.95)
+        let buildingLineId = 0
+
+        // 건물 영역 내 수직선
+        for (let x = rotMinX; x <= rotMaxX; x += gridSize) {
+          if (!viewer || (viewer as any).isDestroyed?.() || !viewer.entities) return
+          // 먼저 사이트 내부로 클리핑
+          const siteSegs = clipLineToRotatedPolygons(x, rotMinY, x, rotMaxY)
+          for (const [[sx1, sy1], [sx2, sy2]] of siteSegs) {
+            // 역회전하여 원래 좌표계로
+            const [ox1, oy1] = unrotatePoint(sx1, sy1)
+            const [ox2, oy2] = unrotatePoint(sx2, sy2)
+            // 건물 영역으로 클리핑
+            const buildingSegs = clipLineToBuildingPoly(ox1, oy1, ox2, oy2)
+            for (const [[bx1, by1], [bx2, by2]] of buildingSegs) {
+              const [lon1, lat1] = toLatLon(bx1, by1)
+              const [lon2, lat2] = toLatLon(bx2, by2)
+              const id = `_parking_grid_building_v_${buildingLineId++}`
+              viewer.entities.add({
+                id,
+                polyline: {
+                  positions: Cesium.Cartesian3.fromDegreesArray([lon1, lat1, lon2, lat2]),
+                  width: 3,
+                  material: buildingGridColor,
+                  clampToGround: true,
+                },
+              })
+              ids.push(id)
+            }
+          }
+        }
+
+        // 건물 영역 내 수평선
+        for (let y = rotMinY; y <= rotMaxY; y += gridSize) {
+          if (!viewer || (viewer as any).isDestroyed?.() || !viewer.entities) return
+          const siteSegs = clipLineToRotatedPolygons(rotMinX, y, rotMaxX, y)
+          for (const [[sx1, sy1], [sx2, sy2]] of siteSegs) {
+            const [ox1, oy1] = unrotatePoint(sx1, sy1)
+            const [ox2, oy2] = unrotatePoint(sx2, sy2)
+            const buildingSegs = clipLineToBuildingPoly(ox1, oy1, ox2, oy2)
+            for (const [[bx1, by1], [bx2, by2]] of buildingSegs) {
+              const [lon1, lat1] = toLatLon(bx1, by1)
+              const [lon2, lat2] = toLatLon(bx2, by2)
+              const id = `_parking_grid_building_h_${buildingLineId++}`
+              viewer.entities.add({
+                id,
+                polyline: {
+                  positions: Cesium.Cartesian3.fromDegreesArray([lon1, lat1, lon2, lat2]),
+                  width: 3,
+                  material: buildingGridColor,
+                  clampToGround: true,
+                },
+              })
+              ids.push(id)
+            }
+          }
+        }
+      }
     },
     [viewer, selectedBlockInfo, site, gridRotation],
   )
@@ -627,31 +803,81 @@ export function useParkingZone() {
       const mPerDegLat = 111_320
       const mPerDegLon = 111_320 * Math.cos(latRad)
 
+      const pathColor = path.isValid
+        ? Cesium.Color.fromCssColorString('#10b981') // 초록 (유효)
+        : Cesium.Color.fromCssColorString('#ef4444') // 빨강 (무효)
+
+      // 차량 너비 (기본 2.5m)
+      const vehicleWidth = path.vehicleWidth ?? 2.5
+      const halfWidth = vehicleWidth / 2
+
+      // 각 세그먼트에 대해 차량 너비만큼의 폴리곤(면) 생성
+      for (let i = 0; i < path.points.length - 1; i++) {
+        const [x1, y1] = path.points[i]
+        const [x2, y2] = path.points[i + 1]
+
+        // 세그먼트 방향 벡터
+        const dx = x2 - x1
+        const dy = y2 - y1
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len < 0.001) continue
+
+        // 수직 방향 벡터 (정규화)
+        const perpX = (-dy / len) * halfWidth
+        const perpY = (dx / len) * halfWidth
+
+        // 사각형의 네 꼭지점 (로컬 좌표)
+        const corners = [
+          [x1 + perpX, y1 + perpY],  // 시작점 왼쪽
+          [x1 - perpX, y1 - perpY],  // 시작점 오른쪽
+          [x2 - perpX, y2 - perpY],  // 끝점 오른쪽
+          [x2 + perpX, y2 + perpY],  // 끝점 왼쪽
+        ]
+
+        // 위경도로 변환
+        const cornerPositions: number[] = []
+        corners.forEach(([cx, cy]) => {
+          const lon = pathOriginLon + cx / mPerDegLon
+          const lat = pathOriginLat + cy / mPerDegLat
+          cornerPositions.push(lon, lat)
+        })
+
+        // 폴리곤 엔티티 (면으로 표시)
+        const segmentId = `_parking_path_seg_${i}`
+        viewer.entities.add({
+          id: segmentId,
+          polygon: {
+            hierarchy: Cesium.Cartesian3.fromDegreesArray(cornerPositions),
+            material: pathColor.withAlpha(0.4),
+            outline: true,
+            outlineColor: pathColor.withAlpha(0.8),
+            outlineWidth: 1,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          },
+        })
+        ids.push(segmentId)
+      }
+
+      // 경로 중심선 (점선으로 표시)
       const positions = path.points.map(([x, y]) => {
         const lon = pathOriginLon + x / mPerDegLon
         const lat = pathOriginLat + y / mPerDegLat
         return Cesium.Cartesian3.fromDegrees(lon, lat)
       })
-
-      const pathColor = path.isValid
-        ? Cesium.Color.fromCssColorString('#10b981') // 초록 (유효)
-        : Cesium.Color.fromCssColorString('#ef4444') // 빨강 (무효)
-
-      // 경로 라인
-      const pathId = '_parking_path'
+      const pathLineId = '_parking_path_line'
       viewer.entities.add({
-        id: pathId,
+        id: pathLineId,
         polyline: {
           positions,
-          width: 5,
+          width: 2,
           material: new Cesium.PolylineDashMaterialProperty({
-            color: pathColor.withAlpha(0.8),
-            dashLength: 12,
+            color: Cesium.Color.WHITE.withAlpha(0.8),
+            dashLength: 8,
           }),
           clampToGround: true,
         },
       })
-      ids.push(pathId)
+      ids.push(pathLineId)
 
       // 경로 길이 라벨 (중간 지점)
       const midIdx = Math.floor(path.points.length / 2)
@@ -663,7 +889,7 @@ export function useParkingZone() {
         id: pathLabelId,
         position: Cesium.Cartesian3.fromDegrees(mLon, mLat, 2),
         label: {
-          text: `${path.length.toFixed(1)}m`,
+          text: `${path.length.toFixed(1)}m (폭 ${vehicleWidth}m)`,
           font: '12px sans-serif',
           fillColor: Cesium.Color.WHITE,
           outlineColor: pathColor,

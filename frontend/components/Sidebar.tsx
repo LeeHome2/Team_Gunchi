@@ -10,6 +10,7 @@ import {
 } from '@/lib/api'
 import AnalysisModal, { AnalysisResult } from '@/components/AnalysisModal'
 import ParkingZonePanel from '@/components/ParkingZonePanel'
+import SampleCards from '@/components/SampleCards'
 
 /**
  * 사이드바 컴포넌트
@@ -52,13 +53,17 @@ export default function Sidebar() {
     setModelTransform,
     setModelToLoad,
     setHumanScaleModelLoaded,
+    showRoof,
+    setShowRoof,
+    showOpeningMarkers,
+    setShowOpeningMarkers,
   } = useProjectStore()
 
   const [activeTab, setActiveTab] = useState<'upload' | 'mass' | 'validate' | 'parking'>('upload')
   const projectId = useProjectStore((s) => s.projectId)
   const [dxfList, setDxfList] = useState<SidebarDxfFile[]>([])
   const [dxfListLoading, setDxfListLoading] = useState(false)
-  const [selectedLod, setSelectedLod] = useState<1 | 2 | 3>(1)  // LOD 선택
+  // v1.0: LOD 선택 제거 — 항상 LOD3 사용
 
   const refreshDxfList = useCallback(async () => {
     if (!projectId) {
@@ -261,14 +266,7 @@ export default function Sidebar() {
 
   // Handle analysis modal completion — 생성된 매스를 목록에 추가 (즉시 배치 X)
   const handleAnalysisComplete = (result: AnalysisResult) => {
-    // LOD 폴백 알림
-    if (result.lod_actual && result.lod_actual < selectedLod) {
-      console.warn(`LOD${selectedLod} 요청 → LOD${result.lod_actual}로 폴백됨`)
-      // 간단한 토스트 대신 alert 사용 (실제로는 toast 라이브러리 권장)
-      setTimeout(() => {
-        alert(`LOD${selectedLod} 생성 실패로 LOD${result.lod_actual}로 폴백되었습니다.`)
-      }, 100)
-    }
+    // v1.0: 항상 LOD3 사용, 폴백 알림 제거
 
     if (result.projectId) {
       useProjectStore.getState().setProjectId(result.projectId)
@@ -332,6 +330,7 @@ export default function Sidebar() {
 
     // 생성된 매스 모델을 목록에 추가
     const glbUrl = result.glbUrl || ''
+    const glbUrlNoRoof = result.glbUrlNoRoof || undefined
     const fileName = analysisFile?.name || 'unknown.dxf'
 
     useProjectStore.getState().addGeneratedMass({
@@ -339,6 +338,7 @@ export default function Sidebar() {
       fileName,
       label: fileName.replace(/\.dxf$/i, '').replace(/_/g, ' '),
       glbUrl,
+      glbUrlNoRoof,  // 천장 없는 버전 URL
       footprint,
       centroid,
       area: result.site.area_sqm,
@@ -350,8 +350,11 @@ export default function Sidebar() {
         average_confidence: result.classification.average_confidence,
       },
       boundingBox: result.boundingBox || undefined,
+      openings: result.openings || undefined,  // 문/창문 위치 (Cesium 마커용)
       createdAt: Date.now(),
     })
+
+    console.log('[Sidebar] 매스 추가됨 - openings:', result.openings?.length || 0, '개')
 
     // 모달 닫고 매스 탭으로
     setShowAnalysisModal(false)
@@ -420,31 +423,6 @@ export default function Sidebar() {
             <p className="text-sm text-gray-600">
               CAD 도면(DXF)을 업로드하여 대지 경계를 추출합니다.
             </p>
-
-            {/* LOD 선택 - 업로드 전에 설정 */}
-            <div className="border rounded-lg p-3 bg-gradient-to-r from-blue-50 to-indigo-50">
-              <h4 className="text-sm font-medium mb-2">매스 상세 레벨 (LOD)</h4>
-              <div className="flex gap-1">
-                {[1, 2, 3].map((lod) => (
-                  <button
-                    key={lod}
-                    onClick={() => setSelectedLod(lod as 1 | 2 | 3)}
-                    className={`flex-1 px-3 py-1.5 text-xs rounded transition-colors ${
-                      selectedLod === lod
-                        ? 'bg-blue-500 text-white shadow-sm'
-                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    LOD{lod}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-gray-500 mt-1.5">
-                {selectedLod === 1 && 'LOD1: 기본 벽체만'}
-                {selectedLod === 2 && 'LOD2: 벽체 + 바닥/지붕 슬래브'}
-                {selectedLod === 3 && 'LOD3: 벽체 + 슬래브 + 문/창문 구멍'}
-              </p>
-            </div>
 
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
               <input
@@ -566,12 +544,44 @@ export default function Sidebar() {
           <div className="space-y-4">
             <h3 className="font-semibold text-lg">건물 매스 설정</h3>
 
-            {/* 현재 LOD 표시 */}
-            <div className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
-              현재 LOD: <span className="font-medium text-blue-600">LOD{selectedLod}</span>
-              <span className="ml-1">
-                ({selectedLod === 1 ? '기본 벽체' : selectedLod === 2 ? '벽체+슬래브' : '벽체+슬래브+개구부'})
-              </span>
+            {/* 천장 슬래브 토글 */}
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 p-3 bg-gray-50">
+              <div>
+                <p className="text-sm font-medium text-gray-700">천장 슬래브</p>
+                <p className="text-xs text-gray-500">지붕/천장 표시 여부</p>
+              </div>
+              <button
+                onClick={() => setShowRoof(!showRoof)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  showRoof ? 'bg-blue-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    showRoof ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* 문/창문 마커 토글 */}
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 p-3 bg-gray-50">
+              <div>
+                <p className="text-sm font-medium text-gray-700">출입구/창문 마커</p>
+                <p className="text-xs text-gray-500">문/창문 위치 표시</p>
+              </div>
+              <button
+                onClick={() => setShowOpeningMarkers(!showOpeningMarkers)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  showOpeningMarkers ? 'bg-blue-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    showOpeningMarkers ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
 
             {/* 업로드된 DXF 파일 목록 (DB 기반) */}
@@ -685,6 +695,11 @@ export default function Sidebar() {
                 </div>
               </div>
             )}
+
+            {/* 샘플 도면 빠른 생성 */}
+            <div className="border-b pb-4">
+              <SampleCards />
+            </div>
 
             {/* 3D 샘플 모델 로드 */}
             <div className="border-b pb-4">
@@ -1128,7 +1143,7 @@ export default function Sidebar() {
               ? [workArea.longitude, workArea.latitude]
               : undefined
         }
-        lod={selectedLod}
+        lod={3}  // v1.0: 항상 LOD3 사용
       />
     </div>
   )

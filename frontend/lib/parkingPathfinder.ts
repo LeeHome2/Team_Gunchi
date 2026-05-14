@@ -54,14 +54,16 @@ export interface PathfinderInput {
   siteFootprint: number[][]
   /** 장애물 (건물 등) AABB 목록 [{minX,minY,maxX,maxY}] */
   obstacles: { minX: number; minY: number; maxX: number; maxY: number }[]
-  /** 그리드 해상도 (m, 기본 2m) */
+  /** 그리드 해상도 (m, 기본 0.5m - 더 세밀한 해상도) */
   gridSize?: number
-  /** 장애물 주변 마진 (그리드 셀 수, 기본 1) */
+  /** 장애물 주변 마진 (그리드 셀 수, 기본 1) - vehicleWidth 사용 시 자동 계산됨 */
   obstacleMargin?: number
   /** 그리드 시각화 데이터 반환 여부 (기본 true) */
   returnGrid?: boolean
   /** 그리드 회전 각도 (도, 기본 0) */
   gridRotation?: number
+  /** 차량 너비 (m, 기본 2.5m) - 이동 경로의 폭 */
+  vehicleWidth?: number
 }
 
 /**
@@ -73,8 +75,11 @@ export interface PathfinderInput {
 export function findParkingPath(input: PathfinderInput): ParkingPathData {
   const {
     start, goal, siteFootprint, obstacles,
-    gridSize = 2, obstacleMargin = 1, returnGrid = true,
+    gridSize = 2,  // 그리드 해상도 (m)
+    obstacleMargin = 1,  // 장애물 마진 (그리드 셀 수)
+    returnGrid = true,
     gridRotation = 0,
+    vehicleWidth = 2.5,  // 차량 너비 (m) - 시각화용
   } = input
 
   // 회전 중심 계산 (사이트 중심)
@@ -161,6 +166,19 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
 
   // 장애물 그리드 마크 (다중 장애물 지원) - 회전된 장애물 사용
   const blocked = new Set<string>()
+  const buildingCells = new Set<string>()  // 건물 영역 셀 (별도 표시용)
+
+  // 디버그: 원본 장애물 정보 출력
+  console.log('[ParkingPathfinder] Original obstacles:')
+  obstacles.forEach((obs, i) => {
+    console.log(`  [${i}] ${(obs.maxX - obs.minX).toFixed(1)} x ${(obs.maxY - obs.minY).toFixed(1)} m at (${obs.minX.toFixed(1)}, ${obs.minY.toFixed(1)}) ~ (${obs.maxX.toFixed(1)}, ${obs.maxY.toFixed(1)})`)
+  })
+  console.log('[ParkingPathfinder] Site footprint bounds:', {
+    minX: Math.min(...siteFootprint.map(p => p[0])).toFixed(1),
+    minY: Math.min(...siteFootprint.map(p => p[1])).toFixed(1),
+    maxX: Math.max(...siteFootprint.map(p => p[0])).toFixed(1),
+    maxY: Math.max(...siteFootprint.map(p => p[1])).toFixed(1),
+  })
 
   for (const obs of rotatedObstacles) {
     const [g1x, g1y] = toGrid(obs.minX, obs.minY)
@@ -168,6 +186,10 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     for (let gx = g1x - obstacleMargin; gx <= g2x + obstacleMargin; gx++) {
       for (let gy = g1y - obstacleMargin; gy <= g2y + obstacleMargin; gy++) {
         blocked.add(nodeKey(gx, gy))
+        // 마진 없는 영역만 건물로 표시
+        if (gx >= g1x && gx <= g2x && gy >= g1y && gy <= g2y) {
+          buildingCells.add(nodeKey(gx, gy))
+        }
       }
     }
   }
@@ -193,20 +215,34 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
         if (isInsidePolygon(wx, wy, rotatedFootprint)) {
           // 셀 좌표는 원래 좌표계로 역변환하여 저장
           const [origX, origY] = unrotatePoint(wx, wy)
+          const key = nodeKey(gx, gy)
           cells.push({
             x: origX,
             y: origY,
-            blocked: blocked.has(nodeKey(gx, gy)),
+            blocked: blocked.has(key),
+            isBuilding: buildingCells.has(key),  // 건물 영역 표시
           })
         }
       }
     }
+    // 디버그 로그
+    const buildingCount = cells.filter(c => c.isBuilding).length
+    console.log('[ParkingPathfinder] Grid stats:', {
+      totalCells: cells.length,
+      buildingCells: buildingCount,
+      blockedCells: cells.filter(c => c.blocked).length,
+      buildingCellsSet: buildingCells.size,
+      obstacles: obstacles.length,
+      rotatedObstacles: rotatedObstacles.length,
+    })
     gridData = {
       cells,
       gridSize,
       cols,
       rows,
       bounds: { minX: origMinX, minY: origMinY, maxX: origMaxX, maxY: origMaxY },
+      // 회전된 좌표계 원점 및 회전 중심 (그리드 선 렌더링용)
+      rotatedOrigin: { x: sMinX, y: sMinY, rotation: gridRotation, centerX, centerY },
     }
   }
 
@@ -315,6 +351,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
       length: heuristic(start[0], start[1], goal[0], goal[1]),
       isValid: false,
       grid: gridData,
+      vehicleWidth,
     }
   }
 
@@ -359,6 +396,7 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     length: totalLength,
     isValid,
     grid: gridData,
+    vehicleWidth,  // 경로 시각화용 차량 너비
   }
 }
 

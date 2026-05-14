@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import List, Tuple
 from sqlalchemy.orm import Session
 import logging
+import httpx
 
 from services.dxf_parser import parse_dxf_file
 from services.gltf_exporter import create_building_gltf, create_wall_building_gltf
@@ -208,7 +209,7 @@ async def get_project_endpoint(
                 "original_filename": d.original_filename,
                 "total_entities": d.total_entities,
                 "area_sqm": d.area_sqm,
-                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
             }
             for d in project.dxf_files
         ]
@@ -617,6 +618,96 @@ async def get_current_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── DXF 분류 미리보기 API ─────────────────────────────────────
+@app.get("/api/dxf-preview/{file_id}")
+async def get_dxf_classification_preview(
+    file_id: str,
+    wall_layers: str = "",  # 쉼표로 구분된 레이어 이름
+    door_layers: str = "",
+    window_layers: str = "",
+):
+    """
+    DXF 파일의 분류 결과를 4색 이미지로 반환.
+    벽=검정, 문=주황, 창문=하늘, 기타=회색
+    """
+    from fastapi.responses import FileResponse
+    from services.preprocess.visualizer import render_overlay_4color
+    import tempfile
+
+    dxf_path = UPLOAD_DIR / f"{file_id}.dxf"
+    if not dxf_path.exists():
+        raise HTTPException(status_code=404, detail=f"DXF 파일을 찾을 수 없습니다: {file_id}")
+
+    # 쉼표로 구분된 레이어 파싱
+    wall_list = [l.strip() for l in wall_layers.split(",") if l.strip()]
+    door_list = [l.strip() for l in door_layers.split(",") if l.strip()]
+    window_list = [l.strip() for l in window_layers.split(",") if l.strip()]
+
+    # 실제 DXF 레이어 추출
+    import ezdxf
+    doc = ezdxf.readfile(str(dxf_path))
+    msp = doc.modelspace()
+    actual_layers = set()
+    for ent in msp:
+        try:
+            actual_layers.add(ent.dxf.layer)
+        except:
+            pass
+
+    # 제공된 레이어가 실제 존재하는지 검증
+    wall_matched = [l for l in wall_list if l in actual_layers]
+    door_matched = [l for l in door_list if l in actual_layers]
+    window_matched = [l for l in window_list if l in actual_layers]
+
+    # 일치하는 레이어가 없으면 자동 감지
+    WALL_KEYWORDS = ['wall', 'muro', 'muros', 'medianera', 'viga', '벽']
+    DOOR_KEYWORDS = ['door', 'puerta', 'puertas', '문']
+    WINDOW_KEYWORDS = ['window', 'ventana', 'ventanas', '창']
+
+    if not wall_matched:
+        wall_matched = [l for l in actual_layers if any(kw in l.lower() for kw in WALL_KEYWORDS)]
+    if not door_matched:
+        door_matched = [l for l in actual_layers if any(kw in l.lower() for kw in DOOR_KEYWORDS)]
+    if not window_matched:
+        window_matched = [l for l in actual_layers if any(kw in l.lower() for kw in WINDOW_KEYWORDS)]
+
+    # layer_decisions 구성
+    layer_decisions = {}
+    for layer in wall_matched:
+        layer_decisions[layer] = "wall"
+    for layer in door_matched:
+        layer_decisions[layer] = "door"
+    for layer in window_matched:
+        layer_decisions[layer] = "window"
+
+    # 나머지 레이어는 other
+    for layer in actual_layers:
+        if layer not in layer_decisions:
+            layer_decisions[layer] = "other"
+
+    # 로깅
+    wall_count = sum(1 for v in layer_decisions.values() if v == "wall")
+    door_count = sum(1 for v in layer_decisions.values() if v == "door")
+    window_count = sum(1 for v in layer_decisions.values() if v == "window")
+    logger.info(f"Preview layer detection: wall={wall_count}, door={door_count}, window={window_count}")
+
+    # 임시 파일에 렌더링
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        output_path = Path(tmp.name)
+
+    try:
+        render_overlay_4color(dxf_path, layer_decisions, output_path, figsize=(10, 10), dpi=80)
+        return FileResponse(
+            output_path,
+            media_type="image/png",
+            filename=f"preview_{file_id}.png",
+            background=None,  # 동기적으로 전송 후 삭제
+        )
+    except Exception as e:
+        logger.error(f"Preview rendering failed: {e}")
+        raise HTTPException(status_code=500, detail=f"미리보기 생성 실패: {e}")
+
+
 @app.post("/api/upload-dxf")
 async def upload_dxf(
     file: UploadFile = File(...),
@@ -703,6 +794,116 @@ async def upload_dxf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── 평면도 검출 헬퍼 함수 ─────────────────────────────────────
+async def call_detect_floorplan(dxf_path: Path, timeout: float = 120.0) -> dict:
+    """
+    학과 AI 서버 /api/detect-floorplan 호출하여 평면도 bbox 검출.
+
+    Returns:
+        {
+            "floorplans_found": bool,
+            "floorplans": [{"label": "1F", "floor_index": 0, "bbox": {"x_min", "y_min", "x_max", "y_max"}}, ...],
+            "extent_dxf": {"min_x", "min_y", "max_x", "max_y"}
+        }
+    """
+    ai_server_url = os.getenv("AI_SERVER_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            with open(dxf_path, "rb") as f:
+                response = await client.post(
+                    f"{ai_server_url}/api/detect-floorplan",
+                    files={"file": (dxf_path.name, f, "application/octet-stream")},
+                )
+                response.raise_for_status()
+                return response.json()
+    except Exception as e:
+        logger.warning(f"detect-floorplan API 호출 실패: {e}")
+        return {"floorplans_found": False, "floorplans": [], "extent_dxf": None}
+
+
+def convert_bbox_to_dxf_coords(bbox: dict, extent: dict) -> dict:
+    """
+    정규화된 bbox (0~1)를 실제 DXF 좌표로 변환.
+
+    Args:
+        bbox: {"x_min": 0.1, "y_min": 0.2, "x_max": 0.8, "y_max": 0.9}
+        extent: {"min_x": -20, "min_y": 260, "max_x": 30, "max_y": 290}
+
+    Returns:
+        {"min_x": ..., "min_y": ..., "max_x": ..., "max_y": ...}
+    """
+    width = extent["max_x"] - extent["min_x"]
+    height = extent["max_y"] - extent["min_y"]
+
+    return {
+        "min_x": extent["min_x"] + bbox["x_min"] * width,
+        "max_x": extent["min_x"] + bbox["x_max"] * width,
+        "min_y": extent["min_y"] + bbox["y_min"] * height,
+        "max_y": extent["min_y"] + bbox["y_max"] * height,
+    }
+
+
+def compute_dxf_extent_local(dxf_path: Path, wall_layers: list = None) -> dict:
+    """
+    로컬 DXF 파일에서 좌표 범위 계산.
+
+    wall_layers가 주어지면 해당 레이어의 엔티티만 사용하여 범위 계산.
+    (여러 도면이 있는 DXF에서 벽 레이어 기준으로 정확한 평면도 영역 찾기)
+    """
+    import ezdxf
+
+    doc = ezdxf.readfile(str(dxf_path))
+    msp = doc.modelspace()
+
+    xs, ys = [], []
+
+    # wall_layers가 있으면 해당 레이어만, 없으면 전체
+    wall_layers_upper = [l.upper() for l in (wall_layers or [])]
+
+    for ent in msp:
+        try:
+            # wall_layers 필터링
+            if wall_layers_upper:
+                layer = ent.dxf.layer.upper()
+                if not any(wl in layer for wl in wall_layers_upper):
+                    continue
+
+            et = ent.dxftype()
+            if et == "LINE":
+                xs.extend([ent.dxf.start[0], ent.dxf.end[0]])
+                ys.extend([ent.dxf.start[1], ent.dxf.end[1]])
+            elif et == "LWPOLYLINE":
+                for x, y, *_ in ent.get_points():
+                    xs.append(x)
+                    ys.append(y)
+            elif et == "POLYLINE":
+                for v in ent.vertices:
+                    xs.append(v.dxf.location[0])
+                    ys.append(v.dxf.location[1])
+            elif et == "CIRCLE":
+                cx, cy = ent.dxf.center[:2]
+                r = ent.dxf.radius
+                xs.extend([cx - r, cx + r])
+                ys.extend([cy - r, cy + r])
+            elif et == "ARC":
+                cx, cy = ent.dxf.center[:2]
+                r = ent.dxf.radius
+                xs.extend([cx - r, cx + r])
+                ys.extend([cy - r, cy + r])
+        except Exception:
+            continue
+
+    if not xs or not ys:
+        return {"min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1}
+
+    return {
+        "min_x": min(xs),
+        "min_y": min(ys),
+        "max_x": max(xs),
+        "max_y": max(ys),
+    }
+
+
 @app.post("/api/generate-mass", response_model=MassGenerateResponse)
 async def generate_mass(
     request: MassGenerateRequest,
@@ -731,8 +932,9 @@ async def generate_mass(
         model_path = MODELS_DIR / f"{model_id}.glb"
 
         # === 벽 레이어 기반 생성 vs 단순 footprint 생성 ===
-        lod_requested = request.lod
-        lod_actual = lod_requested  # 실제 적용된 LOD (폴백 시 변경됨)
+        # v1.0: 항상 LOD3 사용 (request.lod 무시)
+        lod_requested = 3
+        lod_actual = 3
 
         if request.wall_layers and request.file_id:
             # 벽체 기반: DXF에서 벽 레이어 추출 → 벽 형태 GLB
@@ -740,85 +942,117 @@ async def generate_mass(
             if not dxf_path.exists():
                 raise HTTPException(status_code=404, detail=f"DXF 파일을 찾을 수 없습니다: {request.file_id}")
 
+            # ─── 레이어 검증 및 자동 감지 ─────────────────────────────
+            # 프론트엔드에서 보낸 레이어가 실제 DXF에 존재하는지 검증
+            # 존재하지 않으면 키워드 기반으로 벽 레이어 자동 감지
+            import ezdxf
+            doc = ezdxf.readfile(str(dxf_path))
+            msp = doc.modelspace()
+
+            # 실제 DXF 레이어 추출
+            actual_layers = set()
+            for ent in msp:
+                try:
+                    actual_layers.add(ent.dxf.layer)
+                except:
+                    pass
+
+            # 프론트엔드 레이어가 실제 존재하는지 확인
+            requested_wall_layers = request.wall_layers
+            matched_layers = [l for l in requested_wall_layers if l in actual_layers]
+
+            if len(matched_layers) == 0:
+                logger.warning(f"프론트엔드 레이어 불일치! 요청: {requested_wall_layers[:5]}, 실제: {list(actual_layers)[:10]}")
+
+                # 키워드 기반 벽 레이어 자동 감지
+                WALL_KEYWORDS = ['wall', 'muro', 'muros', 'medianera', 'viga', 'cuadro', '벽', '외벽', '내벽', 'struct']
+                detected_wall_layers = []
+                for layer in actual_layers:
+                    layer_lower = layer.lower()
+                    if any(kw in layer_lower for kw in WALL_KEYWORDS):
+                        detected_wall_layers.append(layer)
+
+                if detected_wall_layers:
+                    logger.info(f"벽 레이어 자동 감지: {detected_wall_layers}")
+                    request.wall_layers = detected_wall_layers
+                else:
+                    logger.warning(f"벽 레이어를 자동 감지할 수 없음. 실제 레이어: {list(actual_layers)[:15]}")
+            else:
+                logger.info(f"레이어 일치 확인: {matched_layers}")
+                request.wall_layers = matched_layers  # 일치하는 레이어만 사용
+
+            # 문/창문 레이어도 검증
+            if request.door_layers:
+                matched_door = [l for l in request.door_layers if l in actual_layers]
+                if not matched_door:
+                    DOOR_KEYWORDS = ['door', 'puerta', 'puertas', '문', '출입']
+                    detected_doors = [l for l in actual_layers if any(kw in l.lower() for kw in DOOR_KEYWORDS)]
+                    if detected_doors:
+                        logger.info(f"문 레이어 자동 감지: {detected_doors}")
+                        request.door_layers = detected_doors
+                else:
+                    request.door_layers = matched_door
+
+            if request.window_layers:
+                matched_window = [l for l in request.window_layers if l in actual_layers]
+                if not matched_window:
+                    WINDOW_KEYWORDS = ['window', 'ventana', 'ventanas', '창']
+                    detected_windows = [l for l in actual_layers if any(kw in l.lower() for kw in WINDOW_KEYWORDS)]
+                    if detected_windows:
+                        logger.info(f"창문 레이어 자동 감지: {detected_windows}")
+                        request.window_layers = detected_windows
+                else:
+                    request.window_layers = matched_window
+            # ─── 레이어 검증 완료 ─────────────────────────────────────
+
             logger.info(f"Wall-based generation: LOD={lod_requested}, layers={request.wall_layers}, thickness={request.wall_thickness}m")
 
-            # LOD 분기: LOD2/3 시도 → 실패 시 LOD1 폴백
+            # ★ v1.0: 항상 LOD3 Simple 사용 (단일 평면도 모드)
             wall_result = None
             build_steps = []
+            openings_data = []  # 문/창문 위치 (Cesium 마커용)
+            lod3_bounds = None  # 단일 평면도 모드 — 전체 DXF 사용, detect-floorplan skip
+            glb_url_no_roof = None  # 천장 없는 버전 URL
 
-            if lod_requested >= 2:
-                # Phase 1: Centerline 재구성
-                centerline = reconstruct_centerline(
+            logger.info(f"LOD3 Simple 생성 시작: wall={request.wall_layers}, door={request.door_layers}, window={request.window_layers}")
+
+            # LOD3 Simple 매스 생성 (천장 포함)
+            lod_result = build_lod3_simple(
+                str(dxf_path),
+                request.wall_layers,
+                request.door_layers or [],  # 문 레이어 없으면 빈 리스트
+                request.window_layers or [],  # 창문 레이어 없으면 빈 리스트
+                height=request.height,
+                output_path=str(model_path),
+                bounds=lod3_bounds,
+                include_roof=True
+            )
+            if lod_result:
+                wall_result = lod_result
+                build_steps = lod_result.get("steps", [])
+                openings_data = lod_result.get("openings", [])  # 문/창문 위치
+                lod_actual = 3
+                logger.info(f"LOD3 Simple 생성 성공 (천장 포함): {lod_result['mesh_stats']}, openings={len(openings_data)}개")
+
+                # ★ 천장 없는 버전도 생성
+                model_path_no_roof = MODELS_DIR / f"{model_id}_no_roof.glb"
+                lod_result_no_roof = build_lod3_simple(
                     str(dxf_path),
                     request.wall_layers,
-                    default_thickness=request.wall_thickness
+                    request.door_layers or [],
+                    request.window_layers or [],
+                    height=request.height,
+                    output_path=str(model_path_no_roof),
+                    bounds=lod3_bounds,
+                    include_roof=False
                 )
+                if lod_result_no_roof:
+                    glb_url_no_roof = f"/models/{model_id}_no_roof.glb"
+                    logger.info(f"LOD3 Simple 생성 성공 (천장 없음): {lod_result_no_roof['mesh_stats']}")
 
-                # LOD3: Simple 방식 (LOD1 기반 + 문/창문 색상)
-                print(f"[DEBUG] LOD3 체크: lod_requested={lod_requested}, door_layers={request.door_layers}, window_layers={request.window_layers}")
-                if lod_requested == 3 and request.door_layers and request.window_layers:
-                    print(f"[DEBUG] LOD3 진입 - file_id: {request.file_id}")
-                    # 특정 파일에 대한 범위 필터 (여러 도면이 있는 경우)
-                    lod3_bounds = None
-                    # DB에서 원본 파일명 조회
-                    original_filename = ""
-                    try:
-                        import uuid as uuid_module
-                        file_uuid = uuid_module.UUID(request.file_id)
-                        print(f"[DEBUG] DB 조회 시도: file_uuid={file_uuid}")
-                        dxf_record = crud.get_dxf_file(db, file_uuid)
-                        if dxf_record:
-                            original_filename = (dxf_record.original_filename or "").lower()
-                            print(f"[DEBUG] 원본 파일명: '{original_filename}'")
-                        else:
-                            print(f"[DEBUG] DB에서 DXF 레코드 못 찾음: {request.file_id}")
-                    except Exception as e:
-                        print(f"[DEBUG] DB 조회 실패: {e}")
-
-                    print(f"[DEBUG] arquitectura 체크: 'arquitectura' in '{original_filename}' = {'arquitectura' in original_filename}")
-                    if "arquitectura" in original_filename:
-                        # arquitectura.dxf: 좌상단 평면도1만 (벽체 범위에 맞춤)
-                        lod3_bounds = {"min_x": -22, "max_x": -8, "min_y": 278, "max_y": 285}
-                        print(f"[DEBUG] arquitectura.dxf 범위 필터 적용: {lod3_bounds}")
-
-                    print(f"[DEBUG] build_lod3_simple 호출: bounds={lod3_bounds}")
-
-                    lod_result = build_lod3_simple(
-                        str(dxf_path),
-                        request.wall_layers,
-                        request.door_layers,
-                        request.window_layers,
-                        height=request.height,
-                        output_path=str(model_path),
-                        bounds=lod3_bounds
-                    )
-                    if lod_result:
-                        wall_result = lod_result
-                        build_steps = lod_result.get("steps", [])
-                        lod_actual = 3
-                        logger.info(f"LOD3 Simple 생성 성공: {lod_result['mesh_stats']}")
-
-                if centerline.is_usable:
-
-                    if wall_result is None and lod_requested >= 2:
-                        # LOD2: 슬래브만
-                        lod_result = build_lod2(
-                            centerline,
-                            height=request.height,
-                            output_path=str(model_path)
-                        )
-                        if lod_result:
-                            wall_result = lod_result
-                            build_steps = lod_result.get("steps", [])
-                            lod_actual = 2
-                            logger.info(f"LOD2 생성 성공: {lod_result['mesh_stats']}")
-
-                if wall_result is None:
-                    logger.warning(f"LOD{lod_requested} 실패, LOD1으로 폴백")
-                    lod_actual = 1
-
-            # LOD1 또는 폴백
+            # LOD3 실패 시 LOD1 폴백
             if wall_result is None:
+                logger.warning(f"LOD3 실패, LOD1으로 폴백")
                 wall_result = create_wall_building_gltf(
                     dxf_path=str(dxf_path),
                     wall_layers=request.wall_layers,
@@ -912,10 +1146,12 @@ async def generate_mass(
             bb_height = request.height
             bb_depth = 10.0
 
-        return MassGenerateResponse(
+        logger.info(f"[DEBUG] Creating response: model_id={model_id}, lod_actual={lod_actual}, openings={len(openings_data)}개")
+        response = MassGenerateResponse(
             success=True,
             model_id=model_id,
             model_url=f"/models/{model_id}.glb",
+            model_url_no_roof=glb_url_no_roof,  # None이면 None 반환
             height=request.height,
             floors=request.floors,
             mesh_stats={
@@ -930,9 +1166,14 @@ async def generate_mass(
             },
             build_steps=build_steps if build_steps else None,
             lod_actual=lod_actual,
+            openings=openings_data if openings_data else None,
         )
+        logger.info(f"[DEBUG] Response created successfully")
+        return response
     except Exception as e:
         logger.error(f"Error generating mass: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1714,6 +1955,94 @@ async def generate_parking_layout_endpoint(request: ParkingLayoutRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Parking layout error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============= 샘플 프리셋 API =============
+
+from services.sample_presets import get_all_presets, get_preset_by_id, get_preset_filepath
+
+@app.get("/api/samples")
+async def list_sample_presets():
+    """사용 가능한 샘플 DXF 프리셋 목록 반환."""
+    presets = get_all_presets()
+    return {"samples": presets, "count": len(presets)}
+
+
+@app.get("/api/samples/{preset_id}")
+async def get_sample_preset(preset_id: str):
+    """특정 샘플 프리셋 정보 반환."""
+    preset = get_preset_by_id(preset_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"샘플 프리셋 '{preset_id}'를 찾을 수 없습니다.")
+    return preset
+
+
+@app.post("/api/samples/{preset_id}/generate")
+async def generate_from_sample(preset_id: str, height: float = 3.0):
+    """샘플 프리셋으로 3D 매스 생성.
+
+    프리셋에 정의된 레이어 설정을 사용하여 즉시 매스를 생성합니다.
+    """
+    from services.lod.lod3_simple import build_lod3_simple
+
+    preset = get_preset_by_id(preset_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"샘플 프리셋 '{preset_id}'를 찾을 수 없습니다.")
+
+    filepath = get_preset_filepath(preset_id)
+    if not filepath or not filepath.exists():
+        raise HTTPException(status_code=404, detail=f"샘플 파일을 찾을 수 없습니다: {preset['filename']}")
+
+    # 고유 모델 ID 생성
+    model_id = f"sample_{preset_id}_{uuid.uuid4().hex[:8]}"
+    model_path = MODELS_DIR / f"{model_id}.glb"
+    model_path_no_roof = MODELS_DIR / f"{model_id}_no_roof.glb"
+
+    try:
+        # LOD3 Simple 매스 생성 (천장 포함)
+        lod_result = build_lod3_simple(
+            str(filepath),
+            preset["wall_layers"],
+            preset.get("door_layers", []),
+            preset.get("window_layers", []),
+            height=height,
+            output_path=str(model_path),
+            include_roof=True
+        )
+
+        if not lod_result:
+            raise HTTPException(status_code=500, detail="매스 생성에 실패했습니다.")
+
+        # 천장 없는 버전도 생성
+        glb_url_no_roof = None
+        lod_result_no_roof = build_lod3_simple(
+            str(filepath),
+            preset["wall_layers"],
+            preset.get("door_layers", []),
+            preset.get("window_layers", []),
+            height=height,
+            output_path=str(model_path_no_roof),
+            include_roof=False
+        )
+        if lod_result_no_roof:
+            glb_url_no_roof = f"/models/{model_id}_no_roof.glb"
+
+        return {
+            "success": True,
+            "preset_id": preset_id,
+            "preset_name": preset["name"],
+            "model_id": model_id,
+            "model_url": f"/models/{model_id}.glb",
+            "model_url_no_roof": glb_url_no_roof,
+            "height": height,
+            "mesh_stats": lod_result.get("mesh_stats", {}),
+            "bounding_box": lod_result.get("mesh_stats", {}).get("bounding_box"),
+            "openings": lod_result.get("openings", []),
+            "build_steps": lod_result.get("steps", []),
+        }
+    except Exception as e:
+        logger.error(f"샘플 매스 생성 실패: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
