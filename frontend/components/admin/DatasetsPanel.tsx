@@ -24,7 +24,7 @@ interface StageInfo {
   last_modified: number | null
 }
 
-interface DatasetMeta {
+export interface DatasetMeta {
   id?: string
   name?: string
   source?: string
@@ -56,6 +56,12 @@ interface Props {
   refreshKey?: number  // 부모가 갱신 트리거 가능
   /** 강조할 데이터셋 ID (방금 업로드한 항목 등). 일치하면 행 highlight + NEW 배지 + scrollIntoView */
   highlightDatasetId?: string | null
+  /** 현재 선택된 데이터셋 ID */
+  selectedDatasetId?: string | null
+  /** 데이터셋 선택 시 콜백 */
+  onSelectDataset?: (dataset: DatasetMeta | null) => void
+  /** 데이터셋 삭제 시 콜백 */
+  onDeleteDataset?: (datasetId: string, datasetName: string) => Promise<boolean>
 }
 
 function fmtTime(t: number | null): string {
@@ -71,6 +77,9 @@ export default function DatasetsPanel({
   aiUrl,
   refreshKey = 0,
   highlightDatasetId = null,
+  selectedDatasetId = null,
+  onSelectDataset,
+  onDeleteDataset,
 }: Props) {
   const [data, setData] = useState<DatasetsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -86,13 +95,20 @@ export default function DatasetsPanel({
     return () => clearTimeout(t)
   }, [highlightDatasetId, data])
 
+  // 선택된 데이터셋 ID를 찾기 (DatasetMeta에서 id 추출)
+  const selectedId = typeof selectedDatasetId === 'string' ? selectedDatasetId : null
+
   useEffect(() => {
     let alive = true
     setLoading(true)
     setError(null)
     ;(async () => {
       try {
-        const r = await fetch(`${aiUrl}/api/mlops/datasets`)
+        // 선택된 데이터셋이 있으면 해당 데이터셋의 파이프라인 정보 요청
+        const url = selectedId
+          ? `${aiUrl}/api/mlops/datasets?dataset_id=${encodeURIComponent(selectedId)}`
+          : `${aiUrl}/api/mlops/datasets`
+        const r = await fetch(url)
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const d = await r.json()
         if (alive) setData(d)
@@ -105,7 +121,7 @@ export default function DatasetsPanel({
     return () => {
       alive = false
     }
-  }, [aiUrl, refreshKey])
+  }, [aiUrl, refreshKey, selectedId])
 
   return (
     <section className="card p-6">
@@ -129,12 +145,19 @@ export default function DatasetsPanel({
         <div className="space-y-5">
           {/* 단계별 통계 */}
           <div>
-            <h4 className="text-xs uppercase tracking-wide text-white/50 font-semibold mb-2">
-              파이프라인 단계
+            <h4 className="text-xs uppercase tracking-wide text-white/50 font-semibold mb-2 flex items-center gap-2">
+              <span>파이프라인 단계</span>
+              {selectedId ? (
+                <span className="normal-case tracking-normal rounded bg-brand-500/20 border border-brand-400/40 px-2 py-0.5 text-[10px] font-semibold text-brand-300">
+                  선택: {data?.meta?.datasets?.find(d => d.id === selectedId)?.name || selectedId}
+                </span>
+              ) : (
+                <span className="normal-case tracking-normal text-white/40 font-normal">(전체)</span>
+              )}
             </h4>
-            <div className="overflow-auto rounded-md border border-white/10">
+            <div className="overflow-auto max-h-60 rounded-md border border-white/10">
               <table className="w-full text-xs">
-                <thead className="bg-white/[0.04]">
+                <thead className="bg-navy-900 sticky top-0 z-10">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium text-white/60">단계</th>
                     <th className="px-3 py-2 text-right font-medium text-white/60">개수</th>
@@ -190,15 +213,17 @@ export default function DatasetsPanel({
                   </span>
                 )}
               </h4>
-              <div className="overflow-auto rounded-md border border-white/10">
+              <div className="overflow-auto max-h-60 rounded-md border border-white/10">
                 <table className="w-full text-xs">
-                  <thead className="bg-white/[0.04]">
+                  <thead className="bg-navy-900 sticky top-0 z-10">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium text-white/60">이름</th>
+                      <th className="px-3 py-2 text-left font-medium text-white/60">경로</th>
                       <th className="px-3 py-2 text-left font-medium text-white/60">소스</th>
                       <th className="px-3 py-2 text-right font-medium text-white/60">DXF</th>
                       <th className="px-3 py-2 text-right font-medium text-white/60">크기</th>
                       <th className="px-3 py-2 text-left font-medium text-white/60">등록 시각</th>
+                      <th className="px-3 py-2 text-center font-medium text-white/60">삭제</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -208,22 +233,31 @@ export default function DatasetsPanel({
                       .map((ds, i) => {
                         const isHighlighted =
                           !!highlightDatasetId && ds.id === highlightDatasetId
+                        const isSelected = !!selectedDatasetId && ds.id === selectedDatasetId
                         return (
                           <tr
                             key={ds.id || i}
                             ref={isHighlighted ? highlightRowRef : null}
-                            className={
-                              isHighlighted
-                                ? 'border-t border-emerald-400/40 bg-emerald-500/10 ring-2 ring-emerald-400/40'
-                                : 'border-t border-white/5'
-                            }
+                            onClick={() => onSelectDataset?.(isSelected ? null : ds)}
+                            className={`cursor-pointer hover:bg-white/5 transition-colors ${
+                              isSelected
+                                ? 'border-t border-brand-400/40 bg-brand-500/15 ring-1 ring-brand-400/40'
+                                : isHighlighted
+                                  ? 'border-t border-emerald-400/40 bg-emerald-500/10 ring-2 ring-emerald-400/40'
+                                  : 'border-t border-white/5'
+                            }`}
                           >
                             <td className="px-3 py-2">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-white text-sm">
                                   {ds.name || ds.id || '—'}
                                 </span>
-                                {isHighlighted && (
+                                {isSelected && (
+                                  <span className="rounded-full bg-brand-500/25 border border-brand-300/60 px-1.5 py-0.5 text-[9px] font-bold text-brand-200 uppercase">
+                                    ✓ 선택됨
+                                  </span>
+                                )}
+                                {isHighlighted && !isSelected && (
                                   <span className="rounded-full bg-emerald-500/25 border border-emerald-300/60 px-1.5 py-0.5 text-[9px] font-bold text-emerald-200 uppercase">
                                     🆕 NEW
                                   </span>
@@ -234,6 +268,11 @@ export default function DatasetsPanel({
                                   {ds.id}
                                 </div>
                               )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="text-[10px] font-mono text-white/50 break-all">
+                                {ds.dxf_dir || '—'}
+                              </span>
                             </td>
                             <td className="px-3 py-2">
                               <span className="rounded bg-white/5 border border-white/10 px-2 py-0.5 text-[10px] font-mono text-white/60">
@@ -248,6 +287,24 @@ export default function DatasetsPanel({
                             </td>
                             <td className="px-3 py-2 text-white/50 text-[11px]">
                               {ds.uploaded_at || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {onDeleteDataset && ds.id && (
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    if (!confirm(`'${ds.name || ds.id}' 데이터셋을 삭제하시겠습니까?
+경로: ${ds.dxf_dir || '알 수 없음'}`)) return
+                                    const ok = await onDeleteDataset(ds.id!, ds.name || ds.id!)
+                                    if (ok && selectedDatasetId === ds.id) {
+                                      onSelectDataset?.(null)
+                                    }
+                                  }}
+                                  className="px-2 py-1 rounded text-[10px] font-medium bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition"
+                                >
+                                  삭제
+                                </button>
+                              )}
                             </td>
                           </tr>
                         )

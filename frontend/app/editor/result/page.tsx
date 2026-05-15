@@ -22,8 +22,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Brand from '@/components/Brand'
 import { useProjectStore } from '@/store/projectStore'
 import { requestAIScoring } from '@/lib/analysisApi'
+import { calculatePolygonArea } from '@/lib/geometry'
 import { fetchLatestReviewResult } from '@/lib/api'
-import { loadRegulationsFromServer } from '@/lib/setbackTable'
+import { loadRegulationsFromServer, getZoneLimits, type ZoneType } from '@/lib/setbackTable'
 
 type StatusKey = 'pass' | 'fail' | 'warning' | 'unknown'
 
@@ -202,7 +203,7 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl } =
     useProjectStore()
 
   // 페이지 진입 시 서버에서 최신 규정 기준값 로드
@@ -210,6 +211,14 @@ export default function ResultPage() {
   useEffect(() => {
     loadRegulationsFromServer()
   }, [])
+
+  // 용도지역: 검토 탭에서 선택한 값 또는 자동 탐지된 값
+  const selectedZoneType = reviewData?.selectedZoneType || validation?.zone_type || '미지정'
+
+  // 선택된 용도지역의 규정 한도
+  const selectedZoneLimits = useMemo(() => {
+    return getZoneLimits(selectedZoneType as ZoneType)
+  }, [selectedZoneType])
 
   // 새로고침으로 store 가 비어있을 때 — DB 의 가장 최근 검토 결과로 hydrate
   const [dbHydrated, setDbHydrated] = useState(false)
@@ -405,6 +414,108 @@ export default function ResultPage() {
     return 'unknown'
   })()
 
+  // ─── AI 스코어링 입력 데이터 계산 ─────────────────────────────
+  const scoringInputData = useMemo(() => {
+    // 1. 일조량 분석 결과
+    const sunlight = sunlightAnalysisState?.result ? {
+      avgHours: sunlightAnalysisState.result.averageSunlightHours,
+      minHours: sunlightAnalysisState.result.minSunlightHours,
+      maxHours: sunlightAnalysisState.result.maxSunlightHours,
+      totalPoints: sunlightAnalysisState.result.totalPoints,
+      hasData: true,
+    } : { avgHours: 0, minHours: 0, maxHours: 0, totalPoints: 0, hasData: false }
+
+    // 2. 유효 면적 계산 (대지 - 주차영역 - 통로)
+    const siteArea = reviewData?.buildingCoverage?.siteArea ?? site?.area ?? 0
+    const parkingArea = parkingZone?.totalAreaM2 ?? 0
+
+    // 통로(aisle) 면적 계산
+    let pathArea = 0
+    if (parkingZone?.aisles) {
+      for (const aisle of parkingZone.aisles) {
+        if (aisle.polygon && aisle.polygon.length >= 3) {
+          pathArea += calculatePolygonArea(aisle.polygon)
+        }
+      }
+    }
+    // 주차 경로 면적 (parkingPath)
+    if (parkingPath?.points && parkingPath.points.length >= 2) {
+      // 경로는 폴리라인이므로 폭(약 3m)을 가정하여 면적 계산
+      const pathWidth = parkingPath.vehicleWidth ?? 3 // m
+      // parkingPath.length 가 이미 계산된 경로 길이
+      pathArea += parkingPath.length * pathWidth
+    }
+
+    const effectiveArea = Math.max(0, siteArea - parkingArea - pathArea)
+
+    // 3. 메인 창문 (외곽 창문) 남향 여부 계산
+    let mainWindowFacesSouth = false
+    let mainWindowDirection = 0
+    let mainWindowDirectionLabel = ''
+    let totalWindows = 0
+
+    // 현재 로드된 매스 찾기 (CesiumViewer와 동일한 로직)
+    const currentMass = loadedMassGlbUrl
+      ? generatedMasses?.find(m => m.glbUrl === loadedMassGlbUrl || m.glbUrlNoRoof === loadedMassGlbUrl)
+      : generatedMasses?.[0]
+    const buildingRotation = modelTransform?.rotation ?? 0
+
+    console.log('[결과 페이지] 창문 데이터 확인:', {
+      loadedMassGlbUrl,
+      generatedMassesCount: generatedMasses?.length ?? 0,
+      currentMassId: currentMass?.id,
+      openingsCount: currentMass?.openings?.length ?? 0,
+    })
+
+    if (currentMass?.openings) {
+      const windows = currentMass.openings.filter(o => o.type === 'window')
+      totalWindows = windows.length
+
+      if (windows.length > 0) {
+        // 건물 중심에서 가장 먼 창문 찾기 (외곽 = 메인 창문)
+        let maxDist = 0
+        let mainWindow = windows[0]
+
+        for (const win of windows) {
+          const dist = Math.sqrt(win.x * win.x + win.y * win.y)
+          if (dist > maxDist) {
+            maxDist = dist
+            mainWindow = win
+          }
+        }
+
+        // 메인 창문의 절대 방향 계산
+        // 창문이 바라보는 방향 (0° = 북쪽, 90° = 동쪽, 180° = 남쪽, 270° = 서쪽)
+        // GLB 좌표계 보정: +90°
+        mainWindowDirection = (buildingRotation + mainWindow.rotation + 90 + 360) % 360
+
+        // 방향 라벨
+        if (mainWindowDirection >= 315 || mainWindowDirection < 45) {
+          mainWindowDirectionLabel = '북향'
+        } else if (mainWindowDirection >= 45 && mainWindowDirection < 135) {
+          mainWindowDirectionLabel = '동향'
+        } else if (mainWindowDirection >= 135 && mainWindowDirection < 225) {
+          mainWindowDirectionLabel = '남향'
+          mainWindowFacesSouth = true
+        } else {
+          mainWindowDirectionLabel = '서향'
+        }
+      }
+    }
+
+    return {
+      sunlight,
+      effectiveArea,
+      siteArea,
+      parkingArea,
+      pathArea,
+      mainWindowFacesSouth,
+      mainWindowDirection,
+      mainWindowDirectionLabel,
+      totalWindows,
+    }
+  }, [sunlightAnalysisState, reviewData, site, parkingZone, parkingPath, generatedMasses, modelTransform, loadedMassGlbUrl])
+
   return (
     <div className="min-h-screen bg-navy-950 text-white">
       {/* 상단 헤더 */}
@@ -534,26 +645,44 @@ export default function ResultPage() {
 
             {/* 규정 요약 카드 */}
             <section>
-              <h2 className="text-base font-semibold text-white mb-3">규정 검토 요약</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-white">규정 검토 요약</h2>
+                {/* 적용 용도지역 표시 (검토 탭에서 선택한 값) */}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm">
+                  <span className="text-white/50">적용규정:</span>
+                  <span className="text-white font-medium">{selectedZoneType}</span>
+                </div>
+              </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <SummaryCard
                   label="건폐율"
                   value={fmt(cov?.value, '%')}
-                  limit={fmt(cov?.limit, '%')}
-                  status={statusFromRaw(cov?.status)}
+                  limit={fmt(selectedZoneLimits.coverage, '%')}
+                  status={
+                    cov?.value != null && selectedZoneLimits.coverage != null
+                      ? cov.value <= selectedZoneLimits.coverage ? 'pass' : 'fail'
+                      : statusFromRaw(cov?.status)
+                  }
                 />
                 <SummaryCard
                   label="이격거리"
                   value={fmt(setback?.min_distance_m, ' m')}
-                  limit={`${fmt(setback?.required_m, ' m')} 이상`}
-                  status={statusFromRaw(setback?.status)}
+                  limit={`${fmt(selectedZoneLimits.setback_road, ' m')} 이상`}
+                  status={
+                    setback?.min_distance_m != null && selectedZoneLimits.setback_road != null
+                      ? setback.min_distance_m >= selectedZoneLimits.setback_road ? 'pass' : 'fail'
+                      : statusFromRaw(setback?.status)
+                  }
                 />
                 <SummaryCard
                   label="건물 높이"
                   value={fmt(height?.value_m, ' m', 1)}
-                  limit={`${fmt(height?.limit_m, ' m', 1)} 이하`}
-                  // 높이 검토는 임시 — 별도 검토 로직이 붙기 전까지는 적합 표시
-                  status="pass"
+                  limit={selectedZoneLimits.height != null ? `${fmt(selectedZoneLimits.height, ' m', 1)} 이하` : '제한 없음'}
+                  status={
+                    height?.value_m != null && selectedZoneLimits.height != null
+                      ? height.value_m <= selectedZoneLimits.height ? 'pass' : 'fail'
+                      : 'pass'
+                  }
                 />
                 <SummaryCard
                   label="층수 / 매스"
@@ -607,6 +736,134 @@ export default function ResultPage() {
                   <div className="text-sm text-white/70">감지된 위반 사항이 없습니다</div>
                 </div>
               )}
+            </section>
+
+            {/* AI 스코어링 입력 데이터 */}
+            <section>
+              <h2 className="text-base font-semibold text-white mb-3">AI 스코어링 입력 데이터</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 일조량 분석 */}
+                <div className="card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                      </svg>
+                    </div>
+                    <div className="text-sm font-medium text-white">일조량 분석</div>
+                  </div>
+                  {scoringInputData.sunlight.hasData ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-white/60">평균 일조시간</span>
+                        <span className="text-white font-medium">{scoringInputData.sunlight.avgHours.toFixed(1)}시간</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">최소 / 최대</span>
+                        <span className="text-white/80">{scoringInputData.sunlight.minHours.toFixed(1)} ~ {scoringInputData.sunlight.maxHours.toFixed(1)}시간</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">측정 포인트</span>
+                        <span className="text-white/80">{scoringInputData.sunlight.totalPoints.toLocaleString()}개</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-white/40 text-center py-3">
+                      일조 분석 미실행
+                    </div>
+                  )}
+                </div>
+
+                {/* 유효 면적 */}
+                <div className="card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                      </svg>
+                    </div>
+                    <div className="text-sm font-medium text-white">유효 면적</div>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-white/60">대지 면적</span>
+                      <span className="text-white font-medium">{scoringInputData.siteArea.toFixed(1)}㎡</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/60">주차 영역</span>
+                      <span className="text-red-400">-{scoringInputData.parkingArea.toFixed(1)}㎡</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/60">통로 영역</span>
+                      <span className="text-red-400">-{scoringInputData.pathArea.toFixed(1)}㎡</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-white/10">
+                      <span className="text-white/80 font-medium">유효 면적</span>
+                      <span className="text-emerald-400 font-semibold">{scoringInputData.effectiveArea.toFixed(1)}㎡</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 메인 창문 방향 */}
+                <div className="card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${scoringInputData.mainWindowFacesSouth ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
+                      <svg className={`w-4 h-4 ${scoringInputData.mainWindowFacesSouth ? 'text-emerald-400' : 'text-amber-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                      </svg>
+                    </div>
+                    <div className="text-sm font-medium text-white">메인 창문 방향</div>
+                  </div>
+                  {scoringInputData.totalWindows > 0 ? (
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/60">전체 창문</span>
+                        <span className="text-white font-medium">{scoringInputData.totalWindows}개</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/60">메인 창문 방위</span>
+                        <span className="text-white/80">{scoringInputData.mainWindowDirection.toFixed(0)}°</span>
+                      </div>
+                      {/* 메인 창문 방향 표시 */}
+                      <div className="pt-3 border-t border-white/10">
+                        <div className="flex items-center justify-center gap-3">
+                          {/* 방위 나침반 */}
+                          <div className="relative w-16 h-16">
+                            <div className="absolute inset-0 rounded-full border-2 border-white/20" />
+                            <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 text-[10px] text-white/40">N</span>
+                            <span className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1 text-[10px] text-white/40">S</span>
+                            <span className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 text-[10px] text-white/40">W</span>
+                            <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 text-[10px] text-white/40">E</span>
+                            {/* 방향 화살표 */}
+                            <div
+                              className="absolute inset-2 flex items-center justify-center"
+                              style={{ transform: `rotate(${scoringInputData.mainWindowDirection}deg)` }}
+                            >
+                              <div className={`w-1 h-6 rounded-full ${scoringInputData.mainWindowFacesSouth ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                              <div
+                                className={`absolute top-1 w-0 h-0 border-l-[4px] border-r-[4px] border-b-[6px] border-l-transparent border-r-transparent ${scoringInputData.mainWindowFacesSouth ? 'border-b-emerald-500' : 'border-b-amber-500'}`}
+                              />
+                            </div>
+                          </div>
+                          {/* 판정 */}
+                          <div className="text-center">
+                            <div className={`text-2xl font-bold ${scoringInputData.mainWindowFacesSouth ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              {scoringInputData.mainWindowDirectionLabel}
+                            </div>
+                            <div className={`text-xs mt-1 ${scoringInputData.mainWindowFacesSouth ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
+                              {scoringInputData.mainWindowFacesSouth ? '✓ 남향 배치' : '남향 아님'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-white/40 text-center py-3">
+                      창문 정보 없음
+                    </div>
+                  )}
+                </div>
+              </div>
             </section>
 
             {/* AI 종합 스코어링 */}

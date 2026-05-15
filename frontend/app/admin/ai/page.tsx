@@ -13,8 +13,11 @@ import { adminApi, AIExperiment, AIConnectionCheckResult } from '@/lib/api'
 import ExperimentDetailModal from '@/components/admin/ExperimentDetailModal'
 import AIJobModal from '@/components/admin/AIJobModal'
 import DatasetUploadModal from '@/components/admin/DatasetUploadModal'
-import DatasetsPanel from '@/components/admin/DatasetsPanel'
-import PreprocessGallery from '@/components/admin/PreprocessGallery'
+import DatasetsPanel, { DatasetMeta } from '@/components/admin/DatasetsPanel'
+import ProcessedDatasetsPanel, { ProcessedDataset } from '@/components/admin/ProcessedDatasetsPanel'
+import DatasetSelectModal from '@/components/admin/DatasetSelectModal'
+import ModelUploadModal from '@/components/admin/ModelUploadModal'
+import JobProgressPanel from '@/components/admin/JobProgressPanel'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -51,6 +54,16 @@ export default function AdminAiPage() {
   const [datasetsRefreshKey, setDatasetsRefreshKey] = useState(0)
   // 방금 업로드한 데이터셋 ID — 표에서 행 강조 + 자동 스크롤
   const [highlightDatasetId, setHighlightDatasetId] = useState<string | null>(null)
+  // 현재 선택된 데이터셋
+  const [selectedDataset, setSelectedDataset] = useState<DatasetMeta | null>(null)
+  // 데이터셋 선택 모달 표시 여부
+  const [selectModalOpen, setSelectModalOpen] = useState(false)
+  // 선택된 전처리 완료 데이터셋 (재학습용)
+  const [selectedProcessed, setSelectedProcessed] = useState<ProcessedDataset | null>(null)
+  // 모델 업로드 모달 표시 여부
+  const [modelUploadOpen, setModelUploadOpen] = useState(false)
+  // 다운로드 중인 모델 run_id
+  const [downloadingRunId, setDownloadingRunId] = useState<string | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
@@ -123,6 +136,32 @@ export default function AdminAiPage() {
       alert(err.message || '모델 적용 실패')
     } finally {
       setDeployingRunId(null)
+    }
+  }
+
+
+  const handleDownloadModel = async (e: AIExperiment) => {
+    setDownloadingRunId(e.run_id)
+    try {
+      const response = await fetch(`${aiUrl}/api/mlops/models/${e.run_id}/download`)
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.detail || errData.message || `HTTP ${response.status}`)
+      }
+      const blob = await response.blob()
+      const filename = `model_${e.model_version || e.run_id}.pkl`
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err: any) {
+      alert(err.message || '모델 다운로드 실패')
+    } finally {
+      setDownloadingRunId(null)
     }
   }
 
@@ -285,12 +324,33 @@ export default function AdminAiPage() {
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
           highlightDatasetId={highlightDatasetId}
+          selectedDatasetId={selectedDataset?.id || null}
+          onSelectDataset={setSelectedDataset}
+          onDeleteDataset={async (datasetId, datasetName) => {
+            try {
+              const res = await fetch(`${aiUrl}/api/mlops/datasets/${datasetId}`, {
+                method: 'DELETE',
+              })
+              if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.detail || errData.message || `HTTP ${res.status}`)
+              }
+              // 삭제 성공 시 목록 새로고침
+              setDatasetsRefreshKey((k) => k + 1)
+              return true
+            } catch (e: any) {
+              alert(`데이터셋 삭제 실패: ${e.message}`)
+              return false
+            }
+          }}
         />
 
-        {/* DXF 전처리 갤러리 (Phase E) */}
-        <PreprocessGallery
+        {/* 전처리 완료 데이터 (학습용) */}
+        <ProcessedDatasetsPanel
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
+          selectedDatasetId={selectedProcessed?.id || null}
+          onSelectDataset={setSelectedProcessed}
         />
 
         {/* 관리 작업 */}
@@ -305,25 +365,37 @@ export default function AdminAiPage() {
             </button>
             <button
               className="btn-secondary"
-              onClick={() => {
-                setCollectPrefillDir(null)
-                setStubModal('collect')
-              }}
+              onClick={() => setSelectModalOpen(true)}
             >
-              데이터 재수집
+              🔄 데이터 전처리
             </button>
             <button
               className="btn-secondary"
               onClick={() => setStubModal('retrain')}
+              disabled={!selectedProcessed}
+              title={selectedProcessed ? '선택된 데이터셋으로 모델 학습' : '먼저 전처리 완료 데이터를 선택하세요'}
             >
-              모델 재학습
+              {selectedProcessed ? '모델 재학습' : '모델 재학습 (선택 필요)'}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => setModelUploadOpen(true)}
+            >
+              📥 모델 업로드
             </button>
           </div>
           <p className="mt-3 text-xs text-white/40">
-            <b>업로드</b> → 학과 AI 서버에 zip 으로 데이터셋 전송 (즉시 자동 빌드 옵션 가능). <b>재수집</b> →
-            서버에 이미 있는 데이터셋을 다시 처리. <b>재학습</b> → labeled CSV 로 모델 학습.
+            <b>데이터셋 업로드</b> → DXF zip 전송. <b>전처리</b> → 이미지 변환 및 라벨링.
+            <b>재학습</b> → 모델 학습. <b>모델 업로드</b> → 학습된 모델 파일 직접 등록.
           </p>
         </section>
+
+        {/* 작업 진행 상황 */}
+        <JobProgressPanel
+          aiUrl={aiUrl}
+          refreshKey={datasetsRefreshKey}
+          onJobCompleted={loadAll}
+        />
 
         {/* 모델 버전 / 실험 목록 */}
         <section>
@@ -365,9 +437,15 @@ export default function AdminAiPage() {
                     )}
                   </Td>
                   <Td>
-                    <div className="flex gap-1.5">
+                    <div className="flex gap-1.5 flex-wrap">
                       <SmallBtn onClick={() => setDetailRunId(e.run_id)}>
-                        성능 확인
+                        성능
+                      </SmallBtn>
+                      <SmallBtn
+                        onClick={() => handleDownloadModel(e)}
+                        disabled={downloadingRunId === e.run_id}
+                      >
+                        {downloadingRunId === e.run_id ? '⏳' : '⬇️'}
                       </SmallBtn>
                       {!isActive && (
                         <SmallBtn
@@ -441,6 +519,28 @@ export default function AdminAiPage() {
             } else {
               loadAll()
             }
+          }}
+        />
+      )}
+
+      {selectModalOpen && (
+        <DatasetSelectModal
+          aiUrl={aiUrl}
+          onClose={() => setSelectModalOpen(false)}
+          onSelect={(dataset) => {
+            setSelectModalOpen(false)
+            setCollectPrefillDir(dataset.dxf_dir || null)
+            setStubModal('collect')
+          }}
+        />
+      )}
+
+      {modelUploadOpen && (
+        <ModelUploadModal
+          aiUrl={aiUrl}
+          onClose={() => setModelUploadOpen(false)}
+          onUploaded={() => {
+            loadAll()
           }}
         />
       )}

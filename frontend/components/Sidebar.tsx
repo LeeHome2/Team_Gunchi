@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useProjectStore } from '@/store/projectStore'
 import {
   uploadDxf,
@@ -12,6 +12,7 @@ import AnalysisModal, { AnalysisResult } from '@/components/AnalysisModal'
 import ParkingZonePanel from '@/components/ParkingZonePanel'
 import SampleCards from '@/components/SampleCards'
 
+import { ZONE_LIMITS, getZoneLimits, type ZoneType } from '@/lib/setbackTable'
 /**
  * 사이드바 컴포넌트
  * - DXF 파일 업로드
@@ -64,7 +65,15 @@ export default function Sidebar() {
   const [dxfList, setDxfList] = useState<SidebarDxfFile[]>([])
   const [dxfListLoading, setDxfListLoading] = useState(false)
   // v1.0: LOD 선택 제거 — 항상 LOD3 사용
+  // 용도지역 선택 드롭다운
+  const [showZoneDropdown, setShowZoneDropdown] = useState(false)
+  const setReviewData = useProjectStore((s) => s.setReviewData)
 
+  // 적용 용도지역 (선택된 값 또는 자동 탐지된 값)
+  const selectedZoneType = reviewData.selectedZoneType
+  const effectiveZoneType = selectedZoneType || reviewData.zoneType || "미지정"
+  const effectiveZoneLimits = useMemo(() => getZoneLimits(effectiveZoneType as ZoneType), [effectiveZoneType])
+  const zoneTypeOptions = Object.keys(ZONE_LIMITS) as ZoneType[]
   const refreshDxfList = useCallback(async () => {
     if (!projectId) {
       setDxfList([])
@@ -911,28 +920,81 @@ export default function Sidebar() {
               배치 검토 실행
             </button>
 
-            {/* 적용 규정 (용도지역) */}
-            {reviewData.zoneType && (
-              <div className="rounded-lg p-3 bg-blue-50 border border-blue-200">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-blue-700">적용 규정</span>
-                  <span className="text-sm font-bold text-blue-800">{reviewData.zoneType}</span>
+            {/* 적용 규정 (용도지역) 드롭다운 */}
+            <div className="relative rounded-lg p-3 bg-blue-50 border border-blue-200">
+              <button
+                onClick={() => setShowZoneDropdown(!showZoneDropdown)}
+                className="w-full flex justify-between items-center"
+              >
+                <span className="text-sm font-medium text-blue-700">적용 규정</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-blue-800">{effectiveZoneType}</span>
+
+                  <svg
+                    className={`w-4 h-4 text-blue-500 transition-transform ${showZoneDropdown ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </div>
-              </div>
-            )}
+              </button>
+              {showZoneDropdown && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-60 overflow-auto rounded-lg bg-white border border-gray-200 shadow-lg">
+                  {/* 자동 탐지된 용도지역 */}
+                  {reviewData.zoneType && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setReviewData({ selectedZoneType: undefined })
+                          setShowZoneDropdown(false)
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between ${
+                          !selectedZoneType ? 'bg-blue-100 text-blue-800' : 'text-gray-700'
+                        }`}
+                      >
+                        <span>{reviewData.zoneType}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-300">
+                          자동탐지
+                        </span>
+                      </button>
+                      <div className="border-t border-gray-100" />
+                    </>
+                  )}
+                  {/* 다른 용도지역 목록 */}
+                  {zoneTypeOptions
+                    .filter(z => z !== reviewData.zoneType)
+                    .map(zone => (
+                      <button
+                        key={zone}
+                        onClick={() => {
+                          setReviewData({ selectedZoneType: zone })
+                          setShowZoneDropdown(false)
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${
+                          selectedZoneType === zone ? 'bg-blue-100 text-blue-800' : 'text-gray-600'
+                        }`}
+                      >
+                        {zone}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
 
             {/* 건폐율 */}
             {reviewData.buildingCoverage && (
-              <div className={`rounded-lg p-3 ${reviewData.buildingCoverage.status === 'OK' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <div className={`rounded-lg p-3 ${reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium">건폐율</span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.buildingCoverage.status === 'OK' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {reviewData.buildingCoverage.status === 'OK' ? '적합' : '초과'}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage ? '적합' : '초과'}
                   </span>
                 </div>
                 <div className="text-2xl font-bold text-gray-800 mb-1">
                   {reviewData.buildingCoverage.ratio}%
-                  <span className="text-sm font-normal text-gray-500 ml-1">/ {reviewData.buildingCoverage.limit}%</span>
+                  <span className="text-sm font-normal text-gray-500 ml-1">/ {effectiveZoneLimits.coverage}%</span>
                 </div>
                 <div className="text-xs text-gray-500 space-y-0.5">
                   <p>건축면적: {reviewData.buildingCoverage.buildingArea.toFixed(1)} m²</p>
@@ -941,8 +1003,8 @@ export default function Sidebar() {
                 {/* 프로그레스 바 */}
                 <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
                   <div
-                    className={`h-2 rounded-full transition-all ${reviewData.buildingCoverage.status === 'OK' ? 'bg-green-500' : 'bg-red-500'}`}
-                    style={{ width: `${Math.min(reviewData.buildingCoverage.ratio / reviewData.buildingCoverage.limit * 100, 100)}%` }}
+                    className={`h-2 rounded-full transition-all ${reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage ? 'bg-green-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(reviewData.buildingCoverage.ratio / effectiveZoneLimits.coverage * 100, 100)}%` }}
                   />
                 </div>
               </div>
@@ -950,16 +1012,16 @@ export default function Sidebar() {
 
             {/* 이격거리 */}
             {reviewData.setback && (
-              <div className={`rounded-lg p-3 ${reviewData.setback.status === 'OK' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <div className={`rounded-lg p-3 ${reviewData.setback.minDistance >= effectiveZoneLimits.setback_road ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium">이격거리</span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.setback.status === 'OK' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {reviewData.setback.status === 'OK' ? '적합' : '위반'}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.setback.minDistance >= effectiveZoneLimits.setback_road ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {reviewData.setback.minDistance >= effectiveZoneLimits.setback_road ? '적합' : '위반'}
                   </span>
                 </div>
                 <div className="text-2xl font-bold text-gray-800 mb-1">
                   {reviewData.setback.minDistance}m
-                  <span className="text-sm font-normal text-gray-500 ml-1">/ 최소 {reviewData.setback.required}m</span>
+                  <span className="text-sm font-normal text-gray-500 ml-1">/ 최소 {effectiveZoneLimits.setback_road}m</span>
                 </div>
                 {reviewData.setback.details.map((d, i) => (
                   <div key={i} className="flex justify-between text-xs text-gray-600 mt-1">
@@ -985,15 +1047,15 @@ export default function Sidebar() {
             {/* 전체 판정 */}
             {reviewData.buildingCoverage && (
               <div className={`p-4 rounded-lg text-center ${
-                reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
+                reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage && (!reviewData.setback || reviewData.setback.minDistance >= effectiveZoneLimits.setback_road) && reviewData.isModelInBounds
                   ? 'bg-green-100 border-2 border-green-300'
                   : 'bg-red-100 border-2 border-red-300'
               }`}>
                 <p className={`text-lg font-bold ${
-                  reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
+                  reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage && (!reviewData.setback || reviewData.setback.minDistance >= effectiveZoneLimits.setback_road) && reviewData.isModelInBounds
                     ? 'text-green-700' : 'text-red-700'
                 }`}>
-                  {reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
+                  {reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage && (!reviewData.setback || reviewData.setback.minDistance >= effectiveZoneLimits.setback_road) && reviewData.isModelInBounds
                     ? '종합: 적합' : '종합: 부적합'}
                 </p>
               </div>
