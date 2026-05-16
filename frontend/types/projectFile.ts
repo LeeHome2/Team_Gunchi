@@ -242,6 +242,30 @@ export interface SerializedMainEntranceData {
   size: number
 }
 
+// 배치안 데이터
+export interface SerializedPlacementPlan {
+  id: string
+  name: string
+  description?: string
+  modelTransform: SerializedModelTransform
+  generatedMasses: SerializedGeneratedMass[]
+  parkingZone: SerializedParkingZoneData | null
+  parkingTransform: SerializedParkingTransform
+  parkingOrigin: { longitude: number; latitude: number } | null
+  parkingEntrance: SerializedParkingEntranceData | null
+  entranceTransform: SerializedParkingTransform
+  isParkingVisible: boolean
+  gridRotation: number
+  parkingPath: SerializedParkingPathData | null
+  aiScore?: {
+    overallScore: number
+    categoryGrades: Record<string, string>
+    summary: string
+  }
+  createdAt: number
+  updatedAt: number
+}
+
 // 전체 프로젝트 파일 구조
 export interface ProjectFile {
   // 메타데이터
@@ -293,6 +317,10 @@ export interface ProjectFile {
 
   // 메인 출입구 마커
   mainEntrance?: SerializedMainEntranceData | null
+
+  // 배치안 목록
+  placementPlans?: SerializedPlacementPlan[]
+  activePlanId?: string | null
 }
 
 // 파일 검증 결과

@@ -73,6 +73,43 @@ export interface ResultSnapshot {
   capturedAt: string | null
 }
 
+// ── 배치안 (Placement Plan) ──
+
+export interface PlacementPlan {
+  id: string
+  name: string
+  description?: string
+  /** 모델 변환 정보 스냅샷 */
+  modelTransform: {
+    longitude: number
+    latitude: number
+    height: number
+    rotation: number
+    scale: number
+  }
+  /** 생성된 매스 목록 스냅샷 */
+  generatedMasses: GeneratedMass[]
+  /** 주차구역 스냅샷 */
+  parkingZone: ParkingZoneData | null
+  parkingTransform: { longitude: number; latitude: number; rotation: number }
+  parkingOrigin: { longitude: number; latitude: number } | null
+  parkingEntrance: ParkingEntranceData | null
+  entranceTransform: { longitude: number; latitude: number; rotation: number }
+  isParkingVisible: boolean
+  gridRotation: number
+  parkingPath: ParkingPathData | null
+  /** AI 스코어 (결과 확인 후 저장) */
+  aiScore?: {
+    overallScore: number
+    categoryGrades: Record<string, string>
+    summary: string
+  }
+  /** 생성 시각 */
+  createdAt: number
+  /** 수정 시각 */
+  updatedAt: number
+}
+
 // ── 주차구역 (Parking Zone) ──
 
 export interface ParkingSlotData {
@@ -403,6 +440,13 @@ interface ProjectState {
   // 결과 확인 페이지용 스냅샷
   resultSnapshot: ResultSnapshot
 
+  // 배치안 목록
+  placementPlans: PlacementPlan[]
+  // 현재 활성 배치안 ID
+  activePlanId: string | null
+  // 좌측 사이드바 (배치안 목록) 열림 여부
+  plansOpen: boolean
+
   // 프로젝트 저장/불러오기 함수 참조 (CesiumViewer에서 설정)
   saveProjectFn: ((projectName?: string) => void) | null
   loadProjectFn: ((file: File) => Promise<void>) | null
@@ -471,6 +515,16 @@ interface ProjectState {
   setClearSunlightFn: (fn: (() => void) | null) => void
   setSunlightHeatmapModeFn: ((mode: 'point' | 'cell') => void) | null
   setSetSunlightHeatmapModeFn: (fn: ((mode: 'point' | 'cell') => void) | null) => void
+  // 배치안 관련 액션
+  setPlansOpen: (open: boolean) => void
+  addPlacementPlan: (plan: PlacementPlan) => void
+  updatePlacementPlan: (id: string, updates: Partial<PlacementPlan>) => void
+  removePlacementPlan: (id: string) => void
+  setActivePlanId: (id: string | null) => void
+  /** 현재 상태를 새 배치안으로 저장 */
+  saveCurrentAsPlan: (name: string, description?: string) => PlacementPlan
+  /** 배치안 로드 (현재 상태를 해당 배치안으로 복원) */
+  loadPlan: (id: string) => void
   reset: () => void
 }
 
@@ -555,6 +609,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
   sunlightDate: (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d })(),
   setSunlightDate: (date: Date) => set({ sunlightDate: date }),
   resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+  placementPlans: [],
+  activePlanId: null,
+  plansOpen: false,
   runReviewCheckFn: null,
   startSunlightFn: null,
   toggleSunlightHeatmapFn: null,
@@ -704,6 +761,83 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setClearSunlightFn: (fn) => set({ clearSunlightFn: fn }),
   setSetSunlightHeatmapModeFn: (fn) => set({ setSunlightHeatmapModeFn: fn }),
 
+  // 배치안 관련 액션
+  setPlansOpen: (open) => set({ plansOpen: open }),
+
+  addPlacementPlan: (plan) =>
+    set((state) => ({
+      placementPlans: [...state.placementPlans, plan],
+    })),
+
+  updatePlacementPlan: (id, updates) =>
+    set((state) => ({
+      placementPlans: state.placementPlans.map((p) =>
+        p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p
+      ),
+    })),
+
+  removePlacementPlan: (id) =>
+    set((state) => ({
+      placementPlans: state.placementPlans.filter((p) => p.id !== id),
+      activePlanId: state.activePlanId === id ? null : state.activePlanId,
+    })),
+
+  setActivePlanId: (id) => set({ activePlanId: id }),
+
+  saveCurrentAsPlan: (name, description) => {
+    const state = useProjectStore.getState()
+    const now = Date.now()
+    const plan: PlacementPlan = {
+      id: `plan_${now}`,
+      name,
+      description,
+      modelTransform: { ...state.modelTransform },
+      generatedMasses: JSON.parse(JSON.stringify(state.generatedMasses)),
+      parkingZone: state.parkingZone ? JSON.parse(JSON.stringify(state.parkingZone)) : null,
+      parkingTransform: { ...state.parkingTransform },
+      parkingOrigin: state.parkingOrigin ? { ...state.parkingOrigin } : null,
+      parkingEntrance: state.parkingEntrance ? JSON.parse(JSON.stringify(state.parkingEntrance)) : null,
+      entranceTransform: { ...state.entranceTransform },
+      isParkingVisible: state.isParkingVisible,
+      gridRotation: state.gridRotation,
+      parkingPath: state.parkingPath ? JSON.parse(JSON.stringify(state.parkingPath)) : null,
+      aiScore: state.aiScore.result
+        ? {
+            overallScore: state.aiScore.result.overallScore,
+            categoryGrades: state.aiScore.result.categoryGrades,
+            summary: state.aiScore.result.summary,
+          }
+        : undefined,
+      createdAt: now,
+      updatedAt: now,
+    }
+    set((s) => ({
+      placementPlans: [...s.placementPlans, plan],
+      activePlanId: plan.id,
+    }))
+    return plan
+  },
+
+  loadPlan: (id) => {
+    const state = useProjectStore.getState()
+    const plan = state.placementPlans.find((p) => p.id === id)
+    if (!plan) return
+
+    set({
+      activePlanId: id,
+      modelTransform: { ...plan.modelTransform },
+      generatedMasses: JSON.parse(JSON.stringify(plan.generatedMasses)),
+      parkingZone: plan.parkingZone ? JSON.parse(JSON.stringify(plan.parkingZone)) : null,
+      parkingTransform: { ...plan.parkingTransform },
+      parkingOrigin: plan.parkingOrigin ? { ...plan.parkingOrigin } : null,
+      parkingEntrance: plan.parkingEntrance ? JSON.parse(JSON.stringify(plan.parkingEntrance)) : null,
+      entranceTransform: { ...plan.entranceTransform },
+      isParkingVisible: plan.isParkingVisible,
+      gridRotation: plan.gridRotation,
+      parkingPath: plan.parkingPath ? JSON.parse(JSON.stringify(plan.parkingPath)) : null,
+    })
+  },
+
   reset: () =>
     set({
       projectId: null,
@@ -757,6 +891,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
       aiScore: { isLoading: false, result: null, error: null },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
       resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+      placementPlans: [],
+      activePlanId: null,
+      plansOpen: false,
       saveProjectFn: null,
       loadProjectFn: null,
       loadFromDbFn: null,

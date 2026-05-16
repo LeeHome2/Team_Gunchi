@@ -22,6 +22,7 @@ import {
   SerializedParkingConfig,
   SerializedParkingTransform,
   SerializedMainEntranceData,
+  SerializedPlacementPlan,
 } from '@/types/projectFile'
 
 /**
@@ -132,6 +133,9 @@ export function createProjectFile(params: {
   gridRotation?: number
   // 메인 출입구 마커
   mainEntrance?: SerializedMainEntranceData | null
+  // 배치안 목록
+  placementPlans?: SerializedPlacementPlan[]
+  activePlanId?: string | null
 }): ProjectFile {
   const {
     viewer,
@@ -165,6 +169,9 @@ export function createProjectFile(params: {
     gridRotation,
     // 메인 출입구 마커
     mainEntrance,
+    // 배치안 목록
+    placementPlans,
+    activePlanId,
   } = params
 
   return {
@@ -209,6 +216,10 @@ export function createProjectFile(params: {
 
     // 메인 출입구 마커
     mainEntrance,
+
+    // 배치안 목록
+    placementPlans,
+    activePlanId,
   }
 }
 

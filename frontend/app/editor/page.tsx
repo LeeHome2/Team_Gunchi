@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useCallback, useRef, useEffect, Suspense } from 'react'
 import { useProjectStore } from '@/store/projectStore'
 import Sidebar from '@/components/Sidebar'
+import PlacementPlansPanel from '@/components/PlacementPlansPanel'
 import ErrorBanner from '@/components/ErrorBanner'
 import Brand from '@/components/Brand'
 import { captureTopDownDataUrl, captureCurrentViewDataUrl } from '@/lib/cesiumSnapshot'
@@ -67,6 +68,19 @@ function EditorContent() {
     projectName: storeProjectName,
     setProjectId,
     setProjectName: setStoreProjectName,
+    plansOpen,
+    setPlansOpen,
+    activePlanId,
+    updatePlacementPlan,
+    generatedMasses,
+    parkingZone,
+    parkingTransform,
+    parkingOrigin,
+    parkingEntrance,
+    entranceTransform,
+    isParkingVisible,
+    gridRotation,
+    parkingPath,
   } = useProjectStore()
 
   // URL에서 projectId 읽어서 프로젝트 정보 로드
@@ -193,6 +207,21 @@ function EditorContent() {
       setError('뷰어가 초기화되지 않았습니다')
       return
     }
+    // 활성 배치안이 있으면 현재 상태로 업데이트
+    if (activePlanId) {
+      updatePlacementPlan(activePlanId, {
+        modelTransform: { ...modelTransform },
+        generatedMasses: JSON.parse(JSON.stringify(generatedMasses)),
+        parkingZone: parkingZone ? JSON.parse(JSON.stringify(parkingZone)) : null,
+        parkingTransform: { ...parkingTransform },
+        parkingOrigin: parkingOrigin ? { ...parkingOrigin } : null,
+        parkingEntrance: parkingEntrance ? JSON.parse(JSON.stringify(parkingEntrance)) : null,
+        entranceTransform: { ...entranceTransform },
+        isParkingVisible,
+        gridRotation,
+        parkingPath: parkingPath ? JSON.parse(JSON.stringify(parkingPath)) : null,
+      })
+    }
     // projectId가 있으면 다이얼로그 없이 바로 DB 저장
     if (storeProjectId) {
       saveProjectFn(storeProjectName || undefined)
@@ -200,15 +229,30 @@ function EditorContent() {
     }
     setProjectName('')
     setShowSaveDialog(true)
-  }, [saveProjectFn, storeProjectId, storeProjectName, setError])
+  }, [saveProjectFn, storeProjectId, storeProjectName, setError, activePlanId, updatePlacementPlan, modelTransform, generatedMasses, parkingZone, parkingTransform, parkingOrigin, parkingEntrance, entranceTransform, isParkingVisible, gridRotation, parkingPath])
 
   const handleSaveProject = useCallback(() => {
     if (saveProjectFn) {
+      // 활성 배치안이 있으면 현재 상태로 업데이트
+      if (activePlanId) {
+        updatePlacementPlan(activePlanId, {
+          modelTransform: { ...modelTransform },
+          generatedMasses: JSON.parse(JSON.stringify(generatedMasses)),
+          parkingZone: parkingZone ? JSON.parse(JSON.stringify(parkingZone)) : null,
+          parkingTransform: { ...parkingTransform },
+          parkingOrigin: parkingOrigin ? { ...parkingOrigin } : null,
+          parkingEntrance: parkingEntrance ? JSON.parse(JSON.stringify(parkingEntrance)) : null,
+          entranceTransform: { ...entranceTransform },
+          isParkingVisible,
+          gridRotation,
+          parkingPath: parkingPath ? JSON.parse(JSON.stringify(parkingPath)) : null,
+        })
+      }
       saveProjectFn(projectName || undefined)
       setShowSaveDialog(false)
       setProjectName('')
     }
-  }, [saveProjectFn, projectName])
+  }, [saveProjectFn, projectName, activePlanId, updatePlacementPlan, modelTransform, generatedMasses, parkingZone, parkingTransform, parkingOrigin, parkingEntrance, entranceTransform, isParkingVisible, gridRotation, parkingPath])
 
   const handleLoadClick = useCallback(async () => {
     // DB에서 불러오기 우선 (projectId가 있는 경우)
@@ -407,13 +451,24 @@ function EditorContent() {
 
       {/* Main work area */}
       <div className="flex flex-1 overflow-hidden">
+        {/* 좌측 사이드바: 배치안 목록 */}
+        <aside
+          className={`flex-shrink-0 border-r border-white/5 bg-navy-850 transition-all duration-300 ${
+            plansOpen ? 'w-72' : 'w-0'
+          } overflow-hidden`}
+        >
+          <div className="w-72 h-full">
+            <PlacementPlansPanel />
+          </div>
+        </aside>
+
         <main className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-shrink-0 border-b border-white/5 bg-navy-900/60 px-4 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
+                onClick={() => setPlansOpen(!plansOpen)}
                 className="p-2 rounded-md hover:bg-white/5 transition-colors"
-                title={sidebarOpen ? '사이드바 숨기기' : '사이드바 보이기'}
+                title={plansOpen ? '배치안 목록 닫기' : '배치안 목록 열기'}
               >
                 <svg className="w-5 h-5 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />

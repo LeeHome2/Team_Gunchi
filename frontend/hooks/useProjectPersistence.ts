@@ -138,6 +138,9 @@ export function useProjectPersistence(
         gridRotation: store.gridRotation,
         // 메인 출입구 마커
         mainEntrance: store.mainEntrance,
+        // 배치안 목록
+        placementPlans: store.placementPlans,
+        activePlanId: store.activePlanId,
       })
 
       // DB에 저장 시도 (projectId가 있는 경우)
@@ -375,6 +378,24 @@ export function useProjectPersistence(
         const { setMainEntrance } = useProjectStore.getState()
         setMainEntrance(savedMainEntrance)
       }, 2000)
+    }
+
+    // 12. 배치안 목록 복원
+    if (projectFile.placementPlans && projectFile.placementPlans.length > 0) {
+      console.log('배치안 목록 복원 중...', projectFile.placementPlans.length, '개')
+      const currentStore = useProjectStore.getState()
+      // 기존 배치안 제거
+      for (const plan of currentStore.placementPlans) {
+        currentStore.removePlacementPlan(plan.id)
+      }
+      // 저장된 배치안 추가
+      for (const plan of projectFile.placementPlans) {
+        currentStore.addPlacementPlan(plan as any)
+      }
+      // 활성 배치안 설정
+      if (projectFile.activePlanId) {
+        currentStore.setActivePlanId(projectFile.activePlanId)
+      }
     }
 
     viewer.scene.requestRender()
