@@ -52,8 +52,10 @@ export interface PathfinderInput {
   goal: [number, number]
   /** 사이트 경계 (로컬 m) */
   siteFootprint: number[][]
-  /** 장애물 (건물 등) AABB 목록 [{minX,minY,maxX,maxY}] */
+  /** 장애물 (건물 등) AABB 목록 [{minX,minY,maxX,maxY}] - 폴리곤이 없을 때 폴백 */
   obstacles: { minX: number; minY: number; maxX: number; maxY: number }[]
+  /** 장애물 폴리곤 목록 (회전된 건물 등) - AABB보다 정확 */
+  obstaclePolygons?: number[][][]
   /** 그리드 해상도 (m, 기본 0.5m - 더 세밀한 해상도) */
   gridSize?: number
   /** 장애물 주변 마진 (그리드 셀 수, 기본 1) - vehicleWidth 사용 시 자동 계산됨 */
@@ -75,6 +77,7 @@ export interface PathfinderInput {
 export function findParkingPath(input: PathfinderInput): ParkingPathData {
   const {
     start, goal, siteFootprint, obstacles,
+    obstaclePolygons = [],  // 폴리곤 장애물 (더 정확)
     gridSize = 2,  // 그리드 해상도 (m)
     obstacleMargin = 1,  // 장애물 마진 (그리드 셀 수)
     returnGrid = true,
@@ -164,15 +167,18 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     sMinY + gy * gridSize,
   ]
 
-  // 장애물 그리드 마크 (다중 장애물 지원) - 회전된 장애물 사용
+  // 장애물 그리드 마크 (다중 장애물 지원)
   const blocked = new Set<string>()
   const buildingCells = new Set<string>()  // 건물 영역 셀 (별도 표시용)
 
-  // 디버그: 원본 장애물 정보 출력
-  console.log('[ParkingPathfinder] Original obstacles:')
-  obstacles.forEach((obs, i) => {
-    console.log(`  [${i}] ${(obs.maxX - obs.minX).toFixed(1)} x ${(obs.maxY - obs.minY).toFixed(1)} m at (${obs.minX.toFixed(1)}, ${obs.minY.toFixed(1)}) ~ (${obs.maxX.toFixed(1)}, ${obs.maxY.toFixed(1)})`)
-  })
+  // 폴리곤 장애물을 그리드 회전에 맞게 회전
+  const rotatedObstaclePolygons = obstaclePolygons.map(poly =>
+    poly.map(([x, y]) => rotatePoint(x, y))
+  )
+
+  // 디버그: 장애물 정보 출력
+  console.log('[ParkingPathfinder] Obstacle polygons:', obstaclePolygons.length)
+  console.log('[ParkingPathfinder] Original AABB obstacles:', obstacles.length)
   console.log('[ParkingPathfinder] Site footprint bounds:', {
     minX: Math.min(...siteFootprint.map(p => p[0])).toFixed(1),
     minY: Math.min(...siteFootprint.map(p => p[1])).toFixed(1),
@@ -180,15 +186,46 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     maxY: Math.max(...siteFootprint.map(p => p[1])).toFixed(1),
   })
 
-  for (const obs of rotatedObstacles) {
-    const [g1x, g1y] = toGrid(obs.minX, obs.minY)
-    const [g2x, g2y] = toGrid(obs.maxX, obs.maxY)
-    for (let gx = g1x - obstacleMargin; gx <= g2x + obstacleMargin; gx++) {
-      for (let gy = g1y - obstacleMargin; gy <= g2y + obstacleMargin; gy++) {
-        blocked.add(nodeKey(gx, gy))
-        // 마진 없는 영역만 건물로 표시
-        if (gx >= g1x && gx <= g2x && gy >= g1y && gy <= g2y) {
-          buildingCells.add(nodeKey(gx, gy))
+  // 폴리곤 장애물이 있으면 폴리곤으로 판정, 없으면 AABB 사용
+  if (rotatedObstaclePolygons.length > 0) {
+    // 폴리곤 장애물: 각 셀이 폴리곤 내부인지 검사
+    for (let gx = 0; gx <= cols; gx++) {
+      for (let gy = 0; gy <= rows; gy++) {
+        const [wx, wy] = toWorld(gx, gy)
+        for (const poly of rotatedObstaclePolygons) {
+          if (isInsidePolygon(wx, wy, poly)) {
+            blocked.add(nodeKey(gx, gy))
+            buildingCells.add(nodeKey(gx, gy))
+            break
+          }
+        }
+      }
+    }
+    // 마진 적용: 건물 셀 주변도 blocked 처리
+    if (obstacleMargin > 0) {
+      const buildingCellList = Array.from(buildingCells)
+      for (const key of buildingCellList) {
+        const [gxStr, gyStr] = key.split(',')
+        const gx = parseInt(gxStr), gy = parseInt(gyStr)
+        for (let dx = -obstacleMargin; dx <= obstacleMargin; dx++) {
+          for (let dy = -obstacleMargin; dy <= obstacleMargin; dy++) {
+            if (dx === 0 && dy === 0) continue
+            blocked.add(nodeKey(gx + dx, gy + dy))
+          }
+        }
+      }
+    }
+  } else {
+    // AABB 장애물 (폴백)
+    for (const obs of rotatedObstacles) {
+      const [g1x, g1y] = toGrid(obs.minX, obs.minY)
+      const [g2x, g2y] = toGrid(obs.maxX, obs.maxY)
+      for (let gx = g1x - obstacleMargin; gx <= g2x + obstacleMargin; gx++) {
+        for (let gy = g1y - obstacleMargin; gy <= g2y + obstacleMargin; gy++) {
+          blocked.add(nodeKey(gx, gy))
+          if (gx >= g1x && gx <= g2x && gy >= g1y && gy <= g2y) {
+            buildingCells.add(nodeKey(gx, gy))
+          }
         }
       }
     }
@@ -255,22 +292,50 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
     [1, 0], [-1, 0], [0, 1], [0, -1],
   ]
 
-  // 시작/끝이 blocked면 가장 가까운 unblocked로
+  // 8방향 (대각선 포함 - unblock 탐색용)
+  const dirs8 = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
+  ]
+
+  // 시작/끝이 blocked면 가장 가까운 unblocked로 (나선형 BFS)
   const unblock = (gx: number, gy: number): [number, number] => {
     if (!blocked.has(nodeKey(gx, gy))) return [gx, gy]
-    for (let r = 1; r <= 15; r++) {
-      for (const [dx, dy] of dirs) {
-        const nx = gx + dx * r, ny = gy + dy * r
-        if (!blocked.has(nodeKey(nx, ny)) && nx >= 0 && ny >= 0 && nx <= cols && ny <= rows) {
-          return [nx, ny]
+
+    // 나선형으로 탐색 (가장 가까운 unblocked 셀 찾기)
+    const maxRadius = Math.max(cols, rows)
+    for (let r = 1; r <= maxRadius; r++) {
+      // 반경 r의 모든 셀 검사 (정사각형 테두리)
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          // 테두리만 (내부는 이미 검사함)
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+
+          const nx = gx + dx, ny = gy + dy
+          if (nx >= 0 && ny >= 0 && nx <= cols && ny <= rows) {
+            if (!blocked.has(nodeKey(nx, ny))) {
+              console.log(`[ParkingPathfinder] unblock: (${gx},${gy}) → (${nx},${ny}) at radius ${r}`)
+              return [nx, ny]
+            }
+          }
         }
       }
     }
+    console.log(`[ParkingPathfinder] unblock FAILED: no unblocked cell found for (${gx},${gy})`)
     return [gx, gy]
   }
 
   const [sGx, sGy] = unblock(startGx, startGy)
   const [eGx, eGy] = unblock(goalGx, goalGy)
+
+  console.log('[ParkingPathfinder] Start/Goal:', {
+    originalStart: [startGx, startGy],
+    unblockedStart: [sGx, sGy],
+    originalGoal: [goalGx, goalGy],
+    unblockedGoal: [eGx, eGy],
+    startStillBlocked: blocked.has(nodeKey(sGx, sGy)),
+    goalStillBlocked: blocked.has(nodeKey(eGx, eGy)),
+  })
 
   // open set (간단한 배열 기반 — 그리드가 작으므로 충분)
   const open: AStarNode[] = []
@@ -346,6 +411,14 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
 
   // 경로 복원
   if (!found) {
+    console.log('[ParkingPathfinder] A* FAILED - returning straight line', {
+      iterations,
+      maxIterations,
+      startGrid: [sGx, sGy],
+      goalGrid: [eGx, eGy],
+      startBlocked: blocked.has(nodeKey(startGx, startGy)),
+      goalBlocked: blocked.has(nodeKey(goalGx, goalGy)),
+    })
     return {
       points: [start, goal],
       length: heuristic(start[0], start[1], goal[0], goal[1]),
@@ -354,6 +427,8 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
       vehicleWidth,
     }
   }
+
+  console.log('[ParkingPathfinder] A* SUCCESS', { iterations })
 
   // 회전된 좌표계에서 경로 복원 후 원래 좌표계로 역변환
   const gridPath: [number, number][] = []
@@ -367,6 +442,12 @@ export function findParkingPath(input: PathfinderInput): ParkingPathData {
 
   // 경로 단순화
   const simplified = simplifyPath(gridPath, gridSize * 0.8)
+
+  console.log('[ParkingPathfinder] Path points:', {
+    gridPathLength: gridPath.length,
+    simplifiedLength: simplified.length,
+    gridPathSample: gridPath.slice(0, 5).map(p => `(${p[0].toFixed(1)},${p[1].toFixed(1)})`),
+  })
 
   // 시작/끝을 정확한 원래 좌표로 교체
   if (simplified.length > 0) {

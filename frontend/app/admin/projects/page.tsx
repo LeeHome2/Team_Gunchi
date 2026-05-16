@@ -27,6 +27,15 @@ function formatArea(area: number | null): string {
   return `${Math.round(area).toLocaleString()}㎡`
 }
 
+interface ClassificationStats {
+  total_classifications: number
+  avg_confidence: number
+  success_rate: number
+  mock_rate: number
+  recent_7d_count: number
+  recent_7d_avg_confidence: number
+}
+
 export default function AdminProjectsPage() {
   const [rows, setRows] = useState<AdminProject[]>([])
   const [query, setQuery] = useState('')
@@ -34,6 +43,7 @@ export default function AdminProjectsPage() {
   const [error, setError] = useState<string | null>(null)
   const [endpoints, setEndpoints] = useState<AdminEndpointStatus[]>([])
   const [detail, setDetail] = useState<AdminProject | null>(null)
+  const [classificationStats, setClassificationStats] = useState<ClassificationStats | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -57,6 +67,15 @@ export default function AdminProjectsPage() {
         setEndpoints(res.endpoints)
       } catch {
         setEndpoints([])
+      }
+    })()
+    // AI 분류 통계 로드
+    ;(async () => {
+      try {
+        const stats = await adminApi.getClassificationStats()
+        setClassificationStats(stats)
+      } catch {
+        setClassificationStats(null)
       }
     })()
   }, [])
@@ -95,7 +114,7 @@ export default function AdminProjectsPage() {
         description="업로드된 프로젝트와 지도 데이터 연동 상태를 관리합니다."
       />
       <main className="flex-1 p-8 space-y-6">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           <StatCard
             label="전체 프로젝트"
             value={rows.length.toString()}
@@ -108,10 +127,28 @@ export default function AdminProjectsPage() {
             changeType="neutral"
           />
           <StatCard
-            label="활성"
-            value={rows.length.toString()}
-            change="진행 중"
-            changeType="up"
+            label="AI 추론 성공률"
+            value={classificationStats ? `${classificationStats.success_rate.toFixed(1)}%` : '—'}
+            change={classificationStats
+              ? `평균 신뢰도 ${(classificationStats.avg_confidence * 100).toFixed(1)}%`
+              : '로딩 중'
+            }
+            changeType={
+              classificationStats && classificationStats.success_rate >= 80
+                ? 'up'
+                : classificationStats && classificationStats.success_rate >= 60
+                  ? 'neutral'
+                  : 'down'
+            }
+          />
+          <StatCard
+            label="총 분류 횟수"
+            value={classificationStats?.total_classifications.toLocaleString() || '—'}
+            change={classificationStats
+              ? `최근 7일 ${classificationStats.recent_7d_count}건`
+              : 'MLOps 기준'
+            }
+            changeType="neutral"
           />
           <StatCard
             label="평균 대지면적"

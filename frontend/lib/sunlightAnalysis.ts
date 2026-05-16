@@ -186,6 +186,7 @@ function getDefaultSunDirection(viewer: any, currentTime: any): any {
  * @param sunDirection - 태양 방향 벡터
  * @param terrainHeight - 지형 높이 (미터, 기본값 50.0 - 한국 평균 지형고도)
  * @param sampleOffset - 지형 위 샘플 오프셋 (미터, 기본값 1.5)
+ * @param excludeObjects - ray casting에서 제외할 객체 목록 (사용자 매스 등)
  * @returns true = 일조, false = 그림자
  */
 export function checkShadowAtPoint(
@@ -194,7 +195,8 @@ export function checkShadowAtPoint(
   latitude: number,
   sunDirection: any,
   terrainHeight: number = 50.0,
-  sampleOffset: number = 1.5
+  sampleOffset: number = 1.5,
+  excludeObjects: any[] = []
 ): boolean {
   const Cesium = (window as any).Cesium
   if (!Cesium || !viewer || !sunDirection) return true  // 기본값: 일조
@@ -212,7 +214,8 @@ export function checkShadowAtPoint(
     const ray = new Cesium.Ray(groundPoint, sunDirection)
 
     // pickFromRay 실행 - 3D 타일셋만 검사 (지형 제외)
-    const result = viewer.scene.pickFromRay(ray, [], 0.1, false)
+    // excludeObjects에 사용자 매스 포함하여 주변 건물만 검사
+    const result = viewer.scene.pickFromRay(ray, excludeObjects, 0.1, false)
 
     // hit 없음 = 일조, hit 있음 = 그림자
     if (!result || !result.object) {
@@ -256,6 +259,7 @@ function isSunAboveHorizon(viewer: any): boolean {
  * @param analysisDate - 분석할 날짜
  * @param gridSpacing - 그리드 간격 (미터, 기본값 2)
  * @param onProgress - 진행률 콜백 (UI 업데이트용)
+ * @param excludeObjects - ray casting에서 제외할 객체 (사용자 매스 등)
  * @returns 분석 결과
  */
 export async function analyzeSunlight(
@@ -263,7 +267,8 @@ export async function analyzeSunlight(
   buildableArea: GeoJSON.Polygon,
   analysisDate: Date,
   gridSpacing: number = 2,
-  onProgress?: (progress: AnalysisProgress) => void
+  onProgress?: (progress: AnalysisProgress) => void,
+  excludeObjects: any[] = []
 ): Promise<SunlightAnalysisResult> {
   const Cesium = (window as any).Cesium
   if (!Cesium || !viewer) {
@@ -361,10 +366,10 @@ export async function analyzeSunlight(
 
       if (sunDirection) {
         let sunlitCount = 0
-        // 각 포인트에서 ray casting
+        // 각 포인트에서 ray casting (사용자 매스 제외)
         for (let i = 0; i < gridPoints.length; i++) {
           const [lon, lat] = gridPoints[i]
-          const isSunlit = checkShadowAtPoint(viewer, lon, lat, sunDirection, terrainHeight)
+          const isSunlit = checkShadowAtPoint(viewer, lon, lat, sunDirection, terrainHeight, 1.5, excludeObjects)
 
           if (isSunlit) {
             sunlightRecords.get(i)![step] = true

@@ -679,6 +679,17 @@ export const adminApi = {
   deleteProject: (projectId: string) =>
     adminFetch<{ ok: true }>(`/projects/${projectId}`, { method: 'DELETE' }),
 
+  // Classification Stats (MLOps)
+  getClassificationStats: () =>
+    adminFetch<{
+      total_classifications: number
+      avg_confidence: number
+      success_rate: number
+      mock_rate: number
+      recent_7d_count: number
+      recent_7d_avg_confidence: number
+    }>('/classification-stats'),
+
   // Results
   listResults: () =>
     adminFetch<{

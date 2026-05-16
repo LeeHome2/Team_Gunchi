@@ -14,6 +14,7 @@ import { isPointInPolygon as checkPointInPolygon } from '@/lib/geometry'
 import { DEFAULT_SETBACKS, getZoneLimits } from '@/lib/setbackTable'
 import { saveReviewResult } from '@/lib/api'
 import type { CadastralFeature } from '@/types/cesium'
+import Compass from '@/components/Compass'
 
 /** 지하 기초 오프셋: 슬라이더 0 = 실제 높이 -1m */
 const GROUND_OFFSET = -1.0
@@ -237,6 +238,7 @@ export default function CesiumViewer() {
   const sunlightAnalysis = useSunlightAnalysis(viewerRef, {
     getBuildingLineResult: buildingLine.getBuildingLineResult,
     getSelectedBlocks: blockSelection.getSelectedBlocks,
+    getLoadedModelEntity: () => loadedModelEntity,  // 사용자 매스 (일조분석에서 제외)
   })
 
   // === OSM 건물 숨기기 (Hook) ===
@@ -2547,6 +2549,9 @@ export default function CesiumViewer() {
       )}
 
       {/* 일조 시뮬레이션 — 사이드바 검토 탭으로 이동됨 */}
+
+      {/* 나침반 위젯 */}
+      <Compass viewerRef={viewerRef} isLoaded={isLoaded} />
     </div>
   )
 }

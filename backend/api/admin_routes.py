@@ -18,6 +18,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import Integer
 from sqlalchemy.orm import Session
 
 from database.config import get_db, get_db_info, get_db_type, switch_database
@@ -750,6 +751,74 @@ def list_projects(db: Session = Depends(get_db)):
     ]
     result = {"projects": rows, "total": len(rows)}
     _cache.set("projects", result)
+    return result
+
+
+# ============================================================================
+# CLASSIFICATION STATISTICS (for MLOps monitoring)
+# ============================================================================
+
+
+@router.get("/classification-stats")
+def get_classification_stats(db: Session = Depends(get_db)):
+    """
+    AI 분류 통계 반환 — MLOps 재학습 기준용.
+
+    Returns:
+        total_classifications: 전체 분류 횟수
+        avg_confidence: 평균 신뢰도 (0-1)
+        success_rate: 성공률 (confidence >= 0.8 기준, %)
+        mock_rate: Mock 분류 비율 (%, model_version이 'mock'으로 시작하는 경우)
+        recent_7d_count: 최근 7일 분류 횟수
+        recent_7d_avg_confidence: 최근 7일 평균 신뢰도
+    """
+    cached = _cache.get("classification-stats", ttl=10.0)
+    if cached is not None:
+        return cached
+
+    from datetime import timedelta
+    from sqlalchemy import func as sa_func
+    from database.models import ClassificationResult
+
+    # 전체 통계
+    total_q = db.query(
+        sa_func.count(ClassificationResult.id).label("total"),
+        sa_func.avg(ClassificationResult.average_confidence).label("avg_conf"),
+        sa_func.sum(
+            sa_func.cast(ClassificationResult.average_confidence >= 0.8, Integer)
+        ).label("success_count"),
+        sa_func.sum(
+            sa_func.cast(ClassificationResult.model_version.like("mock%"), Integer)
+        ).label("mock_count"),
+    ).first()
+
+    total = total_q.total or 0
+    avg_conf = float(total_q.avg_conf or 0)
+    success_count = total_q.success_count or 0
+    mock_count = total_q.mock_count or 0
+
+    success_rate = (success_count / total * 100) if total > 0 else 0
+    mock_rate = (mock_count / total * 100) if total > 0 else 0
+
+    # 최근 7일 통계
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    recent_q = db.query(
+        sa_func.count(ClassificationResult.id).label("count"),
+        sa_func.avg(ClassificationResult.average_confidence).label("avg_conf"),
+    ).filter(ClassificationResult.created_at >= seven_days_ago).first()
+
+    recent_count = recent_q.count or 0
+    recent_avg_conf = float(recent_q.avg_conf or 0)
+
+    result = {
+        "total_classifications": total,
+        "avg_confidence": round(avg_conf, 4),
+        "success_rate": round(success_rate, 2),
+        "mock_rate": round(mock_rate, 2),
+        "recent_7d_count": recent_count,
+        "recent_7d_avg_confidence": round(recent_avg_conf, 4),
+    }
+    _cache.set("classification-stats", result)
     return result
 
 

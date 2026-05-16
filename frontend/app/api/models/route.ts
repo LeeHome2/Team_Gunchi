@@ -243,37 +243,50 @@ export async function GET() {
     })
 
     const models = glbFiles.map((filename) => {
-      const filePath = path.join(MODELS_DIR, filename)
-      const stats = fs.statSync(filePath)
+      try {
+        const filePath = path.join(MODELS_DIR, filename)
+        const stats = fs.statSync(filePath)
 
-      let displayName = filename
-        .replace('Meshy_AI_', '')
-        .replace('_texture.glb', '')
-        .replace(/_\d+$/, '')
-        .replace(/_/g, ' ')
+        let displayName = filename
+          .replace('Meshy_AI_', '')
+          .replace('_texture.glb', '')
+          .replace(/_\d+$/, '')
+          .replace(/_/g, ' ')
 
-      const parsed = parseGlb(filePath)
-      const boundingBox = parsed
-        ? extractBoundingBox(parsed.gltf)
-        : null
+        const parsed = parseGlb(filePath)
+        const boundingBox = parsed
+          ? extractBoundingBox(parsed.gltf)
+          : null
 
-      // 바닥면 폴리곤 추출 (모델 로컬 좌표, X-Z 평면) + 실제 바닥 Y 좌표
-      const floorResult = parsed
-        ? extractFloorPolygon(parsed.gltf, parsed.binBuffer, filename)
-        : null
+        // 바닥면 폴리곤 추출 (모델 로컬 좌표, X-Z 평면) + 실제 바닥 Y 좌표
+        const floorResult = parsed
+          ? extractFloorPolygon(parsed.gltf, parsed.binBuffer, filename)
+          : null
 
-      const floorPolygon = floorResult?.polygon ?? null
-      // originYMin: 실제 POSITION 버텍스에서 추출한 Y 최솟값 (NORMAL accessor가 아님)
-      const originYMin = floorResult?.minY ?? 0
+        const floorPolygon = floorResult?.polygon ?? null
+        // originYMin: 실제 POSITION 버텍스에서 추출한 Y 최솟값 (NORMAL accessor가 아님)
+        const originYMin = floorResult?.minY ?? 0
 
-      return {
-        filename,
-        displayName,
-        size: stats.size,
-        sizeFormatted: (stats.size / 1024 / 1024).toFixed(1) + ' MB',
-        boundingBox: boundingBox || { width: 10, height: 10, depth: 10 },
-        floorPolygon, // [[x, z], ...] 모델 로컬 좌표 (m) — null이면 bounding box fallback
-        originYMin,   // POSITION 버텍스의 Y 최솟값 — height = -originYMin * scale 로 바닥 보정
+        return {
+          filename,
+          displayName,
+          size: stats.size,
+          sizeFormatted: (stats.size / 1024 / 1024).toFixed(1) + ' MB',
+          boundingBox: boundingBox || { width: 10, height: 10, depth: 10 },
+          floorPolygon, // [[x, z], ...] 모델 로컬 좌표 (m) — null이면 bounding box fallback
+          originYMin,   // POSITION 버텍스의 Y 최솟값 — height = -originYMin * scale 로 바닥 보정
+        }
+      } catch (err) {
+        console.error(`모델 처리 실패: ${filename}`, err)
+        return {
+          filename,
+          displayName: filename.replace('.glb', ''),
+          size: 0,
+          sizeFormatted: '0 MB',
+          boundingBox: { width: 10, height: 10, depth: 10 },
+          floorPolygon: null,
+          originYMin: 0,
+        }
       }
     })
 

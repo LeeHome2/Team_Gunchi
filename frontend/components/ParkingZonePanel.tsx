@@ -54,6 +54,8 @@ export default function ParkingZonePanel() {
   )
   const [isGenerating, setIsGenerating] = useState(false)
   const [showGrid, setShowGrid] = useState(true)
+  // 그리드 회전 슬라이더용 로컬 상태 (드래그 중 부드러운 UI)
+  const [localGridRotation, setLocalGridRotation] = useState(gridRotation)
 
   const areaM2 = selectedBlockInfo?.totalArea ?? site?.area ?? 0
 
@@ -133,15 +135,35 @@ export default function ParkingZonePanel() {
         const offsetX = (modelTransform.longitude - originLon) * mPerDegLon
         const offsetY = (modelTransform.latitude - originLat) * mPerDegLat
 
-        const minX = offsetX - halfW
-        const minY = offsetY - halfD
-        const maxX = offsetX + halfW
-        const maxY = offsetY + halfD
+        // 매스 회전 적용 (modelTransform.rotation)
+        const rotRad = (modelTransform.rotation * Math.PI) / 180
+        const cosR = Math.cos(rotRad)
+        const sinR = Math.sin(rotRad)
 
-        if (addObstacle(minX, minY, maxX, maxY, `mass.boundingBox[${mass.id?.substring(0, 8)}]`)) {
-          additionalFootprintsLocal.push([
-            [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY]
-          ])
+        // 회전된 4개 코너 계산 (시계방향 — Cesium 매스와 동일)
+        const corners = [
+          [-halfW, -halfD],
+          [halfW, -halfD],
+          [halfW, halfD],
+          [-halfW, halfD],
+        ].map(([x, y]) => {
+          // 시계방향 회전: +sin for x, -sin for y
+          const rx = x * cosR + y * sinR
+          const ry = -x * sinR + y * cosR
+          return [offsetX + rx, offsetY + ry]
+        })
+
+        // 회전된 코너들의 AABB 계산
+        const cXs = corners.map(c => c[0])
+        const cYs = corners.map(c => c[1])
+        const minX = Math.min(...cXs)
+        const minY = Math.min(...cYs)
+        const maxX = Math.max(...cXs)
+        const maxY = Math.max(...cYs)
+
+        if (addObstacle(minX, minY, maxX, maxY, `mass.boundingBox[${mass.id?.substring(0, 8)}] rot=${modelTransform.rotation.toFixed(0)}°`)) {
+          // 회전된 폴리곤 저장 (정확한 충돌 검사용)
+          additionalFootprintsLocal.push(corners)
         }
       } else if (mass.footprint && mass.footprint.length >= 3) {
         // boundingBox 없으면 footprint 사용
@@ -174,7 +196,7 @@ export default function ParkingZonePanel() {
 
     console.log(`[collectObstacles] 총 ${obstacles.length}개 장애물`)
     return { obstacles, additionalFootprintsLocal }
-  }, [building, loadedModelEntity, generatedMasses, loadedMassGlbUrl, toLocal, modelTransform.longitude, modelTransform.latitude, parkingOrigin])
+  }, [building, loadedModelEntity, generatedMasses, loadedMassGlbUrl, toLocal, modelTransform.longitude, modelTransform.latitude, modelTransform.rotation, parkingOrigin])
 
   // 주차구역 + 입구 생성
   const handleGenerate = useCallback(() => {
@@ -291,6 +313,7 @@ export default function ParkingZonePanel() {
           goal: result.zone.zoneCenter as [number, number],
           siteFootprint: siteLocal,
           obstacles,
+          obstaclePolygons: additionalFootprintsLocal,  // 회전된 폴리곤 사용
           gridSize: 2,
           returnGrid: showGrid,
           gridRotation,
@@ -363,7 +386,7 @@ export default function ParkingZonePanel() {
     if (!siteFootprint || siteFootprint.length < 3) return
 
     const siteLocal = toLocal(siteFootprint)
-    const { obstacles } = collectObstacles()
+    const { obstacles, additionalFootprintsLocal } = collectObstacles()
 
     // transform 오프셋을 로컬 미터로 변환
     const latRad = (modelTransform.latitude * Math.PI) / 180
@@ -383,6 +406,7 @@ export default function ParkingZonePanel() {
       goal: [zoneX, zoneY],
       siteFootprint: siteLocal,
       obstacles,
+      obstaclePolygons: additionalFootprintsLocal,  // 회전된 폴리곤 사용
       gridSize: 2,
       returnGrid: showGrid,
       gridRotation,
@@ -400,6 +424,11 @@ export default function ParkingZonePanel() {
   }, [parkingTransform.longitude, parkingTransform.latitude, parkingTransform.rotation,
       entranceTransform.longitude, entranceTransform.latitude, entranceTransform.rotation,
       handleRecalcPath, parkingZone, parkingEntrance, isParkingVisible, gridRotation])
+
+  // gridRotation 외부 변경 시 로컬 상태 동기화
+  useEffect(() => {
+    setLocalGridRotation(gridRotation)
+  }, [gridRotation])
 
   // 제거
   const handleClear = () => {
@@ -541,15 +570,17 @@ export default function ParkingZonePanel() {
               <div className="mt-2 space-y-1">
                 <div className="flex items-center justify-between text-xs text-gray-600">
                   <span>그리드 방향</span>
-                  <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{gridRotation}°</span>
+                  <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{localGridRotation}°</span>
                 </div>
                 <input
                   type="range"
                   min={0}
                   max={180}
                   step={5}
-                  value={gridRotation}
-                  onChange={(e) => setGridRotation(Number(e.target.value))}
+                  value={localGridRotation}
+                  onChange={(e) => setLocalGridRotation(Number(e.target.value))}
+                  onPointerUp={() => setGridRotation(localGridRotation)}
+                  onTouchEnd={() => setGridRotation(localGridRotation)}
                   className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
                 <div className="flex justify-between text-[10px] text-gray-400">

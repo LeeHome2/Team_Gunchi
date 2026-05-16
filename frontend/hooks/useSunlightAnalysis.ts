@@ -24,6 +24,8 @@ interface UseSunlightAnalysisOptions {
   getBuildingLineResult: () => BuildingLineResult | null
   /** 선택된 필지 가져오기 함수 (건축선 미계산 시 fallback용) */
   getSelectedBlocks?: () => SelectedBlock[]
+  /** 사용자 매스 엔티티 가져오기 함수 (일조 분석에서 제외) */
+  getLoadedModelEntity?: () => any
 }
 
 interface UseSunlightAnalysisReturn {
@@ -51,7 +53,7 @@ export function useSunlightAnalysis(
   viewerRef: RefObject<any>,
   options: UseSunlightAnalysisOptions
 ): UseSunlightAnalysisReturn {
-  const { getBuildingLineResult, getSelectedBlocks } = options
+  const { getBuildingLineResult, getSelectedBlocks, getLoadedModelEntity } = options
 
   // 상태
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -123,18 +125,33 @@ export function useSunlightAnalysis(
     setAnalysisProgress(null)
 
     try {
+      // 사용자 매스 엔티티 가져오기 (일조 분석에서 제외)
+      const loadedModelEntity = getLoadedModelEntity?.()
+      const excludeObjects: any[] = []
+      if (loadedModelEntity) {
+        // 매스 모델의 primitive 추출 (Cesium Model)
+        if (loadedModelEntity.model?._model) {
+          excludeObjects.push(loadedModelEntity.model._model)
+        }
+        // entity 자체도 추가
+        excludeObjects.push(loadedModelEntity)
+        console.log('일조 분석: 사용자 매스 제외 설정됨')
+      }
+
       console.log('일조 분석 시작:', {
         date: date.toISOString().split('T')[0],
         gridSpacing,
+        excludeCount: excludeObjects.length,
       })
 
-      // 분석 실행
+      // 분석 실행 (사용자 매스 제외)
       const result = await analyzeSunlight(
         viewer,
         buildableArea,
         date,
         gridSpacing,
-        (progress) => setAnalysisProgress(progress)
+        (progress) => setAnalysisProgress(progress),
+        excludeObjects
       )
 
       setAnalysisResult(result)
@@ -159,7 +176,7 @@ export function useSunlightAnalysis(
       setIsAnalyzing(false)
       setAnalysisProgress(null)
     }
-  }, [viewerRef, getBuildingLineResult, getSelectedBlocks, clearHeatmapEntities, heatmapMode])
+  }, [viewerRef, getBuildingLineResult, getSelectedBlocks, getLoadedModelEntity, clearHeatmapEntities, heatmapMode])
 
   /**
    * 분석 결과 및 히트맵 초기화
