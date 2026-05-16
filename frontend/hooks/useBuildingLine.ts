@@ -108,6 +108,7 @@ export function mergeBlocks(blocks: SelectedBlock[]): GeoJSON.Feature<GeoJSON.Po
 
 interface UseBuildingLineOptions {
   getSelectedBlocks: () => SelectedBlock[]
+  onZoneTypeDetected?: (zoneType: ZoneType) => void  // 용도지역 감지 시 콜백
 }
 
 interface UseBuildingLineReturn {
@@ -129,7 +130,7 @@ export function useBuildingLine(
   viewerRef: RefObject<CesiumViewer | null>,
   options: UseBuildingLineOptions
 ): UseBuildingLineReturn {
-  const { getSelectedBlocks } = options
+  const { getSelectedBlocks, onZoneTypeDetected } = options
 
   const [showBuildingLine, setShowBuildingLine] = useState(false)
   const [buildingLineResult, setBuildingLineResult] = useState<BuildingLineResult | null>(null)
@@ -208,6 +209,9 @@ export function useBuildingLine(
       const zoneType = await fetchZoneType(centerLon, centerLat)
       setCurrentZoneType(zoneType)
       console.log('용도지역:', zoneType)
+
+      // 용도지역 감지 콜백 호출 (reviewData에 바로 반영)
+      onZoneTypeDetected?.(zoneType)
 
       // 주변 필지 조회 (bbox 확장)
       const bbox = expandBbox(cadastralPolygon as any, 30)
@@ -350,6 +354,9 @@ export function useBuildingLine(
     setBuildingLineResult(result as BuildingLineResult)
     setCurrentZoneType(result.zoneType as ZoneType)
 
+    // 용도지역 감지 콜백 호출 (reviewData에 바로 반영)
+    onZoneTypeDetected?.(result.zoneType as ZoneType)
+
     // 건축선 폴리곤 표시 (빨간 대시선 + 반투명 면)
     if (result.buildingLine?.geometry?.coordinates?.[0]) {
       const buildingLineCoords = result.buildingLine.geometry.coordinates[0]
@@ -423,7 +430,7 @@ export function useBuildingLine(
     setShowBuildingLine(true)
     viewer.scene.requestRender()
     console.log('건축선 복원 완료')
-  }, [viewerRef, clearBuildingLine])
+  }, [viewerRef, clearBuildingLine, onZoneTypeDetected])
 
   return {
     showBuildingLine,

@@ -122,7 +122,9 @@ export default function ParkingZonePanel() {
       if (mass.boundingBox) {
         // GLB boundingBox 사용
         // 건물 위치를 parkingOrigin 기준 로컬 좌표로 계산
-        const { width, depth } = mass.boundingBox
+        // DXF 파일마다 좌표 방향이 다르므로 swap 적용 (CesiumViewer와 동일)
+        const width = mass.boundingBox.depth
+        const depth = mass.boundingBox.width
         const halfW = width / 2
         const halfD = depth / 2
 

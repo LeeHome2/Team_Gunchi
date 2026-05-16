@@ -33,6 +33,16 @@ function pickAccuracy(e: AIExperiment): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
+/** 메트릭에서 숫자 값 안전하게 추출 */
+function pickMetric(metrics: AIExperiment['metrics'], ...keys: string[]): number | undefined {
+  if (!metrics) return undefined
+  for (const key of keys) {
+    const v = metrics[key]
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+  }
+  return undefined
+}
+
 export default function AdminAiPage() {
   const [aiUrl, setAiUrl] = useState('http://ceprj2.gachon.ac.kr:65006')
 
@@ -343,6 +353,7 @@ export default function AdminAiPage() {
               return false
             }
           }}
+          onUploadClick={() => setUploadOpen(true)}
         />
 
         {/* 전처리 완료 데이터 (학습용) */}
@@ -351,42 +362,29 @@ export default function AdminAiPage() {
           refreshKey={datasetsRefreshKey}
           selectedDatasetId={selectedProcessed?.id || null}
           onSelectDataset={setSelectedProcessed}
+          onPreprocessClick={() => setSelectModalOpen(true)}
         />
 
-        {/* 관리 작업 */}
+        {/* 모델 학습 */}
         <section className="card p-6">
-          <h3 className="text-base font-semibold mb-4">관리 작업</h3>
-          <div className="flex flex-wrap gap-2">
+          <h3 className="text-base font-semibold mb-4">모델 학습</h3>
+          <div className="flex flex-wrap items-center gap-3">
             <button
               className="btn-primary"
-              onClick={() => setUploadOpen(true)}
-            >
-              📤 DXF 데이터셋 업로드
-            </button>
-            <button
-              className="btn-secondary"
-              onClick={() => setSelectModalOpen(true)}
-            >
-              🔄 데이터 전처리
-            </button>
-            <button
-              className="btn-secondary"
               onClick={() => setStubModal('retrain')}
               disabled={!selectedProcessed}
               title={selectedProcessed ? '선택된 데이터셋으로 모델 학습' : '먼저 전처리 완료 데이터를 선택하세요'}
             >
-              {selectedProcessed ? '모델 재학습' : '모델 재학습 (선택 필요)'}
+              🚀 {selectedProcessed ? '모델 재학습' : '모델 재학습 (선택 필요)'}
             </button>
-            <button
-              className="btn-secondary"
-              onClick={() => setModelUploadOpen(true)}
-            >
-              📥 모델 업로드
-            </button>
+            {selectedProcessed && (
+              <span className="text-xs text-white/50">
+                선택된 데이터: <span className="text-brand-300 font-medium">{selectedProcessed.name}</span>
+              </span>
+            )}
           </div>
           <p className="mt-3 text-xs text-white/40">
-            <b>데이터셋 업로드</b> → DXF zip 전송. <b>전처리</b> → 이미지 변환 및 라벨링.
-            <b>재학습</b> → 모델 학습. <b>모델 업로드</b> → 학습된 모델 파일 직접 등록.
+            위 전처리 완료 데이터에서 학습용 데이터셋을 선택한 후 재학습 버튼을 클릭하세요.
           </p>
         </section>
 
@@ -401,14 +399,24 @@ export default function AdminAiPage() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold">학습 이력 / 모델 버전</h3>
-            <span className="text-xs text-white/40">총 {experiments.length}건</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-white/40">총 {experiments.length}건</span>
+              <button
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white transition"
+                onClick={() => setModelUploadOpen(true)}
+              >
+                📥 모델 업로드
+              </button>
+            </div>
           </div>
           <AdminTable
             headers={[
               '버전',
               '알고리즘',
               '학습일',
-              '정확도',
+              'Accuracy',
+              'Precision',
+              'Recall',
               'F1',
               '상태',
               '관리',
@@ -416,8 +424,38 @@ export default function AdminAiPage() {
           >
             {experiments.map((e) => {
               const acc = pickAccuracy(e)
-              const f1 = e.metrics?.f1
+              const precision = pickMetric(e.metrics, 'precision', 'precision_macro')
+              const recall = pickMetric(e.metrics, 'recall', 'recall_macro')
+              const f1 = pickMetric(e.metrics, 'f1', 'f1_macro')
               const isActive = activeRunId === e.run_id
+
+              // 운영 모델 대비 비교 (운영 모델 자신은 비교 제외)
+              const activeAcc = pickMetric(active?.metrics, 'accuracy')
+              const activePrecision = pickMetric(active?.metrics, 'precision', 'precision_macro')
+              const activeRecall = pickMetric(active?.metrics, 'recall', 'recall_macro')
+              const activeF1 = pickMetric(active?.metrics, 'f1', 'f1_macro')
+
+              const getDiff = (v: number | undefined, base: number | undefined) => {
+                if (isActive || v == null || base == null) return null
+                const diff = (v - base) * 100
+                if (Math.abs(diff) < 0.1) return { text: '', color: '' }
+                return {
+                  text: diff > 0 ? '↑' : '↓',
+                  color: diff > 0 ? 'text-emerald-400' : 'text-red-400'
+                }
+              }
+
+              const formatMetric = (v: number | undefined, base: number | undefined) => {
+                if (v == null) return '—'
+                const diff = getDiff(v, base)
+                return (
+                  <span className="inline-flex items-center gap-0.5">
+                    {(v * 100).toFixed(1)}%
+                    {diff && diff.text && <span className={`text-[10px] ${diff.color}`}>{diff.text}</span>}
+                  </span>
+                )
+              }
+
               return (
                 <Tr key={e.run_id}>
                   <Td className="font-mono font-semibold">
@@ -425,10 +463,10 @@ export default function AdminAiPage() {
                   </Td>
                   <Td>{e.algorithm || '—'}</Td>
                   <Td className="text-white/50">{formatDate(e.trained_at)}</Td>
-                  <Td>{acc != null ? `${(acc * 100).toFixed(1)}%` : '—'}</Td>
-                  <Td>
-                    {typeof f1 === 'number' ? `${(f1 * 100).toFixed(1)}%` : '—'}
-                  </Td>
+                  <Td>{formatMetric(acc ?? undefined, activeAcc)}</Td>
+                  <Td>{formatMetric(precision, activePrecision)}</Td>
+                  <Td>{formatMetric(recall, activeRecall)}</Td>
+                  <Td>{formatMetric(f1, activeF1)}</Td>
                   <Td>
                     {isActive ? (
                       <Badge variant="success">운영</Badge>
@@ -439,7 +477,7 @@ export default function AdminAiPage() {
                   <Td>
                     <div className="flex gap-1.5 flex-wrap">
                       <SmallBtn onClick={() => setDetailRunId(e.run_id)}>
-                        성능
+                        상세
                       </SmallBtn>
                       <SmallBtn
                         onClick={() => handleDownloadModel(e)}
@@ -463,14 +501,14 @@ export default function AdminAiPage() {
             })}
             {!loading && experiments.length === 0 && (
               <Tr>
-                <Td colSpan={7} className="text-center text-white/40">
+                <Td colSpan={9} className="text-center text-white/40">
                   학습 이력이 없습니다.
                 </Td>
               </Tr>
             )}
             {loading && (
               <Tr>
-                <Td colSpan={7} className="text-center text-white/40">
+                <Td colSpan={9} className="text-center text-white/40">
                   불러오는 중…
                 </Td>
               </Tr>
@@ -483,6 +521,24 @@ export default function AdminAiPage() {
         <ExperimentDetailModal
           runId={detailRunId}
           onClose={() => setDetailRunId(null)}
+          activeModel={active}
+          onDelete={async (runId) => {
+            try {
+              const res = await fetch(`${aiUrl}/api/mlops/experiments/${runId}`, {
+                method: 'DELETE',
+              })
+              if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.detail || errData.message || `HTTP ${res.status}`)
+              }
+              // 삭제 성공 시 목록 새로고침
+              await loadAll()
+              return true
+            } catch (e: any) {
+              alert(`모델 삭제 실패: ${e.message}`)
+              return false
+            }
+          }}
         />
       )}
 

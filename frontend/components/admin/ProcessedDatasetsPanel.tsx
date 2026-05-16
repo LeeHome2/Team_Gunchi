@@ -28,6 +28,8 @@ interface Props {
   refreshKey?: number
   selectedDatasetId?: string | null
   onSelectDataset?: (dataset: ProcessedDataset | null) => void
+  /** 전처리 버튼 클릭 시 콜백 */
+  onPreprocessClick?: () => void
 }
 
 function fmtTime(t: number | null): string {
@@ -44,6 +46,7 @@ export default function ProcessedDatasetsPanel({
   refreshKey = 0,
   selectedDatasetId = null,
   onSelectDataset,
+  onPreprocessClick,
 }: Props) {
   const [stages, setStages] = useState<StageInfo[]>([])
   const [processedDatasets, setProcessedDatasets] = useState<ProcessedDataset[]>([])
@@ -134,11 +137,21 @@ export default function ProcessedDatasetsPanel({
             모델 학습에 사용할 수 있는 라벨링된 데이터셋
           </p>
         </div>
-        {hasLabeledData && (
-          <span className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-3 py-1 text-xs font-semibold text-emerald-300">
-            학습 가능
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {hasLabeledData && (
+            <span className="rounded-full bg-emerald-500/15 border border-emerald-400/30 px-3 py-1 text-xs font-semibold text-emerald-300">
+              학습 가능
+            </span>
+          )}
+          {onPreprocessClick && (
+            <button
+              onClick={onPreprocessClick}
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white transition"
+            >
+              🔄 데이터 전처리
+            </button>
+          )}
+        </div>
       </div>
 
       {loading && (

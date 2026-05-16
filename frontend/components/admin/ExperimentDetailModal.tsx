@@ -7,6 +7,10 @@ import { SmallBtn } from '@/components/admin/AdminUI'
 interface Props {
   runId: string
   onClose: () => void
+  /** 비교 기준이 되는 활성(운영) 모델 */
+  activeModel?: AIExperiment | null
+  /** 삭제 시 콜백 */
+  onDelete?: (runId: string) => Promise<boolean>
 }
 
 const CLASS_LABELS = ['wall', 'door', 'window', 'other']
@@ -14,6 +18,43 @@ const CLASS_LABELS = ['wall', 'door', 'window', 'other']
 function pct(v: unknown): string {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
   return `${(v * 100).toFixed(2)}%`
+}
+
+/** 두 값 비교하여 차이와 방향 반환 */
+function comparePct(current: unknown, baseline: unknown): { diff: string; direction: 'up' | 'down' | 'same' | null } {
+  if (typeof current !== 'number' || !Number.isFinite(current)) return { diff: '', direction: null }
+  if (typeof baseline !== 'number' || !Number.isFinite(baseline)) return { diff: '', direction: null }
+
+  const diffVal = (current - baseline) * 100
+  if (Math.abs(diffVal) < 0.01) return { diff: '±0', direction: 'same' }
+
+  const sign = diffVal > 0 ? '+' : ''
+  return {
+    diff: `${sign}${diffVal.toFixed(2)}%p`,
+    direction: diffVal > 0 ? 'up' : 'down'
+  }
+}
+
+/** 비교 지표 표시 컴포넌트 */
+function MetricCompare({ direction, diff }: { direction: 'up' | 'down' | 'same' | null; diff: string }) {
+  if (!direction || !diff) return null
+
+  const colors = {
+    up: 'text-emerald-400',
+    down: 'text-red-400',
+    same: 'text-white/40'
+  }
+  const arrows = {
+    up: '↑',
+    down: '↓',
+    same: '→'
+  }
+
+  return (
+    <span className={`text-[10px] ml-1.5 ${colors[direction]}`}>
+      {arrows[direction]} {diff}
+    </span>
+  )
 }
 
 function fmt(iso: string | null | undefined): string {
@@ -34,10 +75,15 @@ function cmColor(v: number, max: number): string {
   return `rgba(59, 130, 246, ${alpha})`
 }
 
-export default function ExperimentDetailModal({ runId, onClose }: Props) {
+export default function ExperimentDetailModal({ runId, onClose, activeModel, onDelete }: Props) {
   const [exp, setExp] = useState<AIExperiment | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  // 비교 기준 모델의 메트릭
+  const baseMetrics = (activeModel?.metrics || {}) as Record<string, any>
+  const isComparing = activeModel && activeModel.run_id !== runId
 
   useEffect(() => {
     let alive = true
@@ -192,22 +238,35 @@ export default function ExperimentDetailModal({ runId, onClose }: Props) {
 
               {/* 메트릭 */}
               <section>
-                <h3 className="text-sm font-semibold text-white/70 mb-2">성능 지표</h3>
+                <h3 className="text-sm font-semibold text-white/70 mb-2">
+                  성능 지표
+                  {isComparing && (
+                    <span className="ml-2 text-[10px] font-normal text-white/40">
+                      (vs 운영 모델: {activeModel?.model_version || activeModel?.run_id?.slice(0, 12)})
+                    </span>
+                  )}
+                </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    ['Accuracy', metrics.accuracy],
-                    ['F1', metrics.f1 ?? metrics.f1_macro],
-                    ['Precision', metrics.precision],
-                    ['Recall', metrics.recall],
-                  ].map(([label, v]) => (
-                    <div
-                      key={label as string}
-                      className="rounded-md border border-white/10 bg-white/5 p-3"
-                    >
-                      <div className="text-xs text-white/40">{label as string}</div>
-                      <div className="text-lg font-semibold mt-1">{pct(v)}</div>
-                    </div>
-                  ))}
+                    ['Accuracy', metrics.accuracy, baseMetrics.accuracy],
+                    ['Precision', metrics.precision ?? metrics.precision_macro, baseMetrics.precision ?? baseMetrics.precision_macro],
+                    ['Recall', metrics.recall ?? metrics.recall_macro, baseMetrics.recall ?? baseMetrics.recall_macro],
+                    ['F1', metrics.f1 ?? metrics.f1_macro, baseMetrics.f1 ?? baseMetrics.f1_macro],
+                  ].map(([label, v, baseV]) => {
+                    const comparison = isComparing ? comparePct(v, baseV) : null
+                    return (
+                      <div
+                        key={label as string}
+                        className="rounded-md border border-white/10 bg-white/5 p-3"
+                      >
+                        <div className="text-xs text-white/40">{label as string}</div>
+                        <div className="text-lg font-semibold mt-1">
+                          {pct(v)}
+                          {comparison && <MetricCompare direction={comparison.direction} diff={comparison.diff} />}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </section>
 
@@ -354,7 +413,45 @@ export default function ExperimentDetailModal({ runId, onClose }: Props) {
           )}
         </div>
 
-        <div className="border-t border-white/10 p-4 flex justify-end">
+        <div className="border-t border-white/10 p-4 flex justify-between">
+          <div>
+            {(() => {
+              const isActiveModel = activeModel && activeModel.run_id === runId
+              if (isActiveModel) {
+                return (
+                  <span className="text-xs text-white/40">
+                    운영 중인 모델은 삭제할 수 없습니다
+                  </span>
+                )
+              }
+              if (onDelete && exp) {
+                return (
+                  <button
+                    onClick={async () => {
+                      const modelName = exp.model_version || exp.run_id
+                      if (!confirm(`'${modelName}' 모델을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`)) {
+                        return
+                      }
+                      setDeleting(true)
+                      try {
+                        const success = await onDelete(runId)
+                        if (success) {
+                          onClose()
+                        }
+                      } finally {
+                        setDeleting(false)
+                      }
+                    }}
+                    disabled={deleting}
+                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 disabled:opacity-50 transition"
+                  >
+                    {deleting ? '삭제 중...' : '🗑️ 모델 삭제'}
+                  </button>
+                )
+              }
+              return null
+            })()}
+          </div>
           <SmallBtn onClick={onClose}>닫기</SmallBtn>
         </div>
       </div>

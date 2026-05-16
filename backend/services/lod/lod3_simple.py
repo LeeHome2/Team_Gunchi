@@ -171,40 +171,16 @@ def _extract_door_rectangles(msp, layers: List[str], dxf_scale: float = 1.0) -> 
 def _detect_dxf_scale(doc) -> float:
     """DXF 단위 자동 감지.
 
-    1차: DXF 헤더의 $INSUNITS 메타데이터 사용 (가장 신뢰도 높음)
-    2차: 좌표 범위(extent) 기반 휴리스틱 추정
+    1차: DXF 헤더의 $INSUNITS 메타데이터 사용
+    2차: 적용 후 결과 크기가 비합리적이면 휴리스틱으로 보정
+    3차: 좌표 범위(extent) 기반 휴리스틱 추정
 
     $INSUNITS 코드:
     0=Unspecified, 1=Inches, 2=Feet, 4=mm, 5=cm, 6=m
     """
     msp = doc.modelspace()
 
-    # === 1차: DXF 헤더 메타데이터 확인 ===
-    UNIT_SCALES = {
-        1: (0.0254, "inches"),    # 1 inch = 0.0254 m
-        2: (0.3048, "feet"),      # 1 foot = 0.3048 m
-        4: (0.001, "mm"),         # 1 mm = 0.001 m
-        5: (0.01, "cm"),          # 1 cm = 0.01 m
-        6: (1.0, "m"),            # 1 m = 1 m
-        7: (1000.0, "km"),        # 1 km = 1000 m
-        8: (0.0000254, "microinches"),
-        9: (0.0000254, "mils"),   # 1 mil = 0.001 inch
-        10: (0.9144, "yards"),    # 1 yard = 0.9144 m
-        14: (0.1, "dm"),          # 1 dm = 0.1 m
-    }
-
-    try:
-        insunits = doc.header.get('$INSUNITS', 0)
-        if insunits in UNIT_SCALES:
-            scale, unit_name = UNIT_SCALES[insunits]
-            logger.info(f"DXF header $INSUNITS={insunits} ({unit_name}) -> scale={scale}")
-            return scale
-        elif insunits != 0:
-            logger.warning(f"Unknown $INSUNITS value: {insunits}, falling back to extent detection")
-    except Exception as e:
-        logger.warning(f"Failed to read $INSUNITS: {e}")
-
-    # === 2차: Extent 기반 휴리스틱 ===
+    # 먼저 extent 계산 (헤더 검증에 필요)
     xs, ys = [], []
     for ent in msp:
         et = ent.dxftype()
@@ -224,18 +200,75 @@ def _detect_dxf_scale(doc) -> float:
         logger.warning("No geometry found for extent detection")
         return 1.0
 
-    extent = max(max(xs) - min(xs), max(ys) - min(ys))
-    logger.info(f"DXF extent: {extent:.2f} (no valid $INSUNITS, using heuristics)")
+    raw_extent = max(max(xs) - min(xs), max(ys) - min(ys))
+    logger.info(f"DXF raw extent: {raw_extent:.4f}")
+
+    # === 1차: DXF 헤더 메타데이터 확인 ===
+    UNIT_SCALES = {
+        1: (0.0254, "inches"),    # 1 inch = 0.0254 m
+        2: (0.3048, "feet"),      # 1 foot = 0.3048 m
+        4: (0.001, "mm"),         # 1 mm = 0.001 m
+        5: (0.01, "cm"),          # 1 cm = 0.01 m
+        6: (1.0, "m"),            # 1 m = 1 m
+        7: (1000.0, "km"),        # 1 km = 1000 m
+        8: (0.0000254, "microinches"),
+        9: (0.0000254, "mils"),   # 1 mil = 0.001 inch
+        10: (0.9144, "yards"),    # 1 yard = 0.9144 m
+        14: (0.1, "dm"),          # 1 dm = 0.1 m
+    }
+
+    # 합리적인 건물 크기 범위 (3m ~ 300m)
+    MIN_BUILDING = 3
+    MAX_BUILDING = 300
+
+    try:
+        insunits = doc.header.get('$INSUNITS', 0)
+        if insunits in UNIT_SCALES:
+            scale, unit_name = UNIT_SCALES[insunits]
+            resulting_size = raw_extent * scale
+
+            # 결과 크기가 합리적인지 검증
+            if MIN_BUILDING <= resulting_size <= MAX_BUILDING:
+                logger.info(f"DXF header $INSUNITS={insunits} ({unit_name}) -> scale={scale}, size={resulting_size:.1f}m (valid)")
+                return scale
+            else:
+                # $INSUNITS 적용 결과가 비합리적 → 추가 보정 필요
+                logger.warning(f"$INSUNITS={insunits} ({unit_name}) -> size={resulting_size:.4f}m is unreasonable, checking for scale drawing...")
+
+                # 1:100 축척 도면 가능성 (건축 도면에서 흔함)
+                if resulting_size < 3 and resulting_size * 100 >= MIN_BUILDING and resulting_size * 100 <= MAX_BUILDING:
+                    corrected_scale = scale * 100
+                    logger.info(f"Detected 1:100 scale drawing: $INSUNITS={insunits} + 100x -> final scale={corrected_scale}, size={resulting_size * 100:.1f}m")
+                    return corrected_scale
+
+                # 1:50 축척 도면
+                if resulting_size < 3 and resulting_size * 50 >= MIN_BUILDING and resulting_size * 50 <= MAX_BUILDING:
+                    corrected_scale = scale * 50
+                    logger.info(f"Detected 1:50 scale drawing: $INSUNITS={insunits} + 50x -> final scale={corrected_scale}, size={resulting_size * 50:.1f}m")
+                    return corrected_scale
+
+                # 1:200 축척 도면
+                if resulting_size < 3 and resulting_size * 200 >= MIN_BUILDING and resulting_size * 200 <= MAX_BUILDING:
+                    corrected_scale = scale * 200
+                    logger.info(f"Detected 1:200 scale drawing: $INSUNITS={insunits} + 200x -> final scale={corrected_scale}, size={resulting_size * 200:.1f}m")
+                    return corrected_scale
+
+                logger.warning(f"$INSUNITS={insunits} result unreasonable ({resulting_size:.4f}m), falling back to heuristics")
+        elif insunits != 0:
+            logger.warning(f"Unknown $INSUNITS value: {insunits}, falling back to extent detection")
+    except Exception as e:
+        logger.warning(f"Failed to read $INSUNITS: {e}")
+
+    # === 2차: Extent 기반 휴리스틱 ===
+    # 이미 위에서 raw_extent 계산됨
+    extent = raw_extent
+    logger.info(f"DXF extent: {extent:.4f} (using heuristics)")
 
     # 단위별 변환값 계산
     as_mm = extent / 1000      # mm -> m
     as_cm = extent / 100       # cm -> m
     as_inch = extent * 0.0254  # inch -> m
     as_feet = extent * 0.3048  # feet -> m
-
-    # 합리적인 건물 크기 범위 (3m ~ 300m)
-    MIN_BUILDING = 3
-    MAX_BUILDING = 300
 
     def is_valid_building(size_m):
         return MIN_BUILDING <= size_m <= MAX_BUILDING
@@ -837,7 +870,8 @@ def _export_multi_mesh_glb(
         verts = np.array(verts, dtype=np.float32)
         faces = np.array(faces, dtype=np.uint32)
 
-        # Z-up → Y-up 변환
+        # Z-up → Y-up 변환 (DXF 좌표계 → glTF 좌표계)
+        # DXF: X=right, Y=forward, Z=up → glTF: X=right, Y=up, Z=back
         verts_yup = np.column_stack([verts[:, 0], verts[:, 2], -verts[:, 1]])
 
         # 법선 계산
@@ -1419,6 +1453,7 @@ def build_lod3_simple(
             "door_count": len(door_rectangles) + len(door_inserts),
             "window_count": len(window_segments) + len(window_inserts),
             "openings": openings,
+            "dxf_scale": dxf_scale,  # 디버깅용: 감지된 스케일
         }
     except Exception as e:
         logger.error(f"GLB 생성 실패: {e}")

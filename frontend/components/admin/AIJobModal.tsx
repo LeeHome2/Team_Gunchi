@@ -32,9 +32,17 @@ const SPLIT_PRESETS: Array<{ label: string; train: number; val: number }> = [
   { label: '5 : 2.5 : 2.5', train: 0.50, val: 0.25 },
 ]
 
+// 모델 타입 옵션 (민혁님 train.py 반영)
+const MODEL_TYPES: Array<{ value: string; label: string; description: string }> = [
+  { value: 'hist_gradient', label: 'HistGradientBoosting', description: '기본, 빠르고 안정적' },
+  { value: 'random_forest', label: 'RandomForest', description: '앙상블 기반, 해석 용이' },
+  { value: 'xgboost', label: 'XGBoost', description: '높은 성능, 튜닝 필요' },
+]
+
 export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onCompleted }: Props) {
   // 재학습 파라미터
   const [runId, setRunId] = useState('')
+  const [modelType, setModelType] = useState('hist_gradient')
   const [maxIter, setMaxIter] = useState(200)
   const [maxDepth, setMaxDepth] = useState(7)
   const [learningRate, setLearningRate] = useState(0.08)
@@ -91,6 +99,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
         kind === 'retrain'
           ? {
               run_id: runId || undefined,
+              model_type: modelType,
               max_iter: Number(maxIter),
               max_depth: Number(maxDepth),
               learning_rate: Number(learningRate),
@@ -151,6 +160,32 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                 className="input-field font-mono text-sm"
               />
             </Field>
+
+            {/* 모델 타입 선택 */}
+            <Field label="모델 타입">
+              <div className="flex flex-wrap gap-2">
+                {MODEL_TYPES.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setModelType(m.value)}
+                    className={`flex-1 min-w-[140px] px-3 py-2 rounded border text-left ${
+                      modelType === m.value
+                        ? 'bg-blue-500/30 border-blue-400/60'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className={`text-sm font-medium ${
+                      modelType === m.value ? 'text-blue-100' : 'text-white/80'
+                    }`}>
+                      {m.label}
+                    </div>
+                    <div className="text-[10px] text-white/50 mt-0.5">{m.description}</div>
+                  </button>
+                ))}
+              </div>
+            </Field>
+
             <Grid3>
               <Field label="Max Iter">
                 <input

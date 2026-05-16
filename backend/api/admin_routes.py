@@ -541,12 +541,31 @@ def _flatten_metrics(metrics: Optional[dict]) -> dict:
     src = metrics.get("test") or metrics.get("val") or metrics.get("train") or {}
     if not isinstance(src, dict):
         return {"raw": metrics}
+
+    # per_class에서 macro-averaged precision/recall 계산
+    per_class = src.get("per_class") or {}
+    precision_macro = None
+    recall_macro = None
+    if isinstance(per_class, dict) and per_class:
+        precisions = [c.get("precision") for c in per_class.values() if isinstance(c, dict) and c.get("precision") is not None]
+        recalls = [c.get("recall") for c in per_class.values() if isinstance(c, dict) and c.get("recall") is not None]
+        if precisions:
+            precision_macro = round(sum(precisions) / len(precisions), 4)
+        if recalls:
+            recall_macro = round(sum(recalls) / len(recalls), 4)
+
     return {
         "accuracy": src.get("accuracy"),
         "f1": src.get("f1_macro") or src.get("f1_weighted"),
         "f1_macro": src.get("f1_macro"),
         "f1_weighted": src.get("f1_weighted"),
-        "per_class": src.get("per_class"),
+        "precision": precision_macro,
+        "precision_macro": precision_macro,
+        "recall": recall_macro,
+        "recall_macro": recall_macro,
+        "per_class": per_class,
+        "confusion_matrix": src.get("confusion_matrix"),
+        "confusion_matrix_labels": src.get("confusion_matrix_labels"),
         "split_used": "test" if metrics.get("test") else ("val" if metrics.get("val") else "train"),
         "raw": metrics,
     }

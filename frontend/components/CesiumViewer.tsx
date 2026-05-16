@@ -229,6 +229,10 @@ export default function CesiumViewer() {
   // === 건축선 (Hook) ===
   const buildingLine = useBuildingLine(viewerRef, {
     getSelectedBlocks: blockSelection.getSelectedBlocks,
+    onZoneTypeDetected: (zoneType) => {
+      // 용도지역 감지 시 reviewData에 바로 반영
+      setReviewData({ zoneType })
+    },
   })
   // 최신 buildingLine 상태를 ref로 추적 (reviewCheck 클로저 문제 해결)
   const buildingLineRef = useRef(buildingLine)
@@ -628,12 +632,10 @@ export default function CesiumViewer() {
       // 해당 모델의 바운딩 박스 + 바닥면 폴리곤 정보 가져오기
       const modelInfo = availableModels.find(m => m.filename === filename)
       if (modelInfo?.boundingBox) {
-        // Cesium heading=0에서 glTF 축 매핑:
-        //   model X(=백엔드 width) → North-South(lat) = 바운더리 depth
-        //   model Z(=백엔드 depth) → East-West(lon)  = 바운더리 width
+        // DXF 파일마다 좌표 방향이 다르므로 swap 적용
         modelBoundingBoxRef.current = {
-          width: modelInfo.boundingBox.depth,   // Z축 → East-West(lon)
-          depth: modelInfo.boundingBox.width,    // X축 → North-South(lat)
+          width: modelInfo.boundingBox.depth,    // 바운더리 width
+          depth: modelInfo.boundingBox.width,    // 바운더리 depth
         }
       } else {
         modelBoundingBoxRef.current = { width: 10, depth: 10 }
@@ -773,14 +775,13 @@ export default function CesiumViewer() {
 
       if (placedMass?.boundingBox) {
         // 백엔드가 반환한 실제 GLB 바운딩 박스 (미터 단위)
-        // Cesium heading=0에서 glTF 축 매핑 (floorPolygon 코드와 동일):
-        //   model X → North-South(lat) = 바운더리 depth
-        //   model Z → East-West(lon)   = 바운더리 width
+        // DXF 파일마다 좌표 방향이 다르므로 swap 적용
+        // 모델이 틀어져 보이면 회전 슬라이더로 90도 조정 필요
         modelBoundingBoxRef.current = {
-          width: placedMass.boundingBox.depth,   // Z축 → East-West(lon)
-          depth: placedMass.boundingBox.width,    // X축 → North-South(lat)
+          width: placedMass.boundingBox.depth,    // 바운더리 width
+          depth: placedMass.boundingBox.width,    // 바운더리 depth
         }
-        console.log('[매스 GLB] 백엔드 bounding box 사용 (swap):', modelBoundingBoxRef.current.width.toFixed(2), 'x', modelBoundingBoxRef.current.depth.toFixed(2), 'm')
+        console.log('[매스 GLB] 백엔드 bounding box (swap):', modelBoundingBoxRef.current.width.toFixed(2), 'x', modelBoundingBoxRef.current.depth.toFixed(2), 'm')
       } else {
         // 폴백: footprint에서 추정
         const fp = latestState.building?.footprint || latestState.site?.footprint || []
@@ -884,10 +885,22 @@ export default function CesiumViewer() {
       viewer.scene.requestRender()
 
       // 현재 로드된 매스 URL 저장 (프로젝트 저장용)
+      const previousUrl = useProjectStore.getState().loadedMassGlbUrl
       useProjectStore.getState().setLoadedMassGlbUrl(glbUrl)
 
-      // 새 매스 로드 시 메인 출입구 마커 초기화 (새로 설정하도록)
-      useProjectStore.getState().setMainEntrance(null)
+      // 같은 매스의 슬래브 토글인지 확인 (glbUrl <-> glbUrlNoRoof 전환)
+      const previousMass = useProjectStore.getState().generatedMasses.find(
+        m => m.glbUrl === previousUrl || m.glbUrlNoRoof === previousUrl
+      )
+      const currentMass = useProjectStore.getState().generatedMasses.find(
+        m => m.glbUrl === glbUrl || m.glbUrlNoRoof === glbUrl
+      )
+      const isSameMassToggle = previousMass && currentMass && previousMass.id === currentMass.id
+
+      // 다른 매스 로드 시에만 메인 출입구 마커 초기화 (슬래브 토글 시에는 유지)
+      if (!isSameMassToggle) {
+        useProjectStore.getState().setMainEntrance(null)
+      }
 
       console.log('[매스 GLB] 모델 배치 완료:', glbUrl, 'at', [lon, lat])
 
@@ -984,6 +997,45 @@ export default function CesiumViewer() {
     const mPerDegLon = 111320 * Math.cos(latRad)
     const mPerDegLat = 111320
 
+    // 외곽 창문 찾기 (건물 중심에서 가장 먼 창문 = 메인 창문)
+    // 외부를 향하는 창문만 필터링:
+    // 매스 중심 → 창문 방향(방사선)과 창문선 사이의 각도가 90°에 가까우면 외부 향함
+    const windows = currentMass.openings.filter(o => o.type === 'window')
+
+    // 외부 향하는 창문인지 판별 (방사선과 창문선의 각도차가 90° 근처)
+    const isExteriorFacing = (win: { x: number; y: number; rotation?: number }) => {
+      // 매스 중심에서 창문까지의 방사선 각도
+      const radialAngle = Math.atan2(win.y, win.x) * 180 / Math.PI
+      // 창문선의 각도 (벽 방향)
+      const windowLineAngle = win.rotation || 0
+
+      // 두 각도의 차이 계산
+      let angleDiff = Math.abs(radialAngle - windowLineAngle)
+      // 0~180 범위로 정규화
+      angleDiff = angleDiff % 360
+      if (angleDiff > 180) angleDiff = 360 - angleDiff
+
+      // 90°에 가까우면 외부를 향하는 창문 (±30° 허용)
+      return angleDiff >= 60 && angleDiff <= 120
+    }
+    const exteriorWindows = windows.filter(isExteriorFacing)
+
+    let mainWindowIdx = -1
+    // 외부 향하는 창문이 있으면 그 중에서, 없으면 전체 창문에서 선택
+    const candidateWindows = exteriorWindows.length > 0 ? exteriorWindows : windows
+    if (candidateWindows.length > 0) {
+      let maxDist = 0
+      candidateWindows.forEach((win) => {
+        const dist = Math.sqrt(win.x * win.x + win.y * win.y)
+        if (dist > maxDist) {
+          maxDist = dist
+          // openings 배열에서의 인덱스 찾기
+          mainWindowIdx = currentMass.openings!.findIndex(o => o === win)
+        }
+      })
+    }
+    console.log(`[개구부 마커] 창문 필터: 전체 ${windows.length}개, 외부향 ${exteriorWindows.length}개`)
+
     // 각 개구부에 폴리라인 마커 추가
     currentMass.openings.forEach((opening, idx) => {
       // GLB 변환 + 시계방향 90도 + Y축 반전
@@ -1035,8 +1087,14 @@ export default function CesiumViewer() {
           lineWidth = 4
         }
       } else {
-        lineColor = Cesium.Color.fromCssColorString('#00BFFF')  // 하늘색 (창문)
-        lineWidth = 3
+        // 창문: 외곽 창문(메인 창문)은 진한 파란색, 나머지는 하늘색
+        if (idx === mainWindowIdx) {
+          lineColor = Cesium.Color.fromCssColorString('#0000CD')  // 진한 파란색 (메인 창문 - MediumBlue)
+          lineWidth = 5
+        } else {
+          lineColor = Cesium.Color.fromCssColorString('#00BFFF')  // 하늘색 (일반 창문)
+          lineWidth = 3
+        }
       }
 
       // 바닥 폴리라인 엔티티 생성 (지형에 붙음)
@@ -1059,9 +1117,13 @@ export default function CesiumViewer() {
 
     // 디버깅: 타입별 분포 확인
     const doors = currentMass.openings.filter(o => o.type === 'door')
-    const windows = currentMass.openings.filter(o => o.type === 'window')
     const mainDoorCount = currentMass.openings.filter(o => o.isMainEntrance).length
-    console.log(`[개구부 마커] 총 ${currentMass.openings.length}개 (문 ${doors.length}, 창문 ${windows.length}, 주출입구 ${mainDoorCount})`)
+    const mainWindow = mainWindowIdx >= 0 ? currentMass.openings[mainWindowIdx] : null
+    console.log(`[개구부 마커] 총 ${currentMass.openings.length}개 (문 ${doors.length}, 창문 ${windows.length}, 주출입구 ${mainDoorCount}, 메인창문idx ${mainWindowIdx})`)
+    if (mainWindow) {
+      const dist = Math.sqrt(mainWindow.x * mainWindow.x + mainWindow.y * mainWindow.y)
+      console.log(`[개구부 마커] 메인 창문: x=${mainWindow.x.toFixed(1)}, y=${mainWindow.y.toFixed(1)}, 중심거리=${dist.toFixed(1)}m, rotation=${mainWindow.rotation}°`)
+    }
     if (currentMass.openings.length > 0) {
       console.log('[개구부 마커] 샘플 데이터:', currentMass.openings[0])
     }
@@ -1084,8 +1146,8 @@ export default function CesiumViewer() {
       mainEntranceEntityRef.current = null
     }
 
-    // 매스가 로드되지 않았으면 표시 안함
-    if (!loadedMassGlbUrl) return
+    // 매스가 로드되지 않았거나 마커 표시가 꺼져있으면 표시 안함
+    if (!loadedMassGlbUrl || !showOpeningMarkers) return
 
     const { longitude, latitude, rotation } = modelTransform
     const rotRad = (rotation || 0) * Math.PI / 180
@@ -1097,7 +1159,7 @@ export default function CesiumViewer() {
       entrance = {
         localX: 0,
         localY: -5,
-        heading: 0,  // 북쪽을 향함
+        heading: 0,  // 자동 계산됨
         size: 2,
       }
       setMainEntrance(entrance)
@@ -1119,7 +1181,14 @@ export default function CesiumViewer() {
 
     // 화살표 폴리곤 생성 (크기 조정 가능)
     const arrowSize = entrance.size
-    const headingRad = entrance.heading * Math.PI / 180  // 화살표 자체 방향 (로컬)
+
+    // 화살표가 매스 중심(0,0)을 향하도록 heading 자동 계산
+    // 출입구 위치에서 중심까지의 방향 벡터: (-localX, -localY)
+    // 화살표 기본 방향은 +Y (0, 1)이므로 +X축 기준 각도에서 π/2를 빼야 함
+    // atan2(dy, dx)는 +X축 기준 각도를 반환
+    const dirX = -entrance.localX  // 중심 방향 X
+    const dirY = -entrance.localY  // 중심 방향 Y
+    const headingRad = Math.atan2(dirY, dirX) - Math.PI / 2  // +Y 기본 방향 보정
 
     // 화살표 모양 정의 (로컬 좌표, 중심이 원점)
     const arrowPoints = [
@@ -1166,7 +1235,7 @@ export default function CesiumViewer() {
     mainEntranceEntityRef.current = entity
 
     viewer.scene.requestRender()
-  }, [mainEntrance, loadedMassGlbUrl, modelTransform.longitude, modelTransform.latitude, modelTransform.rotation, isLoaded])
+  }, [mainEntrance, loadedMassGlbUrl, modelTransform.longitude, modelTransform.latitude, modelTransform.rotation, isLoaded, showOpeningMarkers])
 
   // === 메인 출입구 드래그 핸들러 ===
   useEffect(() => {
@@ -1178,51 +1247,50 @@ export default function CesiumViewer() {
     const viewer = viewerRef.current
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
 
-    // 마우스 다운: 드래그 시작
+    // 마우스 다운: 드래그 시작 (클릭 위치와 화살표 위치의 오프셋 계산)
     handler.setInputAction((movement: any) => {
       const pickedObject = viewer.scene.pick(movement.position)
       if (Cesium.defined(pickedObject) && pickedObject.id?.id === 'main-entrance-marker') {
+        const currentEntrance = useProjectStore.getState().mainEntrance
+        if (!currentEntrance) return
+
+        // 클릭 위치를 로컬 좌표로 변환
+        const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid)
+        if (!cartesian) return
+
+        const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
+        const clickLon = Cesium.Math.toDegrees(cartographic.longitude)
+        const clickLat = Cesium.Math.toDegrees(cartographic.latitude)
+
+        const mt = useProjectStore.getState().modelTransform
+        const rotRad = (mt.rotation || 0) * Math.PI / 180
+        const latRad = mt.latitude * Math.PI / 180
+        const mPerDegLon = 111320 * Math.cos(latRad)
+        const mPerDegLat = 111320
+
+        const deltaLon = clickLon - mt.longitude
+        const deltaLat = clickLat - mt.latitude
+        const worldX = deltaLon * mPerDegLon
+        const worldY = deltaLat * mPerDegLat
+
+        // 역회전으로 클릭 위치의 로컬 좌표 계산
+        const cosR = Math.cos(rotRad)
+        const sinR = Math.sin(rotRad)
+        const clickLocalX = worldX * cosR - worldY * sinR
+        const clickLocalY = worldX * sinR + worldY * cosR
+
+        // 오프셋 = 현재 화살표 위치 - 클릭 위치
+        const offsetX = currentEntrance.localX - clickLocalX
+        const offsetY = currentEntrance.localY - clickLocalY
+
         isMainEntranceDraggingRef.current = true
         viewer.scene.screenSpaceCameraController.enableRotate = false
         viewer.scene.screenSpaceCameraController.enableTranslate = false
-
-        // 클릭 위치와 마커 위치의 오프셋 계산
-        const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid)
-        if (cartesian) {
-          const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
-          const clickLon = Cesium.Math.toDegrees(cartographic.longitude)
-          const clickLat = Cesium.Math.toDegrees(cartographic.latitude)
-
-          const { longitude, latitude, rotation } = modelTransform
-          const rotRad = (rotation || 0) * Math.PI / 180
-          const latRad = latitude * Math.PI / 180
-          const mPerDegLon = 111320 * Math.cos(latRad)
-          const mPerDegLat = 111320
-
-          // 클릭 위치를 로컬 좌표로 변환
-          const deltaLon = clickLon - longitude
-          const deltaLat = clickLat - latitude
-          const worldX = deltaLon * mPerDegLon
-          const worldY = deltaLat * mPerDegLat
-
-          // 역회전 (글로벌 → 로컬)
-          const cosR = Math.cos(-rotRad)
-          const sinR = Math.sin(-rotRad)
-          const localX = worldX * cosR + worldY * sinR
-          const localY = -worldX * sinR + worldY * cosR
-
-          const currentEntrance = useProjectStore.getState().mainEntrance
-          if (currentEntrance) {
-            mainEntranceDragStartRef.current = {
-              offsetX: currentEntrance.localX - localX,
-              offsetY: currentEntrance.localY - localY,
-            }
-          }
-        }
+        mainEntranceDragStartRef.current = { offsetX, offsetY }
       }
     }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
 
-    // 마우스 이동: 드래그 중
+    // 마우스 이동: 드래그 중 (오프셋 적용)
     handler.setInputAction((movement: any) => {
       if (!isMainEntranceDraggingRef.current || !mainEntranceDragStartRef.current) return
 
@@ -1233,27 +1301,29 @@ export default function CesiumViewer() {
       const mouseLon = Cesium.Math.toDegrees(cartographic.longitude)
       const mouseLat = Cesium.Math.toDegrees(cartographic.latitude)
 
-      const { longitude, latitude, rotation } = modelTransform
-      const rotRad = (rotation || 0) * Math.PI / 180
-      const latRad = latitude * Math.PI / 180
+      // 현재 store에서 최신 modelTransform 가져오기
+      const mt = useProjectStore.getState().modelTransform
+      const rotRad = (mt.rotation || 0) * Math.PI / 180
+      const latRad = mt.latitude * Math.PI / 180
       const mPerDegLon = 111320 * Math.cos(latRad)
       const mPerDegLat = 111320
 
-      // 마우스 위치를 로컬 좌표로 변환
-      const deltaLon = mouseLon - longitude
-      const deltaLat = mouseLat - latitude
+      // 마우스 위치를 로컬 좌표로 변환 (모델 중심 기준)
+      const deltaLon = mouseLon - mt.longitude
+      const deltaLat = mouseLat - mt.latitude
       const worldX = deltaLon * mPerDegLon
       const worldY = deltaLat * mPerDegLat
 
       // 역회전 (글로벌 → 로컬)
-      const cosR = Math.cos(-rotRad)
-      const sinR = Math.sin(-rotRad)
-      const localX = worldX * cosR + worldY * sinR
-      const localY = -worldX * sinR + worldY * cosR
+      const cosR = Math.cos(rotRad)
+      const sinR = Math.sin(rotRad)
+      const mouseLocalX = worldX * cosR - worldY * sinR
+      const mouseLocalY = worldX * sinR + worldY * cosR
 
-      // 오프셋 적용하여 새 위치 계산
-      const newLocalX = localX + mainEntranceDragStartRef.current.offsetX
-      const newLocalY = localY + mainEntranceDragStartRef.current.offsetY
+      // 오프셋 적용하여 최종 위치 계산
+      const { offsetX, offsetY } = mainEntranceDragStartRef.current
+      const newLocalX = mouseLocalX + offsetX
+      const newLocalY = mouseLocalY + offsetY
 
       const currentEntrance = useProjectStore.getState().mainEntrance
       if (currentEntrance) {
@@ -1724,21 +1794,25 @@ export default function CesiumViewer() {
         const mouseLon = Cesium.Math.toDegrees(mousePos.longitude)
         const mouseLat = Cesium.Math.toDegrees(mousePos.latitude)
 
-        // 입구 중심 = modelTransform 원점 + entranceCenter(m→deg) + entranceTransform offset
+        // 입구 중심 = parkingOrigin(또는 modelTransform) + entranceCenter(m) + entranceTransform offset
+        const po = useProjectStore.getState().parkingOrigin
         const mt = modelTransformRef.current
+        const baseLon = po?.longitude ?? mt.longitude
+        const baseLat = po?.latitude ?? mt.latitude
         const et = entranceHookTransformRef.current
-        const latRad = (mt.latitude * Math.PI) / 180
+        const latRad = (baseLat * Math.PI) / 180
         const mPerDegLon = 111_320 * Math.cos(latRad)
         const mPerDegLat = 111_320
         const entrance = useProjectStore.getState().parkingEntrance
         const ecx = entrance?.cx ?? 0
         const ecy = entrance?.cy ?? 0
-        const originLon = mt.longitude + ecx / mPerDegLon + et.longitude
-        const originLat = mt.latitude + ecy / mPerDegLat + et.latitude
+        const originLon = baseLon + ecx / mPerDegLon + et.longitude
+        const originLat = baseLat + ecy / mPerDegLat + et.latitude
 
-        const deltaLon = mouseLon - originLon
-        const deltaLat = mouseLat - originLat
-        const angleRad = Math.atan2(deltaLon, deltaLat)
+        // 위경도 차이를 미터로 변환하여 정확한 각도 계산
+        const deltaX = (mouseLon - originLon) * mPerDegLon
+        const deltaY = (mouseLat - originLat) * mPerDegLat
+        const angleRad = Math.atan2(deltaX, deltaY)
         const angleDeg = Cesium.Math.toDegrees(angleRad)
 
         entranceHookTransformRef.current = {
@@ -1783,22 +1857,25 @@ export default function CesiumViewer() {
         const mouseLon = Cesium.Math.toDegrees(mousePos.longitude)
         const mouseLat = Cesium.Math.toDegrees(mousePos.latitude)
 
-        // 주차구역 중심 = modelTransform 원점 + zoneCenter(m→deg) + parkingTransform offset
+        // 주차구역 중심 = parkingOrigin(또는 modelTransform) + zoneCenter(m) + parkingTransform offset
+        const po = useProjectStore.getState().parkingOrigin
         const mt = modelTransformRef.current
+        const baseLon = po?.longitude ?? mt.longitude
+        const baseLat = po?.latitude ?? mt.latitude
         const pt = parkingHookTransformRef.current
-        const latRad = (mt.latitude * Math.PI) / 180
+        const latRad = (baseLat * Math.PI) / 180
         const mPerDegLon = 111_320 * Math.cos(latRad)
         const mPerDegLat = 111_320
         const zone = useProjectStore.getState().parkingZone
         const zcx = zone?.zoneCenter?.[0] ?? 0
         const zcy = zone?.zoneCenter?.[1] ?? 0
-        const originLon = mt.longitude + zcx / mPerDegLon + pt.longitude
-        const originLat = mt.latitude + zcy / mPerDegLat + pt.latitude
+        const originLon = baseLon + zcx / mPerDegLon + pt.longitude
+        const originLat = baseLat + zcy / mPerDegLat + pt.latitude
 
-        const deltaLon = mouseLon - originLon
-        const deltaLat = mouseLat - originLat
-
-        const angleRad = Math.atan2(deltaLon, deltaLat)
+        // 위경도 차이를 미터로 변환하여 정확한 각도 계산
+        const deltaX = (mouseLon - originLon) * mPerDegLon
+        const deltaY = (mouseLat - originLat) * mPerDegLat
+        const angleRad = Math.atan2(deltaX, deltaY)
         const angleDeg = Cesium.Math.toDegrees(angleRad)
         const newRotation = (angleDeg + 360) % 360
 
@@ -1823,10 +1900,14 @@ export default function CesiumViewer() {
         const mouseLat = Cesium.Math.toDegrees(mousePos.latitude)
 
         const currentTransform = modelTransformRef.current
-        const deltaLon = mouseLon - currentTransform.longitude
-        const deltaLat = mouseLat - currentTransform.latitude
+        const latRad = (currentTransform.latitude * Math.PI) / 180
+        const mPerDegLon = 111_320 * Math.cos(latRad)
+        const mPerDegLat = 111_320
 
-        const angleRad = Math.atan2(deltaLon, deltaLat)
+        // 위경도 차이를 미터로 변환하여 정확한 각도 계산
+        const deltaX = (mouseLon - currentTransform.longitude) * mPerDegLon
+        const deltaY = (mouseLat - currentTransform.latitude) * mPerDegLat
+        const angleRad = Math.atan2(deltaX, deltaY)
         const angleDeg = Cesium.Math.toDegrees(angleRad)
         const newRotation = (angleDeg + 360) % 360
 
@@ -2147,11 +2228,47 @@ export default function CesiumViewer() {
       }
 
       // 전체 최소거리 계산 및 위반 여부 확인
-      const overallMinDist = Math.min(minRoadDist, minAdjacentDist)
-      const hasViolation = setbackDetails.some(d => d.status === 'VIOLATION')
+      let overallMinDist = Math.min(minRoadDist, minAdjacentDist)
+      let hasViolation = setbackDetails.some(d => d.status === 'VIOLATION')
       const requiredSetback = setbackDetails.length > 0
         ? Math.max(...setbackDetails.map(d => d.required))
         : zoneLimits.setback
+
+      // ★ 건물이 영역 밖에 있으면 이격거리 위반으로 처리
+      if (!isModelInBoundsRef.current) {
+        hasViolation = true
+        // 영역 밖이면 음수 거리로 표시 (경계 침범)
+        overallMinDist = -1
+        setbackDetails.push({
+          type: '영역 이탈',
+          distance: -1,
+          required: requiredSetback,
+          status: 'VIOLATION',
+        })
+        console.log('[검토] 건물이 건축선 영역 밖에 있음 - 이격거리 위반 처리')
+      }
+
+      // ★ 건물 높이 검사 (현재 로드된 매스에서 높이 가져오기)
+      const currentMass = state.generatedMasses.find(
+        m => m.glbUrl === state.loadedMassGlbUrl || m.glbUrlNoRoof === state.loadedMassGlbUrl
+      )
+      // 높이 우선순위: 매스 높이(0 제외) → 바운딩박스 높이 → massSettings 기본값 → building 높이 → 10m
+      const massHeight = currentMass?.height && currentMass.height > 0 ? currentMass.height : null
+      const bboxHeight = currentMass?.boundingBox?.height && currentMass.boundingBox.height > 0 ? currentMass.boundingBox.height : null
+      const defaultHeight = state.massSettings.defaultHeight > 0 ? state.massSettings.defaultHeight : 3.0
+      const buildingHeight = massHeight ?? bboxHeight ?? state.building?.height ?? defaultHeight
+      const heightLimit = zoneLimits.height
+      const heightStatus = heightLimit === null || buildingHeight <= heightLimit ? 'OK' : 'VIOLATION'
+
+      console.log('[검토] 건물 높이 검사:', {
+        매스_원본높이: currentMass?.height,
+        매스_bbox높이: currentMass?.boundingBox?.height,
+        기본설정높이: state.massSettings.defaultHeight,
+        building높이: state.building?.height,
+        최종건물높이: buildingHeight,
+        한도: heightLimit,
+        상태: heightStatus
+      })
 
       const reviewPayload = {
         zoneType,  // 적용된 용도지역
@@ -2162,12 +2279,17 @@ export default function CesiumViewer() {
           limit,
           status: (ratio <= limit ? 'OK' : 'VIOLATION') as 'OK' | 'VIOLATION',
         },
-        setback: overallMinDist < Infinity ? {
+        setback: overallMinDist !== Infinity ? {
           minDistance: Math.round(overallMinDist * 100) / 100,
           required: requiredSetback,
           status: (hasViolation ? 'VIOLATION' : 'OK') as 'OK' | 'VIOLATION',
           details: setbackDetails,
         } : null,
+        heightCheck: {
+          value: Math.round(buildingHeight * 10) / 10,
+          limit: heightLimit,
+          status: heightStatus as 'OK' | 'VIOLATION',
+        },
         isModelInBounds: isModelInBoundsRef.current,
       }
 
@@ -2187,7 +2309,7 @@ export default function CesiumViewer() {
           // 변별 위반 상세 메시지
           const violatedEdges = reviewPayload.setback.details
             .filter(d => d.status === 'VIOLATION')
-            .map(d => `${d.type} ${d.distance}m < ${d.required}m`)
+            .map(d => d.type === '영역 이탈' ? '건물이 건축선 영역 밖에 있음' : `${d.type} ${d.distance}m < ${d.required}m`)
           violations.push({
             type: 'setback',
             message: violatedEdges.length > 0
@@ -2195,13 +2317,18 @@ export default function CesiumViewer() {
               : `이격거리 ${reviewPayload.setback.minDistance}m < ${reviewPayload.setback.required}m`,
           })
         }
-        // 이격거리 검토는 대지경계선 ↔ 모델 거리(setback)로만 판정.
-        // isModelInBounds는 건축선(=lot - setback) 안쪽 여부 체크라 setback과
-        // 본질적으로 같은 제약이고, 함께 검사하면 중복 판정이 됨. 시각 피드백
-        // (바운더리 색상)에만 사용하고 적합 판정에서는 제외한다.
+        // 높이 위반 체크
+        if (reviewPayload.heightCheck?.status === 'VIOLATION') {
+          violations.push({
+            type: 'height',
+            message: `건물 높이 ${reviewPayload.heightCheck.value}m > 한도 ${reviewPayload.heightCheck.limit}m`,
+          })
+        }
+        // 적합 판정: 건폐율, 이격거리, 높이 모두 OK여야 함
         const isValid =
           reviewPayload.buildingCoverage.status === 'OK' &&
-          (!reviewPayload.setback || reviewPayload.setback.status === 'OK')
+          (!reviewPayload.setback || reviewPayload.setback.status === 'OK') &&
+          reviewPayload.heightCheck.status === 'OK'
 
         saveReviewResult(projectId, {
           is_valid: isValid,
@@ -2218,7 +2345,11 @@ export default function CesiumViewer() {
             status: reviewPayload.setback.status,
             details: reviewPayload.setback.details,
           } : {},
-          height_check: {},
+          height_check: {
+            value_m: reviewPayload.heightCheck.value,
+            limit_m: reviewPayload.heightCheck.limit,
+            status: reviewPayload.heightCheck.status,
+          },
           violations,
           zone_type: buildingLine.getBuildingLineResult()?.zoneType ?? null,
         }).catch((err) => {

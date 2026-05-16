@@ -21,6 +21,7 @@ import {
   SerializedParkingPathData,
   SerializedParkingConfig,
   SerializedParkingTransform,
+  SerializedMainEntranceData,
 } from '@/types/projectFile'
 
 /**
@@ -126,8 +127,11 @@ export function createProjectFile(params: {
   parkingConfig?: SerializedParkingConfig
   parkingTransform?: SerializedParkingTransform
   entranceTransform?: SerializedParkingTransform
+  parkingOrigin?: { longitude: number; latitude: number } | null
   isParkingVisible?: boolean
   gridRotation?: number
+  // 메인 출입구 마커
+  mainEntrance?: SerializedMainEntranceData | null
 }): ProjectFile {
   const {
     viewer,
@@ -156,8 +160,11 @@ export function createProjectFile(params: {
     parkingConfig,
     parkingTransform,
     entranceTransform,
+    parkingOrigin,
     isParkingVisible,
     gridRotation,
+    // 메인 출입구 마커
+    mainEntrance,
   } = params
 
   return {
@@ -196,8 +203,12 @@ export function createProjectFile(params: {
     parkingConfig,
     parkingTransform,
     entranceTransform,
+    parkingOrigin,
     isParkingVisible,
     gridRotation,
+
+    // 메인 출입구 마커
+    mainEntrance,
   }
 }
 

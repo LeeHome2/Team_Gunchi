@@ -1072,6 +1072,8 @@ async def generate_mass(
                         raise HTTPException(status_code=500, detail="벽체 GLB 생성에 실패했습니다.")
         else:
             build_steps = []
+            openings_data = []  # 단순 footprint 생성에는 문/창문 없음
+            glb_url_no_roof = None  # 단순 footprint 생성에는 천장 없는 버전 없음
             lod_actual = 1  # 단순 footprint 생성은 항상 LOD1
             # 기존 방식: footprint 단순 extrusion
             footprint_lonlat = np.array(request.footprint)
@@ -1648,22 +1650,22 @@ async def classify_layers(
                 ai_result = response.json()
                 logger.info(f"AI classification succeeded for file {file_id}")
 
-                # Save to database if project_id provided
-                if project_id:
-                    try:
-                        import uuid as uuid_module
-                        project_uuid = uuid_module.UUID(project_id)
-                        crud.save_classification(
-                            db=db,
-                            project_id=project_uuid,
-                            file_id=file_id,
-                            model_version=ai_result.get("model_version", "unknown"),
-                            class_counts=ai_result.get("class_counts", {}),
-                            average_confidence=ai_result.get("average_confidence", 0),
-                            total_entities=total_entities,
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to save classification to DB: {e}")
+                # Save to database - file_id is the DXF file's UUID
+                try:
+                    import uuid as uuid_module
+                    dxf_file_uuid = uuid_module.UUID(file_id)
+                    crud.save_classification(
+                        db=db,
+                        dxf_file_id=dxf_file_uuid,
+                        model_version=ai_result.get("model_version", "unknown"),
+                        model_type=ai_result.get("model_type", "ai"),
+                        class_counts=ai_result.get("class_counts", {}),
+                        average_confidence=ai_result.get("average_confidence", 0),
+                        total_entities=total_entities,
+                    )
+                    logger.info(f"Classification saved to DB for dxf_file_id={file_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to save classification to DB: {e}")
 
                 return ai_result
     except Exception as e:
@@ -1702,16 +1704,34 @@ async def classify_layers(
     # AI 서버가 다운되어 mock으로 빠져도 매스 생성 시 벽 레이어를 식별할 수 있도록 함
     layer_decisions = {layer: _classify_layer_by_name(layer) for layer in layers}
 
+    mock_confidence = round(0.87 + random.random() * 0.08, 4)
     mock_result = {
         "file_id": file_id,
         "total_entities": total_entities,
         "class_counts": class_counts,
         "layers": layers,
         "layer_decisions": layer_decisions,
-        "average_confidence": round(0.87 + random.random() * 0.08, 4),
+        "average_confidence": mock_confidence,
         "model_version": "mock-v1.0",
         "is_mock": True,
     }
+
+    # Save mock result to database for tracking
+    try:
+        import uuid as uuid_module
+        dxf_file_uuid = uuid_module.UUID(file_id)
+        crud.save_classification(
+            db=db,
+            dxf_file_id=dxf_file_uuid,
+            model_version="mock-v1.0",
+            model_type="mock",
+            class_counts=class_counts,
+            average_confidence=mock_confidence,
+            total_entities=total_entities,
+        )
+        logger.info(f"Mock classification saved to DB for dxf_file_id={file_id}")
+    except Exception as e:
+        logger.warning(f"Failed to save mock classification to DB: {e}")
 
     return mock_result
 

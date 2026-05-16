@@ -62,6 +62,8 @@ interface Props {
   onSelectDataset?: (dataset: DatasetMeta | null) => void
   /** 데이터셋 삭제 시 콜백 */
   onDeleteDataset?: (datasetId: string, datasetName: string) => Promise<boolean>
+  /** 데이터셋 업로드 버튼 클릭 시 콜백 */
+  onUploadClick?: () => void
 }
 
 function fmtTime(t: number | null): string {
@@ -80,6 +82,7 @@ export default function DatasetsPanel({
   selectedDatasetId = null,
   onSelectDataset,
   onDeleteDataset,
+  onUploadClick,
 }: Props) {
   const [data, setData] = useState<DatasetsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -127,9 +130,19 @@ export default function DatasetsPanel({
     <section className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base font-semibold">데이터셋 / 분할</h3>
-        <span className="text-xs text-white/40">
-          {data?.meta?.datasets?.length ?? 0}개 등록 · 학과 AI 서버
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-white/40">
+            {data?.meta?.datasets?.length ?? 0}개 등록 · 학과 AI 서버
+          </span>
+          {onUploadClick && (
+            <button
+              onClick={onUploadClick}
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+            >
+              📤 데이터셋 업로드
+            </button>
+          )}
+        </div>
       </div>
 
       {loading && (

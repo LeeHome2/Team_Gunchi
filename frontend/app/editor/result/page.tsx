@@ -370,8 +370,12 @@ export default function ResultPage() {
     status: reviewData.setback.status === 'OK' ? 'OK' : 'fail',
   } : null)
 
-  // validation에 height 정보가 없으면 building.height + 용도지역 한도로 추정
-  const height = validation?.height ?? (building?.height != null ? {
+  // validation에 height 정보가 없으면 reviewData.heightCheck 사용, 그것도 없으면 building.height로 추정
+  const height = validation?.height ?? (reviewData?.heightCheck ? {
+    value_m: reviewData.heightCheck.value,
+    limit_m: reviewData.heightCheck.limit,
+    status: reviewData.heightCheck.status === 'OK' ? 'OK' : 'fail',
+  } : building?.height != null ? {
     value_m: building.height,
     limit_m: null,
     status: 'unknown',
@@ -392,6 +396,12 @@ export default function ResultPage() {
         message: `이격거리 ${reviewData.setback.minDistance.toFixed(2)}m 가 최소 ${reviewData.setback.required}m 미만입니다`,
       })
     }
+    if (reviewData?.heightCheck?.status === 'VIOLATION') {
+      v.push({
+        code: 'HEIGHT_EXCEED',
+        message: `건물 높이 ${reviewData.heightCheck.value.toFixed(1)}m 가 한도 ${reviewData.heightCheck.limit}m 를 초과합니다`,
+      })
+    }
     // isModelInBounds(건축선 안쪽 여부)는 setback 체크와 본질적으로 같은
     // 제약이라 별도 위반으로 카운트하지 않는다. 시각 피드백(에디터의 바운더리
     // 색상)에서만 활용.
@@ -403,11 +413,12 @@ export default function ResultPage() {
     if (validation?.is_valid === true) return 'pass'
     if (validation?.is_valid === false) return 'fail'
     if (violations.length > 0) return 'fail'
-    if (reviewData?.buildingCoverage || reviewData?.setback) {
+    if (reviewData?.buildingCoverage || reviewData?.setback || reviewData?.heightCheck) {
       // reviewData가 있고 위반사항이 없으면 적합
       const allOk =
         (!reviewData.buildingCoverage || reviewData.buildingCoverage.status === 'OK') &&
         (!reviewData.setback || reviewData.setback.status === 'OK') &&
+        (!reviewData.heightCheck || reviewData.heightCheck.status === 'OK') &&
         reviewData.isModelInBounds !== false
       return allOk ? 'pass' : 'fail'
     }
@@ -472,11 +483,26 @@ export default function ResultPage() {
       totalWindows = windows.length
 
       if (windows.length > 0) {
+        // 외부를 향하는 창문만 필터링:
+        // 매스 중심 → 창문 방향(방사선)과 창문선 사이의 각도가 90°에 가까우면 외부 향함
+        const isExteriorFacing = (win: { x: number; y: number; rotation?: number }) => {
+          const radialAngle = Math.atan2(win.y, win.x) * 180 / Math.PI
+          const windowLineAngle = win.rotation || 0
+          let angleDiff = Math.abs(radialAngle - windowLineAngle)
+          angleDiff = angleDiff % 360
+          if (angleDiff > 180) angleDiff = 360 - angleDiff
+          return angleDiff >= 60 && angleDiff <= 120
+        }
+        const exteriorWindows = windows.filter(isExteriorFacing)
+
+        // 외부 향하는 창문이 있으면 그 중에서, 없으면 전체 창문에서 선택
+        const candidateWindows = exteriorWindows.length > 0 ? exteriorWindows : windows
+
         // 건물 중심에서 가장 먼 창문 찾기 (외곽 = 메인 창문)
         let maxDist = 0
-        let mainWindow = windows[0]
+        let mainWindow = candidateWindows[0]
 
-        for (const win of windows) {
+        for (const win of candidateWindows) {
           const dist = Math.sqrt(win.x * win.x + win.y * win.y)
           if (dist > maxDist) {
             maxDist = dist
@@ -484,10 +510,38 @@ export default function ResultPage() {
           }
         }
 
+        const radialAngle = Math.atan2(mainWindow.y, mainWindow.x) * 180 / Math.PI
+        let angleDiff = Math.abs(radialAngle - (mainWindow.rotation || 0)) % 360
+        if (angleDiff > 180) angleDiff = 360 - angleDiff
+        console.log('[결과 페이지] 창문 필터:', { 전체: windows.length, 외부향: exteriorWindows.length, 방사선각도: radialAngle.toFixed(1), 창문선각도: mainWindow.rotation, 각도차: angleDiff.toFixed(1) })
+
         // 메인 창문의 절대 방향 계산
-        // 창문이 바라보는 방향 (0° = 북쪽, 90° = 동쪽, 180° = 남쪽, 270° = 서쪽)
-        // GLB 좌표계 보정: +90°
-        mainWindowDirection = (buildingRotation + mainWindow.rotation + 90 + 360) % 360
+        // 창문이 바라보는 방향 = 건물 중심에서 창문까지의 방사선 방향
+        // GLB 좌표 변환 적용: DXF(x,y) → GLB(-y, x)
+        const glbX = -mainWindow.y
+        const glbY = mainWindow.x
+
+        // 건물 회전 적용하여 세계 좌표에서의 방향 계산
+        const rotRad = buildingRotation * Math.PI / 180
+        const cosR = Math.cos(rotRad)
+        const sinR = Math.sin(rotRad)
+
+        // 회전된 좌표 (건물 중심에서 창문까지의 벡터)
+        const rotatedX = glbX * cosR - glbY * sinR
+        const rotatedY = glbX * sinR + glbY * cosR
+
+        // 수학적 각도 (0=동, 반시계 양수) → 나침반 방위 (0=북, 시계 양수)
+        const mathAngle = Math.atan2(rotatedY, rotatedX) * 180 / Math.PI
+        mainWindowDirection = (90 - mathAngle + 360) % 360
+
+        console.log('[결과 페이지] 창문 방향 계산:', {
+          dxfXY: [mainWindow.x.toFixed(2), mainWindow.y.toFixed(2)],
+          glbXY: [glbX.toFixed(2), glbY.toFixed(2)],
+          buildingRotation: buildingRotation.toFixed(1),
+          rotatedXY: [rotatedX.toFixed(2), rotatedY.toFixed(2)],
+          mathAngle: mathAngle.toFixed(1),
+          compassDirection: mainWindowDirection.toFixed(1)
+        })
 
         // 방향 라벨
         if (mainWindowDirection >= 315 || mainWindowDirection < 45) {

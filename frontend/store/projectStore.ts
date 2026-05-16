@@ -323,6 +323,12 @@ interface ProjectState {
   // 생성된 매스 모델 목록
   generatedMasses: GeneratedMass[]
 
+  // 매스 생성 기본 설정
+  massSettings: {
+    defaultHeight: number  // 기본 건물 높이 (m)
+    defaultFloors: number  // 기본 층수
+  }
+
   // 천장 슬래브 표시 여부 (토글용)
   showRoof: boolean
 
@@ -360,6 +366,7 @@ interface ProjectState {
     selectedZoneType?: string  // 사용자가 선택한 용도지역 (드롭다운)
     buildingCoverage: { buildingArea: number; siteArea: number; ratio: number; limit: number; status: 'OK' | 'VIOLATION' } | null
     setback: { minDistance: number; required: number; status: 'OK' | 'VIOLATION'; details: { type: string; distance: number; required: number; status: 'OK' | 'VIOLATION' }[] } | null
+    heightCheck: { value: number; limit: number | null; status: 'OK' | 'VIOLATION' } | null
     isModelInBounds: boolean
   }
   sunlightAnalysisState: {
@@ -426,6 +433,7 @@ interface ProjectState {
   setLoadedMassGlbUrl: (url: string | null) => void
   addGeneratedMass: (mass: GeneratedMass) => void
   removeGeneratedMass: (id: string) => void
+  setMassSettings: (settings: Partial<ProjectState['massSettings']>) => void
   setShowRoof: (show: boolean) => void
   setShowOpeningMarkers: (show: boolean) => void
   setMainEntrance: (entrance: MainEntranceData | null) => void
@@ -495,6 +503,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
   massGlbRestoreTransform: null,
   loadedMassGlbUrl: null,
   generatedMasses: [],
+  massSettings: {
+    defaultHeight: 3.0,  // 기본 건물 높이 3m (1층 기준)
+    defaultFloors: 1,    // 기본 층수 1층
+  },
   showRoof: true,  // 천장 슬래브 기본 표시
   showOpeningMarkers: true,  // 문/창문 마커 기본 표시
   mainEntrance: null,  // 메인 출입구 마커 (사용자가 드래그로 위치 설정)
@@ -522,6 +534,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     selectedZoneType: undefined,
     buildingCoverage: null,
     setback: null,
+    heightCheck: null,
     isModelInBounds: true,
   },
   aiScore: {
@@ -610,6 +623,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
   removeGeneratedMass: (id) =>
     set((state) => ({ generatedMasses: state.generatedMasses.filter((m) => m.id !== id) })),
+
+  setMassSettings: (settings) =>
+    set((state) => ({ massSettings: { ...state.massSettings, ...settings } })),
 
   setShowRoof: (show) => set({ showRoof: show }),
 
@@ -716,6 +732,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       massGlbRestoreTransform: null,
       loadedMassGlbUrl: null,
       generatedMasses: [],
+      massSettings: { defaultHeight: 3.0, defaultFloors: 1 },
       isLoadingModel: false,
       humanScaleModelLoaded: false,
       mainEntrance: null,
@@ -736,7 +753,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       entranceTransform: { longitude: 0, latitude: 0, rotation: 0 },
       parkingPath: null,
       gridRotation: 0,
-      reviewData: { zoneType: undefined, selectedZoneType: undefined, buildingCoverage: null, setback: null, isModelInBounds: true },
+      reviewData: { zoneType: undefined, selectedZoneType: undefined, buildingCoverage: null, setback: null, heightCheck: null, isModelInBounds: true },
       aiScore: { isLoading: false, result: null, error: null },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
       resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },

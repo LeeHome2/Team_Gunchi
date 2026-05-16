@@ -217,12 +217,33 @@ export function checkShadowAtPoint(
     // excludeObjects에 사용자 매스 포함하여 주변 건물만 검사
     const result = viewer.scene.pickFromRay(ray, excludeObjects, 0.1, false)
 
-    // hit 없음 = 일조, hit 있음 = 그림자
+    // hit 없음 = 일조
     if (!result || !result.object) {
       return true  // 일조
     }
 
-    return false  // 그림자
+    // hit 있음 - 제외 대상인지 확인
+    // excludeObjects에 포함된 Entity의 ID와 매칭되면 무시
+    const hitObject = result.object
+    for (const excludeObj of excludeObjects) {
+      // Entity인 경우 ID 비교
+      if (excludeObj.id && hitObject.id) {
+        if (excludeObj.id === hitObject.id ||
+            (hitObject.id?.id && excludeObj.id === hitObject.id.id)) {
+          return true  // 자신의 모델 - 일조로 처리
+        }
+      }
+      // primitive 직접 비교
+      if (hitObject.primitive && excludeObj === hitObject.primitive) {
+        return true  // 자신의 모델 - 일조로 처리
+      }
+      // model 비교
+      if (hitObject === excludeObj) {
+        return true  // 자신의 모델 - 일조로 처리
+      }
+    }
+
+    return false  // 그림자 (다른 건물에 의한)
   } catch (error) {
     // 에러 시 기본값 일조로 처리
     return true

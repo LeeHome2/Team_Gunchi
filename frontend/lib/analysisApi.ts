@@ -274,7 +274,9 @@ export async function generateModelFromClassification(
   anchorLonLat?: [number, number],
   fileName?: string,
   projectId?: string | null,
-  lod: 1 | 2 | 3 = 1
+  lod: 1 | 2 | 3 = 1,
+  buildingHeight: number = 3.0,
+  buildingFloors: number = 1
 ): Promise<ModelResult> {
   let rawFootprint = parseResult?.site?.footprint || [[0, 0], [10, 0], [10, 10], [0, 10]]
   const anchor: [number, number] = anchorLonLat || [127.1388, 37.4449]
@@ -348,8 +350,8 @@ export async function generateModelFromClassification(
 
   const body: Record<string, any> = {
     footprint,
-    height: 4.0,  // 기본 매스 높이 4m
-    floors: 1,
+    height: buildingHeight,
+    floors: buildingFloors,
     position,
   }
 

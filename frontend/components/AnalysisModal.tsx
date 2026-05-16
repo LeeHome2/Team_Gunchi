@@ -207,6 +207,9 @@ export default function AnalysisModal({
         setCurrentStep(3)
         setStep3Status(StepStatus.LOADING)
 
+        // 기본 건물 높이/층수 설정 가져오기
+        const { massSettings } = useProjectStore.getState()
+
         const modelData = await generateModelFromClassification(
           parseData.file_id,
           classifyData,
@@ -214,7 +217,9 @@ export default function AnalysisModal({
           anchorLonLat,
           file?.name,
           projectId,
-          lod
+          lod,
+          massSettings.defaultHeight,
+          massSettings.defaultFloors
         )
         setModelResult(modelData)
 
@@ -296,7 +301,8 @@ export default function AnalysisModal({
             onClick={onClose}
             disabled={
               step3Status !== StepStatus.COMPLETE &&
-              step3Status !== StepStatus.PENDING
+              step3Status !== StepStatus.PENDING &&
+              !error  // 오류 발생 시에도 닫기 가능
             }
             className="text-[#ffffffb3] hover:text-[#fff] disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -519,10 +525,10 @@ export default function AnalysisModal({
         <div className="bg-gray-50 px-8 py-4 flex gap-3 border-t">
           <button
             onClick={onClose}
-            disabled={step3Status !== StepStatus.COMPLETE}
+            disabled={step3Status !== StepStatus.COMPLETE && !error}
             className="flex-1 px-4 py-2 text-gray-700 bg-[#ffffff] border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            닫기
+            {error ? '취소' : '닫기'}
           </button>
           <button
             onClick={handleComplete}

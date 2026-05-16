@@ -58,6 +58,8 @@ export default function Sidebar() {
     setShowRoof,
     showOpeningMarkers,
     setShowOpeningMarkers,
+    massSettings,
+    setMassSettings,
   } = useProjectStore()
 
   const [activeTab, setActiveTab] = useState<'upload' | 'mass' | 'validate' | 'parking'>('upload')
@@ -351,8 +353,8 @@ export default function Sidebar() {
       footprint,
       centroid,
       area: result.site.area_sqm,
-      height: 4,  // 기본 매스 높이 4m
-      floors: 1,
+      height: massSettings.defaultHeight,  // 기본 건물 높이 사용
+      floors: massSettings.defaultFloors,  // 기본 층수 사용
       classification: {
         total_entities: result.classification.total_entities,
         class_counts: result.classification.class_counts,
@@ -591,6 +593,38 @@ export default function Sidebar() {
                   }`}
                 />
               </button>
+            </div>
+
+            {/* 기본 건물 높이/층수 설정 */}
+            <div className="rounded-lg border border-gray-200 p-3 bg-gray-50 space-y-3">
+              <p className="text-sm font-medium text-gray-700">기본 건물 설정</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">건물 높이 (m)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="0.5"
+                    value={massSettings.defaultHeight}
+                    onChange={(e) => setMassSettings({ defaultHeight: parseFloat(e.target.value) || 3 })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">층수</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    step="1"
+                    value={massSettings.defaultFloors}
+                    onChange={(e) => setMassSettings({ defaultFloors: parseInt(e.target.value) || 1 })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400">새 매스 생성 시 적용됩니다</p>
             </div>
 
             {/* 업로드된 DXF 파일 목록 (DB 기반) */}

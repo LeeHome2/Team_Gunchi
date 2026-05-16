@@ -133,8 +133,11 @@ export function useProjectPersistence(
         parkingConfig: store.parkingConfig,
         parkingTransform: store.parkingTransform,
         entranceTransform: store.entranceTransform,
+        parkingOrigin: store.parkingOrigin,
         isParkingVisible: store.isParkingVisible,
         gridRotation: store.gridRotation,
+        // 메인 출입구 마커
+        mainEntrance: store.mainEntrance,
       })
 
       // DB에 저장 시도 (projectId가 있는 경우)
@@ -252,11 +255,18 @@ export function useProjectPersistence(
     if (projectFile.generatedMasses && projectFile.generatedMasses.length > 0) {
       console.log('매스 모델 목록 복원 중...', projectFile.generatedMasses.length, '개')
       const store = useProjectStore.getState()
+      const { massSettings } = store
       // 기존 매스 목록 비우고 저장된 목록으로 교체
       for (const mass of projectFile.generatedMasses) {
         // 이미 같은 ID가 있으면 스킵
         if (!store.generatedMasses.find(m => m.id === mass.id)) {
-          store.addGeneratedMass(mass)
+          // 기존 프로젝트 파일에서 height가 없거나 0인 경우 기본값 적용
+          const restoredMass = {
+            ...mass,
+            height: mass.height && mass.height > 0 ? mass.height : massSettings.defaultHeight,
+            floors: mass.floors && mass.floors > 0 ? mass.floors : massSettings.defaultFloors,
+          }
+          store.addGeneratedMass(restoredMass)
         }
       }
     }
@@ -304,6 +314,7 @@ export function useProjectPersistence(
     restoreHiddenBuildings(projectFile.hiddenBuildingIds)
 
     // 10. 주차 관련 데이터 복원
+    // ★ 순서 중요: origin → transform → zone 순서로 설정해야 올바른 위치에 표시됨
     if (projectFile.parkingZone || projectFile.parkingConfig) {
       console.log('주차 데이터 복원 중...')
       const {
@@ -313,13 +324,32 @@ export function useProjectPersistence(
         setParkingConfig,
         setParkingTransform,
         setEntranceTransform,
+        setParkingOrigin,
         setIsParkingVisible,
         setGridRotation,
       } = useProjectStore.getState()
 
+      // 1단계: 설정값 + Origin 먼저 (렌더링 트리거 없음)
       if (projectFile.parkingConfig) {
         setParkingConfig(projectFile.parkingConfig)
       }
+      if (projectFile.gridRotation !== undefined) {
+        setGridRotation(projectFile.gridRotation)
+      }
+      // ★ parkingOrigin을 가장 먼저 설정 (좌표 변환의 기준점)
+      if (projectFile.parkingOrigin) {
+        setParkingOrigin(projectFile.parkingOrigin)
+      }
+
+      // 2단계: Transform 설정 (렌더링 트리거 없음 - zone이 아직 null)
+      if (projectFile.parkingTransform) {
+        setParkingTransform(projectFile.parkingTransform)
+      }
+      if (projectFile.entranceTransform) {
+        setEntranceTransform(projectFile.entranceTransform)
+      }
+
+      // 3단계: Zone 데이터 설정 (이제 올바른 origin + transform으로 렌더링됨)
       if (projectFile.parkingZone) {
         setParkingZone(projectFile.parkingZone)
       }
@@ -329,18 +359,22 @@ export function useProjectPersistence(
       if (projectFile.parkingPath) {
         setParkingPath(projectFile.parkingPath)
       }
-      if (projectFile.parkingTransform) {
-        setParkingTransform(projectFile.parkingTransform)
-      }
-      if (projectFile.entranceTransform) {
-        setEntranceTransform(projectFile.entranceTransform)
-      }
+
+      // 4단계: 가시성 설정 (마지막에)
       if (projectFile.isParkingVisible !== undefined) {
         setIsParkingVisible(projectFile.isParkingVisible)
       }
-      if (projectFile.gridRotation !== undefined) {
-        setGridRotation(projectFile.gridRotation)
-      }
+    }
+
+    // 11. 메인 출입구 마커 복원 (매스 GLB 로드 완료 후 복원되도록 지연)
+    // 매스 GLB 로드가 setTimeout(1000) + 실제 로드 시간이 걸리므로 충분히 지연
+    if (projectFile.mainEntrance) {
+      const savedMainEntrance = projectFile.mainEntrance
+      setTimeout(() => {
+        console.log('메인 출입구 마커 복원 중...')
+        const { setMainEntrance } = useProjectStore.getState()
+        setMainEntrance(savedMainEntrance)
+      }, 2000)
     }
 
     viewer.scene.requestRender()

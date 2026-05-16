@@ -103,6 +103,7 @@ export interface SerializedGeneratedMass {
   fileName: string
   label: string
   glbUrl: string
+  glbUrlNoRoof?: string  // 천장 없는 GLB URL (토글용)
   footprint: number[][]
   centroid: number[]
   area: number
@@ -114,6 +115,15 @@ export interface SerializedGeneratedMass {
     average_confidence: number
   }
   boundingBox?: { width: number; depth: number; height: number }
+  openings?: Array<{
+    type: 'door' | 'window'
+    x: number
+    y: number
+    width: number
+    height: number
+    rotation: number
+    isMain?: boolean
+  }>
   createdAt: number
 }
 
@@ -224,6 +234,14 @@ export interface SerializedParkingTransform {
   rotation: number
 }
 
+// 메인 출입구 마커 데이터
+export interface SerializedMainEntranceData {
+  localX: number
+  localY: number
+  heading: number
+  size: number
+}
+
 // 전체 프로젝트 파일 구조
 export interface ProjectFile {
   // 메타데이터
@@ -269,8 +287,12 @@ export interface ProjectFile {
   parkingConfig?: SerializedParkingConfig
   parkingTransform?: SerializedParkingTransform
   entranceTransform?: SerializedParkingTransform
+  parkingOrigin?: { longitude: number; latitude: number } | null
   isParkingVisible?: boolean
   gridRotation?: number
+
+  // 메인 출입구 마커
+  mainEntrance?: SerializedMainEntranceData | null
 }
 
 // 파일 검증 결과

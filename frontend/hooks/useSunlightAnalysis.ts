@@ -129,13 +129,38 @@ export function useSunlightAnalysis(
       const loadedModelEntity = getLoadedModelEntity?.()
       const excludeObjects: any[] = []
       if (loadedModelEntity) {
-        // 매스 모델의 primitive 추출 (Cesium Model)
+        // Entity 자체 추가
+        excludeObjects.push(loadedModelEntity)
+
+        // Entity의 Model primitive 추출 (여러 방법 시도)
+        // 방법 1: model._model (직접 접근)
         if (loadedModelEntity.model?._model) {
           excludeObjects.push(loadedModelEntity.model._model)
         }
-        // entity 자체도 추가
-        excludeObjects.push(loadedModelEntity)
-        console.log('일조 분석: 사용자 매스 제외 설정됨')
+        // 방법 2: _modelPrimitive (Entity가 렌더링된 후 생성됨)
+        if ((loadedModelEntity as any)._modelPrimitive) {
+          excludeObjects.push((loadedModelEntity as any)._modelPrimitive)
+        }
+        // 방법 3: DataSourceDisplay의 visualizers에서 찾기
+        try {
+          const dataSourceDisplay = (viewer as any)._dataSourceDisplay
+          if (dataSourceDisplay) {
+            const visualizers = dataSourceDisplay._defaultDataSource?._visualizers || []
+            for (const visualizer of visualizers) {
+              if (visualizer._modelHash) {
+                const modelData = visualizer._modelHash.get?.(loadedModelEntity.id)
+                if (modelData?.model) {
+                  excludeObjects.push(modelData.model)
+                  console.log('일조 분석: visualizer에서 모델 찾음')
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // visualizer 접근 실패 무시
+        }
+
+        console.log('일조 분석: 사용자 매스 제외 설정됨, 제외 객체:', excludeObjects.length, '개')
       }
 
       console.log('일조 분석 시작:', {
