@@ -98,7 +98,7 @@ export default function ProjectDetailModal({
             <div className="text-center text-white/40 text-sm py-8">불러오는 중…</div>
           )}
           {error && (
-            <div className="card p-3 border-red-500/30 bg-red-500/5 text-red-300 text-sm">
+            <div className="card p-3 border-red-500/30 bg-red-500/5 text-red-600 dark:text-red-300 text-sm">
               {error}
             </div>
           )}

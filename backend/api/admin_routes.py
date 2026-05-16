@@ -1460,3 +1460,61 @@ async def get_preprocess_status(building_id: str):
         }
 
     return status.model_dump()
+
+
+# ============================================================================
+# RETRAIN SCHEDULER API
+# ============================================================================
+
+@router.post("/retrain/trigger")
+async def trigger_manual_retrain(db: Session = Depends(get_db)):
+    """수동 재학습 트리거."""
+    from services.retrain_scheduler import get_retrain_scheduler
+
+    scheduler = get_retrain_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Retrain scheduler not running")
+
+    result = await scheduler.manual_trigger("manual_admin")
+    return result
+
+
+@router.get("/retrain/status")
+def get_retrain_status(db: Session = Depends(get_db)):
+    """재학습 스케줄러 상태 조회."""
+    from services.retrain_scheduler import get_retrain_scheduler
+
+    settings = crud.list_service_settings(db)
+
+    scheduler = get_retrain_scheduler()
+    scheduler_running = scheduler is not None and scheduler._running
+
+    # 다음 주기별 재학습 예정 시간 계산
+    next_periodic_run = None
+    if settings.get("periodic_retrain_enabled") == "true":
+        last_run_str = settings.get("periodic_retrain_last_run", "")
+        interval_days = int(settings.get("periodic_retrain_interval", "14"))
+        if last_run_str:
+            try:
+                from datetime import datetime, timedelta
+                last_run = datetime.fromisoformat(last_run_str)
+                next_run = last_run + timedelta(days=interval_days)
+                next_periodic_run = next_run.isoformat()
+            except ValueError:
+                pass
+
+    return {
+        "scheduler_running": scheduler_running,
+        "confidence_based": {
+            "enabled": settings.get("retrain_auto_enabled") == "true",
+            "threshold": int(settings.get("retrain_confidence_threshold", "70")),
+        },
+        "periodic": {
+            "enabled": settings.get("periodic_retrain_enabled") == "true",
+            "interval_days": int(settings.get("periodic_retrain_interval", "14")),
+            "last_run": settings.get("periodic_retrain_last_run"),
+            "next_run": next_periodic_run,
+        },
+        "last_auto_retrain": settings.get("last_auto_retrain"),
+        "last_auto_retrain_reason": settings.get("last_auto_retrain_reason"),
+    }

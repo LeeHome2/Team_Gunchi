@@ -2,7 +2,7 @@
  * 일조 분석 API 연동 모듈
  *
  * 분석 결과를 백엔드에 저장하고 조회하는 API 함수들입니다.
- * 현재 백엔드 미구현 상태이므로 에러 핸들링을 포함합니다.
+ * 백엔드 구현 완료 (main.py:1789-1880)
  */
 
 import type { SunlightAnalysisResult, SunlightPoint } from './sunlightAnalysis'
@@ -69,12 +69,10 @@ export async function saveSunlightAnalysis(
     })
 
     if (!response.ok) {
-      // 백엔드 미구현 시 404 반환 예상
       if (response.status === 404) {
-        console.warn('일조 분석 저장 API가 아직 구현되지 않았습니다')
         return {
           success: false,
-          message: 'API 미구현 (백엔드 개발 필요)',
+          message: '프로젝트를 찾을 수 없습니다',
         }
       }
 
@@ -115,12 +113,10 @@ export async function loadSunlightAnalysis(
     const response = await fetch(url)
 
     if (!response.ok) {
-      // 백엔드 미구현 시 404 반환 예상
       if (response.status === 404) {
-        console.warn('일조 분석 조회 API가 아직 구현되지 않았습니다')
         return {
           success: false,
-          message: 'API 미구현 (백엔드 개발 필요)',
+          message: '저장된 분석 결과가 없습니다',
         }
       }
 
@@ -162,7 +158,7 @@ export async function deleteSunlightAnalysis(
       if (response.status === 404) {
         return {
           success: false,
-          message: 'API 미구현 (백엔드 개발 필요)',
+          message: '분석 결과를 찾을 수 없습니다',
         }
       }
 
@@ -182,7 +178,7 @@ export async function deleteSunlightAnalysis(
   }
 }
 
-// ─── 로컬 저장 (백엔드 미구현 시 대안) ───
+// ─── 로컬 저장 (오프라인/임시 저장용) ───
 
 const STORAGE_KEY_PREFIX = 'sunlight_analysis_'
 

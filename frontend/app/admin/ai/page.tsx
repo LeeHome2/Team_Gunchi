@@ -18,6 +18,7 @@ import ProcessedDatasetsPanel, { ProcessedDataset } from '@/components/admin/Pro
 import DatasetSelectModal from '@/components/admin/DatasetSelectModal'
 import ModelUploadModal from '@/components/admin/ModelUploadModal'
 import JobProgressPanel from '@/components/admin/JobProgressPanel'
+import QuickClassifyPanel from '@/components/admin/QuickClassifyPanel'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -50,6 +51,14 @@ export default function AdminAiPage() {
   const [experiments, setExperiments] = useState<AIExperiment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [mlopsStats, setMlopsStats] = useState<{
+    total_predictions: number
+    total_test_samples: number
+    test_misclassifications: number
+    test_accuracy: number | null
+    misclassification_rate: number
+    average_confidence: number | null
+  } | null>(null)
 
   const [detailRunId, setDetailRunId] = useState<string | null>(null)
   const [stubModal, setStubModal] = useState<'retrain' | 'collect' | null>(null)
@@ -77,16 +86,18 @@ export default function AdminAiPage() {
     setLoading(true)
     setError(null)
     try {
-      const [activeRes, expRes] = await Promise.all([
+      const [activeRes, expRes, statsRes] = await Promise.all([
         adminApi.getActiveAIModel().catch(() => ({ active: null }) as any),
         adminApi.listExperiments(50).catch((e) => {
           throw e
         }),
+        fetch(`${aiUrl}/api/mlops/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
       const a: AIExperiment | null =
         (activeRes && 'active' in activeRes ? activeRes.active : activeRes) || null
       setActive(a as AIExperiment | null)
       setExperiments(expRes.experiments || [])
+      setMlopsStats(statsRes)
     } catch (e: any) {
       setError(e.message || 'AI 서버 통신 실패')
     } finally {
@@ -299,7 +310,45 @@ export default function AdminAiPage() {
               </div>
             </div>
           )}
+
+          {/* 분류 통계 (테스트셋 기반) */}
+          {mlopsStats && (
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <h4 className="text-sm font-medium text-white/60 mb-3">분류 통계 <span className="text-xs text-white/30">(테스트셋 평가 기준)</span></h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs text-white/40">테스트 샘플 수</div>
+                  <div className="mt-1 font-semibold text-brand-300">
+                    {mlopsStats.total_test_samples.toLocaleString()}개
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs text-white/40">오분류 횟수</div>
+                  <div className={`mt-1 font-semibold ${mlopsStats.test_misclassifications > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {mlopsStats.test_misclassifications.toLocaleString()}개
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs text-white/40">오분류율</div>
+                  <div className={`mt-1 font-semibold ${mlopsStats.misclassification_rate > 10 ? 'text-red-400' : mlopsStats.misclassification_rate > 5 ? 'text-yellow-400' : 'text-emerald-400'}`}>
+                    {mlopsStats.misclassification_rate}%
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs text-white/40">운영 평균 신뢰도</div>
+                  <div className="mt-1 font-semibold">
+                    {mlopsStats.average_confidence != null
+                      ? `${(mlopsStats.average_confidence * 100).toFixed(1)}%`
+                      : '—'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
+
+        {/* Quick Classification Test */}
+        <QuickClassifyPanel aiUrl={aiUrl} />
 
         {/* 데이터셋 / 분할 (진도표 항목 1, 2, 3) */}
         <DatasetsPanel

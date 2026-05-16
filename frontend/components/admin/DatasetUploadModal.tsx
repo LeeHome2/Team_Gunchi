@@ -127,7 +127,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
         {/* 파일 선택 + 옵션 */}
         {!result && (
           <div className="space-y-4">
-            <div className="text-xs text-sky-300 bg-sky-500/10 border border-sky-400/30 rounded p-2">
+            <div className="text-xs text-sky-700 dark:text-sky-300 bg-sky-500/10 border border-sky-400/30 rounded p-2">
               ℹ DXF 파일들을 폴더 통째로 zip 으로 만든 후 업로드하세요. zip 안 폴더 구조는 평탄화됩니다.
             </div>
 
@@ -157,7 +157,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
 
             <div>
               <label className="block text-xs text-white/80 mb-1 font-medium">
-                데이터셋 이름 <span className="text-amber-300">★</span>
+                데이터셋 이름 <span className="text-amber-600 dark:text-amber-300">★</span>
               </label>
               <input
                 value={name}
@@ -216,7 +216,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
               )}
 
               {autoBuild && !mock && (
-                <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded p-2">
+                <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded p-2">
                   ⚠ vLLM Vision 호출 비용 발생 (DXF 1개당 ~1k token)
                 </div>
               )}
@@ -257,7 +257,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
             </div>
 
             {error && (
-              <div className="px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-sm text-red-300">
+              <div className="px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-sm text-red-600 dark:text-red-300">
                 {error}
               </div>
             )}
@@ -267,7 +267,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
         {/* 업로드 완료 */}
         {result && (
           <div className="space-y-3">
-            <div className="px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-300">
+            <div className="px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-700 dark:text-emerald-300">
               ✅ 업로드 완료 ({result.dxf_count}개 DXF, {result.size_mb} MB)
             </div>
 
@@ -280,11 +280,11 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
 
             {result.auto_build && (
               <div className="rounded-md border border-blue-400/30 bg-blue-500/5 p-3">
-                <div className="text-xs text-blue-300 font-semibold mb-1">
+                <div className="text-xs text-blue-700 dark:text-blue-300 font-semibold mb-1">
                   🚀 자동 빌드 시작됨
                 </div>
                 {result.auto_build.error ? (
-                  <div className="text-xs text-red-300">{result.auto_build.error}</div>
+                  <div className="text-xs text-red-600 dark:text-red-300">{result.auto_build.error}</div>
                 ) : (
                   <div className="space-y-1 text-xs">
                     <div>

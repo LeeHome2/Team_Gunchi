@@ -24,6 +24,47 @@ const ROLE_LABEL: Record<
   viewer: { label: '조회자', variant: 'neutral' },
 }
 
+// 서비스에서 사용하는 외부 API 키 정의
+interface ServiceApiKey {
+  key: string
+  label: string
+  description: string
+  placeholder: string
+}
+
+const SERVICE_API_KEYS: ServiceApiKey[] = [
+  {
+    key: 'cesium_token',
+    label: 'Cesium Ion Token',
+    description: '3D 지도 렌더링용 Cesium Ion 액세스 토큰',
+    placeholder: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  },
+  {
+    key: 'vworld_api_key',
+    label: 'VWorld API Key',
+    description: '국토정보플랫폼 지도/주소 검색 API 키',
+    placeholder: 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX',
+  },
+  {
+    key: 'openai_api_key',
+    label: 'OpenAI API Key',
+    description: 'OpenAI GPT API 키 (AI 기능용)',
+    placeholder: 'sk-...',
+  },
+  {
+    key: 'llm_api_key',
+    label: 'vLLM API Key',
+    description: '학과 vLLM 서버 인증 키 (배치 스코어링용)',
+    placeholder: 'sk-vllm-...',
+  },
+  {
+    key: 'llm_base_url',
+    label: 'vLLM Base URL',
+    description: '학과 vLLM 서버 엔드포인트',
+    placeholder: 'http://cellm.gachon.ac.kr:8000/v1',
+  },
+]
+
 function formatDateTime(iso: string | null): string {
   if (!iso) return '—'
   try {
@@ -42,6 +83,12 @@ function formatDate(iso: string | null): string {
   }
 }
 
+/** 키 값 마스킹 (앞 4자리 + *** + 뒤 4자리) */
+function maskKey(value: string): string {
+  if (!value || value.length <= 8) return '••••••••'
+  return `${value.slice(0, 4)}${'•'.repeat(Math.min(value.length - 8, 12))}${value.slice(-4)}`
+}
+
 export default function AdminAuthPage() {
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [keys, setKeys] = useState<AdminApiKey[]>([])
@@ -49,10 +96,16 @@ export default function AdminAuthPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Auth policy (persisted in service_settings)
-  const [twoFactor, setTwoFactor] = useState(true)
   const [sessionTimeout, setSessionTimeout] = useState(60)
   const [ipAllowlist, setIpAllowlist] = useState('10.0.0.0/8\n192.168.0.0/16')
   const [policySaving, setPolicySaving] = useState(false)
+
+  // 서비스 API 키 상태
+  const [serviceKeys, setServiceKeys] = useState<Record<string, string>>({})
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [savingKey, setSavingKey] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -67,9 +120,14 @@ export default function AdminAuthPage() {
       setKeys(keyRes.keys)
       if (settingsRes) {
         const s = settingsRes.settings
-        if (s.two_factor != null) setTwoFactor(s.two_factor === 'true')
         if (s.session_timeout) setSessionTimeout(Number(s.session_timeout))
         if (s.ip_allowlist != null) setIpAllowlist(s.ip_allowlist)
+        // 서비스 API 키 로드
+        const loadedKeys: Record<string, string> = {}
+        for (const sk of SERVICE_API_KEYS) {
+          if (s[sk.key] != null) loadedKeys[sk.key] = s[sk.key]
+        }
+        setServiceKeys(loadedKeys)
       }
     } catch (e: any) {
       setError(e.message || '인증 정보 로드 실패')
@@ -144,7 +202,6 @@ export default function AdminAuthPage() {
   const savePolicy = async () => {
     setPolicySaving(true)
     try {
-      await adminApi.putServiceSetting('two_factor', twoFactor ? 'true' : 'false')
       await adminApi.putServiceSetting('session_timeout', String(sessionTimeout))
       await adminApi.putServiceSetting('ip_allowlist', ipAllowlist)
       alert('정책이 저장되었습니다.')
@@ -152,6 +209,58 @@ export default function AdminAuthPage() {
       alert(e.message || '저장 실패')
     } finally {
       setPolicySaving(false)
+    }
+  }
+
+  // 서비스 API 키 토글
+  const toggleReveal = (key: string) => {
+    setRevealedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  // 서비스 API 키 편집 시작
+  const startEdit = (key: string) => {
+    setEditingKey(key)
+    setEditValue(serviceKeys[key] || '')
+  }
+
+  // 서비스 API 키 저장
+  const saveServiceKey = async (key: string) => {
+    setSavingKey(key)
+    try {
+      await adminApi.putServiceSetting(key, editValue)
+      setServiceKeys((prev) => ({ ...prev, [key]: editValue }))
+      setEditingKey(null)
+      setEditValue('')
+    } catch (e: any) {
+      alert(e.message || '저장 실패')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  // 서비스 API 키 삭제
+  const deleteServiceKey = async (key: string) => {
+    if (!confirm('이 키를 삭제하시겠습니까?')) return
+    setSavingKey(key)
+    try {
+      await adminApi.putServiceSetting(key, '')
+      setServiceKeys((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    } catch (e: any) {
+      alert(e.message || '삭제 실패')
+    } finally {
+      setSavingKey(null)
     }
   }
 
@@ -229,29 +338,6 @@ export default function AdminAuthPage() {
           <h3 className="text-base font-semibold mb-4">인증 정책</h3>
           <div className="grid gap-5 md:grid-cols-2">
             <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold">2단계 인증 (2FA)</div>
-                  <div className="text-xs text-white/50 mt-0.5">
-                    관리자 로그인 시 OTP 확인
-                  </div>
-                </div>
-                <button
-                  onClick={() => setTwoFactor((v) => !v)}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    twoFactor ? 'bg-brand-500' : 'bg-white/20'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
-                      twoFactor ? 'left-5' : 'left-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-white/10 bg-white/5 p-4">
               <div className="text-sm font-semibold mb-1">세션 타임아웃</div>
               <div className="text-xs text-white/50 mb-3">
                 분 단위로 설정 (기본 60분)
@@ -288,10 +374,106 @@ export default function AdminAuthPage() {
           </div>
         </section>
 
+        {/* 서비스 연동 API 키 */}
+        <section className="card p-6">
+          <h3 className="text-base font-semibold mb-2">서비스 연동 API 키</h3>
+          <p className="text-xs text-white/50 mb-4">
+            서비스에서 사용하는 외부 API 키를 관리합니다. 클릭하여 키를 확인할 수 있습니다.
+          </p>
+          <div className="space-y-3">
+            {SERVICE_API_KEYS.map((sk) => {
+              const value = serviceKeys[sk.key] || ''
+              const isRevealed = revealedKeys.has(sk.key)
+              const isEditing = editingKey === sk.key
+              const isSaving = savingKey === sk.key
+
+              return (
+                <div
+                  key={sk.key}
+                  className="rounded-lg border border-white/10 bg-white/5 p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold">{sk.label}</div>
+                      <div className="text-xs text-white/50 mt-0.5">
+                        {sk.description}
+                      </div>
+                    </div>
+                    {!isEditing && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <SmallBtn onClick={() => startEdit(sk.key)}>
+                          수정
+                        </SmallBtn>
+                        {value && (
+                          <SmallBtn
+                            variant="danger"
+                            onClick={() => deleteServiceKey(sk.key)}
+                            disabled={isSaving}
+                          >
+                            삭제
+                          </SmallBtn>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div className="mt-3 space-y-2">
+                      <input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        placeholder={sk.placeholder}
+                        className="input-field font-mono text-sm"
+                        autoFocus
+                      />
+                      <div className="flex justify-end gap-2">
+                        <SmallBtn
+                          onClick={() => {
+                            setEditingKey(null)
+                            setEditValue('')
+                          }}
+                        >
+                          취소
+                        </SmallBtn>
+                        <SmallBtn
+                          variant="primary"
+                          onClick={() => saveServiceKey(sk.key)}
+                          disabled={isSaving}
+                        >
+                          {isSaving ? '저장 중…' : '저장'}
+                        </SmallBtn>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3">
+                      {value ? (
+                        <button
+                          onClick={() => toggleReveal(sk.key)}
+                          className="w-full text-left px-3 py-2 rounded-md bg-black/20 border border-white/10 font-mono text-sm text-white/70 hover:bg-black/30 transition-colors"
+                        >
+                          {isRevealed ? value : maskKey(value)}
+                          <span className="ml-2 text-xs text-white/40">
+                            {isRevealed ? '(클릭하여 숨김)' : '(클릭하여 표시)'}
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="px-3 py-2 rounded-md bg-black/20 border border-white/10 text-sm text-white/40">
+                          설정되지 않음
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
         {/* API 키 관리 */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-semibold">API 키 관리</h3>
+            <h3 className="text-base font-semibold">발급된 API 키</h3>
             <button className="btn-primary" onClick={handleCreateKey}>
               + API 키 발급
             </button>

@@ -850,6 +850,30 @@ export const adminApi = {
     }),
   getPreprocessStatus: (buildingId: string) =>
     adminFetch<PreprocessStatus>(`/preprocess/buildings/${buildingId}/status`),
+
+  // Retrain Scheduler
+  getRetrainStatus: () =>
+    adminFetch<RetrainStatus>('/retrain/status'),
+  triggerRetrain: () =>
+    adminFetch<{ success: boolean; message?: string; error?: string }>('/retrain/trigger', {
+      method: 'POST',
+    }),
+}
+
+export interface RetrainStatus {
+  scheduler_running: boolean
+  confidence_based: {
+    enabled: boolean
+    threshold: number
+  }
+  periodic: {
+    enabled: boolean
+    interval_days: number
+    last_run: string | null
+    next_run: string | null
+  }
+  last_auto_retrain: string | null
+  last_auto_retrain_reason: string | null
 }
 
 /* ============================================================================

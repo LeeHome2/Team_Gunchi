@@ -404,6 +404,16 @@ async def startup_event():
             seed_if_enabled()
         except Exception as seed_err:
             logger.warning(f"Seed defaults failed: {seed_err}")
+
+        # 재학습 스케줄러 시작
+        try:
+            from services.retrain_scheduler import init_retrain_scheduler
+            from database.config import SessionLocal
+            init_retrain_scheduler(SessionLocal)
+            logger.info("Retrain scheduler started")
+        except Exception as sched_err:
+            logger.warning(f"Retrain scheduler init failed: {sched_err}")
+
     except Exception as e:
         logger.error(f"Failed to initialize database: {str(e)}")
         # Continue even if DB init fails - API can work without DB
@@ -412,6 +422,12 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
+    # 재학습 스케줄러 종료
+    try:
+        from services.retrain_scheduler import shutdown_retrain_scheduler
+        shutdown_retrain_scheduler()
+    except Exception:
+        pass
     logger.info("Application shutting down")
 
 

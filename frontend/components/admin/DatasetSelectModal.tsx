@@ -70,7 +70,7 @@ export default function DatasetSelectModal({ aiUrl, onSelect, onClose }: Props) 
           )}
 
           {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-300">
               {error}
             </div>
           )}

@@ -109,7 +109,7 @@ export default function UserDetailModal({
           </div>
 
           {error && (
-            <div className="card p-3 border-red-500/30 bg-red-500/5 text-red-300 text-sm mb-3">
+            <div className="card p-3 border-red-500/30 bg-red-500/5 text-red-600 dark:text-red-300 text-sm mb-3">
               {error}
             </div>
           )}

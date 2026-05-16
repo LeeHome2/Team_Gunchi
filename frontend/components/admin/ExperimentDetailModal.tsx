@@ -42,8 +42,8 @@ function MetricCompare({ direction, diff }: { direction: 'up' | 'down' | 'same' 
   if (!direction || !diff) return null
 
   const colors = {
-    up: 'text-emerald-400',
-    down: 'text-red-400',
+    up: 'text-emerald-600 dark:text-emerald-400',
+    down: 'text-red-600 dark:text-red-400',
     same: 'text-white/40'
   }
   const arrows = {
@@ -173,7 +173,7 @@ export default function ExperimentDetailModal({ runId, onClose, activeModel, aiU
             <div className="text-center text-white/40 text-sm py-8">불러오는 중…</div>
           )}
           {error && (
-            <div className="card p-3 border-red-500/30 bg-red-500/5 text-red-300 text-sm">
+            <div className="card p-3 border-red-500/30 bg-red-500/5 text-red-600 dark:text-red-300 text-sm">
               {error}
             </div>
           )}
@@ -213,19 +213,19 @@ export default function ExperimentDetailModal({ runId, onClose, activeModel, aiU
                       label="Train"
                       files={fileCount(trainInfo.train_files)}
                       rows={trainInfo.train_rows}
-                      colorClass="text-emerald-300"
+                      colorClass="text-emerald-600 dark:text-emerald-300"
                     />
                     <SplitCard
                       label="Val"
                       files={fileCount(trainInfo.val_files)}
                       rows={trainInfo.val_rows}
-                      colorClass="text-amber-300"
+                      colorClass="text-amber-600 dark:text-amber-300"
                     />
                     <SplitCard
                       label="Test"
                       files={fileCount(trainInfo.test_files)}
                       rows={trainInfo.test_rows}
-                      colorClass="text-blue-300"
+                      colorClass="text-blue-600 dark:text-blue-300"
                     />
                   </div>
                   {trainInfo.training_time_seconds != null && (
@@ -372,9 +372,9 @@ export default function ExperimentDetailModal({ runId, onClose, activeModel, aiU
                                   <span
                                     className={
                                       isDiagonal
-                                        ? 'text-emerald-200 font-semibold'
+                                        ? 'text-emerald-700 dark:text-emerald-200 font-semibold'
                                         : v > 0
-                                        ? 'text-amber-200'
+                                        ? 'text-amber-700 dark:text-amber-200'
                                         : 'text-white/30'
                                     }
                                   >
@@ -446,7 +446,7 @@ export default function ExperimentDetailModal({ runId, onClose, activeModel, aiU
                       }
                     }}
                     disabled={deleting}
-                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 disabled:opacity-50 transition"
+                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300 hover:bg-red-500/20 disabled:opacity-50 transition"
                   >
                     {deleting ? '삭제 중...' : '🗑️ 모델 삭제'}
                   </button>

@@ -196,7 +196,7 @@ export default function ModelUploadModal({ aiUrl, onClose, onUploaded }: Props) 
 
           {/* 에러 */}
           {error && (
-            <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-300">
+            <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-600 dark:text-red-300">
               {error}
             </div>
           )}

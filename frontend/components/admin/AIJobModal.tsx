@@ -176,7 +176,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                     }`}
                   >
                     <div className={`text-sm font-medium ${
-                      modelType === m.value ? 'text-blue-100' : 'text-white/80'
+                      modelType === m.value ? 'text-blue-700 dark:text-blue-100' : 'text-white/80'
                     }`}>
                       {m.label}
                     </div>
@@ -225,7 +225,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                     파일 단위 split. 비율을 바꿔가며 성능 비교 가능
                   </div>
                 </div>
-                <span className="text-xs font-mono text-blue-300">
+                <span className="text-xs font-mono text-blue-600 dark:text-blue-300">
                   {(trainRatio * 100).toFixed(0)} :{' '}
                   {(valRatio * 100).toFixed(0)} :{' '}
                   {((1 - trainRatio - valRatio) * 100).toFixed(0)}
@@ -248,7 +248,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                       }}
                       className={`px-2 py-1 text-[10px] font-mono rounded border ${
                         active
-                          ? 'bg-blue-500/30 border-blue-400/60 text-blue-100'
+                          ? 'bg-blue-500/30 border-blue-400/60 text-blue-700 dark:text-blue-100'
                           : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
                       }`}
                     >
@@ -261,7 +261,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
               {/* 직접 입력 (소수) */}
               <div className="grid grid-cols-3 gap-2 pt-1">
                 <div>
-                  <label className="block text-[10px] text-emerald-300 mb-0.5">
+                  <label className="block text-[10px] text-emerald-600 dark:text-emerald-300 mb-0.5">
                     Train
                   </label>
                   <input
@@ -275,7 +275,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-amber-300 mb-0.5">
+                  <label className="block text-[10px] text-amber-600 dark:text-amber-300 mb-0.5">
                     Val
                   </label>
                   <input
@@ -289,7 +289,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-blue-300 mb-0.5">
+                  <label className="block text-[10px] text-blue-600 dark:text-blue-300 mb-0.5">
                     Test (자동)
                   </label>
                   <input
@@ -301,7 +301,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
                 </div>
               </div>
               {(trainRatio + valRatio >= 1 || trainRatio <= 0) && (
-                <p className="text-[10px] text-red-300">
+                <p className="text-[10px] text-red-600 dark:text-red-300">
                   ⚠ 잘못된 비율입니다 (train+val &lt; 1, train &gt; 0)
                 </p>
               )}
@@ -312,11 +312,11 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
         {!response && kind === 'collect' && (
           <div className="space-y-3">
             {prefillDxfDir ? (
-              <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-400/30 rounded p-2">
+              <div className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-400/30 rounded p-2">
                 ✅ 방금 업로드한 데이터셋 경로가 자동 입력되었습니다. 그대로 시작하면 됩니다.
               </div>
             ) : (
-              <div className="text-xs text-sky-300 bg-sky-500/10 border border-sky-400/30 rounded p-2">
+              <div className="text-xs text-sky-700 dark:text-sky-300 bg-sky-500/10 border border-sky-400/30 rounded p-2">
                 ℹ 경로는 <b>학과 AI 서버(Linux)</b> 의 절대 경로입니다. 본인 PC 경로(C:\…) 가 아닙니다.
               </div>
             )}
@@ -350,7 +350,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
               </Field>
               <div />
             </Grid3>
-            <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded p-2">
+            <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded p-2">
               ⚠ Mock 끄면 학과 vLLM Vision API 호출 (토큰 소모, ~80k for 98 files)
             </div>
           </div>
@@ -369,7 +369,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
         )}
 
         {error && (
-          <div className="mt-3 px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-sm text-red-300">
+          <div className="mt-3 px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-sm text-red-600 dark:text-red-300">
             {error}
           </div>
         )}
@@ -377,7 +377,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
         {/* 응답 + 로그 폴링 */}
         {response && (
           <div className="space-y-3">
-            <div className="px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-300">
+            <div className="px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-700 dark:text-emerald-300">
               ✅ {response.message || '시작됨'}
             </div>
             <Grid3>
@@ -398,7 +398,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
 
             <div>
               <div className="text-xs text-white/60 mb-1 flex items-center gap-2">
-                실시간 로그 {polling && <span className="text-emerald-300">●</span>}
+                실시간 로그 {polling && <span className="text-emerald-600 dark:text-emerald-300">●</span>}
               </div>
               <pre className="bg-black/60 rounded p-2 text-[11px] max-h-64 overflow-y-auto font-mono whitespace-pre-wrap break-all">
                 {logTail.length > 0 ? logTail.join('\n') : '로그 로딩 중...'}
