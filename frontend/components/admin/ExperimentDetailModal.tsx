@@ -9,6 +9,8 @@ interface Props {
   onClose: () => void
   /** 비교 기준이 되는 활성(운영) 모델 */
   activeModel?: AIExperiment | null
+  /** AI 서버 URL (다운로드용) */
+  aiUrl?: string
   /** 삭제 시 콜백 */
   onDelete?: (runId: string) => Promise<boolean>
 }
@@ -75,11 +77,12 @@ function cmColor(v: number, max: number): string {
   return `rgba(59, 130, 246, ${alpha})`
 }
 
-export default function ExperimentDetailModal({ runId, onClose, activeModel, onDelete }: Props) {
+export default function ExperimentDetailModal({ runId, onClose, activeModel, aiUrl, onDelete }: Props) {
   const [exp, setExp] = useState<AIExperiment | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   // 비교 기준 모델의 메트릭
   const baseMetrics = (activeModel?.metrics || {}) as Record<string, any>
@@ -414,7 +417,7 @@ export default function ExperimentDetailModal({ runId, onClose, activeModel, onD
         </div>
 
         <div className="border-t border-white/10 p-4 flex justify-between">
-          <div>
+          <div className="flex items-center gap-2">
             {(() => {
               const isActiveModel = activeModel && activeModel.run_id === runId
               if (isActiveModel) {
@@ -452,7 +455,41 @@ export default function ExperimentDetailModal({ runId, onClose, activeModel, onD
               return null
             })()}
           </div>
-          <SmallBtn onClick={onClose}>닫기</SmallBtn>
+          <div className="flex items-center gap-2">
+            {aiUrl && exp && (
+              <button
+                onClick={async () => {
+                  setDownloading(true)
+                  try {
+                    const response = await fetch(`${aiUrl}/api/mlops/models/${runId}/download`)
+                    if (!response.ok) {
+                      const errData = await response.json().catch(() => ({}))
+                      throw new Error(errData.detail || errData.message || `HTTP ${response.status}`)
+                    }
+                    const blob = await response.blob()
+                    const filename = `model_${exp.model_version || runId}.pkl`
+                    const url = window.URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = filename
+                    document.body.appendChild(a)
+                    a.click()
+                    window.URL.revokeObjectURL(url)
+                    document.body.removeChild(a)
+                  } catch (err: any) {
+                    alert(err.message || '모델 다운로드 실패')
+                  } finally {
+                    setDownloading(false)
+                  }
+                }}
+                disabled={downloading}
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-white/10 border border-white/20 hover:bg-white/20 disabled:opacity-50 transition"
+              >
+                {downloading ? '다운로드 중...' : '⬇️ 모델 다운로드'}
+              </button>
+            )}
+            <SmallBtn onClick={onClose}>닫기</SmallBtn>
+          </div>
         </div>
       </div>
     </div>

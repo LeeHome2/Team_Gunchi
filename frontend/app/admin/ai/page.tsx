@@ -72,8 +72,6 @@ export default function AdminAiPage() {
   const [selectedProcessed, setSelectedProcessed] = useState<ProcessedDataset | null>(null)
   // 모델 업로드 모달 표시 여부
   const [modelUploadOpen, setModelUploadOpen] = useState(false)
-  // 다운로드 중인 모델 run_id
-  const [downloadingRunId, setDownloadingRunId] = useState<string | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
@@ -146,32 +144,6 @@ export default function AdminAiPage() {
       alert(err.message || '모델 적용 실패')
     } finally {
       setDeployingRunId(null)
-    }
-  }
-
-
-  const handleDownloadModel = async (e: AIExperiment) => {
-    setDownloadingRunId(e.run_id)
-    try {
-      const response = await fetch(`${aiUrl}/api/mlops/models/${e.run_id}/download`)
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}))
-        throw new Error(errData.detail || errData.message || `HTTP ${response.status}`)
-      }
-      const blob = await response.blob()
-      const filename = `model_${e.model_version || e.run_id}.pkl`
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (err: any) {
-      alert(err.message || '모델 다운로드 실패')
-    } finally {
-      setDownloadingRunId(null)
     }
   }
 
@@ -479,12 +451,6 @@ export default function AdminAiPage() {
                       <SmallBtn onClick={() => setDetailRunId(e.run_id)}>
                         상세
                       </SmallBtn>
-                      <SmallBtn
-                        onClick={() => handleDownloadModel(e)}
-                        disabled={downloadingRunId === e.run_id}
-                      >
-                        {downloadingRunId === e.run_id ? '⏳' : '⬇️'}
-                      </SmallBtn>
                       {!isActive && (
                         <SmallBtn
                           variant="primary"
@@ -522,6 +488,7 @@ export default function AdminAiPage() {
           runId={detailRunId}
           onClose={() => setDetailRunId(null)}
           activeModel={active}
+          aiUrl={aiUrl}
           onDelete={async (runId) => {
             try {
               const res = await fetch(`${aiUrl}/api/mlops/experiments/${runId}`, {
