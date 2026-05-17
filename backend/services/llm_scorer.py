@@ -29,11 +29,14 @@ def _build_prompt(
     sections = []
 
     # ── 1. 배치 검토 ─────────────────────
+    # 프론트에서 보내는 composedValidation 은 키는 항상 존재하지만 값이 None
+    # 일 수 있다 ({"building_coverage": None, ...}). dict.get(k, {}) 는 None
+    # 을 그대로 돌려주므로 `or {}` 로 한 번 더 정규화해야 한다.
     if validation:
-        bc = validation.get("building_coverage", {})
-        sb = validation.get("setback", {})
-        ht = validation.get("height", {})
-        violations = validation.get("violations", [])
+        bc = validation.get("building_coverage") or {}
+        sb = validation.get("setback") or {}
+        ht = validation.get("height") or {}
+        violations = validation.get("violations") or []
 
         sections.append(f"""### 1. 건폐율 (Building Coverage)
 - 현황: {bc.get('value', 'N/A')}%
