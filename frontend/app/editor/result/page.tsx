@@ -203,7 +203,7 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId } =
     useProjectStore()
 
   // 페이지 진입 시 서버에서 최신 규정 기준값 로드
@@ -220,12 +220,17 @@ export default function ResultPage() {
     return getZoneLimits(selectedZoneType as ZoneType)
   }, [selectedZoneType])
 
-  // 새로고침으로 store 가 비어있을 때 — DB 의 가장 최근 검토 결과로 hydrate
+  // 새로고침으로 store 가 비어있을 때 — DB 의 가장 최근 검토 결과로 hydrate.
+  // 단, 배치안(activePlanId)이 설정된 상태에선 hydration 건너뜀.
+  // DB는 프로젝트 단위로만 저장되어 다른 배치안에서 검토했던 stale 결과가
+  // 현재 배치안 결과처럼 보이는 문제를 막기 위함. 배치안 전환 후엔 사용자가
+  // 명시적으로 새 검토를 실행하기 전까지 "미검토" 상태 유지.
   const [dbHydrated, setDbHydrated] = useState(false)
   useEffect(() => {
     if (!projectId) return
     if (validation || reviewData?.buildingCoverage) return // 이미 store 에 있음
     if (dbHydrated) return
+    if (activePlanId) return // 배치안 활성 상태에선 stale DB 결과로 채우지 않음
     setDbHydrated(true)
     ;(async () => {
       const saved = await fetchLatestReviewResult(projectId)
@@ -241,7 +246,7 @@ export default function ResultPage() {
         } as any)
       }
     })()
-  }, [projectId, validation, reviewData, dbHydrated, setValidation])
+  }, [projectId, validation, reviewData, dbHydrated, setValidation, activePlanId])
 
   // 데이터가 아예 없으면 에디터로 유도
   const hasAnyData = validation || reviewData?.buildingCoverage || site || building || resultSnapshot.sitePlan
