@@ -78,7 +78,17 @@ function EditorContent() {
   useEffect(() => {
     const urlProjectId = searchParams.get('projectId')
     const urlName = searchParams.get('name')
-    if (!urlProjectId) return
+
+    // projectId 없이 /editor 직접 진입한 경우: 이전 프로젝트 상태(배치안·매스·
+    // 검토 결과 등)가 zustand 메모리에 남아있을 수 있으므로 깨끗하게 초기화.
+    // 그러지 않으면 다른 프로젝트로 갈아탄 사용자에게 옛 배치안이 보임.
+    if (!urlProjectId) {
+      if (storeProjectId !== null) {
+        setProjectId(null)
+        setStoreProjectName(null)
+      }
+      return
+    }
 
     // projectId가 다르거나 projectName이 아직 없으면 로드
     const needsLoad = urlProjectId !== storeProjectId || !storeProjectName
