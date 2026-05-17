@@ -132,35 +132,69 @@ export function useSunlightAnalysis(
         // Entity 자체 추가
         excludeObjects.push(loadedModelEntity)
 
-        // Entity의 Model primitive 추출 (여러 방법 시도)
-        // 방법 1: model._model (직접 접근)
-        if (loadedModelEntity.model?._model) {
-          excludeObjects.push(loadedModelEntity.model._model)
-        }
-        // 방법 2: _modelPrimitive (Entity가 렌더링된 후 생성됨)
-        if ((loadedModelEntity as any)._modelPrimitive) {
-          excludeObjects.push((loadedModelEntity as any)._modelPrimitive)
-        }
-        // 방법 3: DataSourceDisplay의 visualizers에서 찾기
-        try {
-          const dataSourceDisplay = (viewer as any)._dataSourceDisplay
-          if (dataSourceDisplay) {
-            const visualizers = dataSourceDisplay._defaultDataSource?._visualizers || []
-            for (const visualizer of visualizers) {
-              if (visualizer._modelHash) {
-                const modelData = visualizer._modelHash.get?.(loadedModelEntity.id)
-                if (modelData?.model) {
-                  excludeObjects.push(modelData.model)
-                  console.log('일조 분석: visualizer에서 모델 찾음')
+        // 모델이 완전히 로드될 때까지 대기 (최대 2초)
+        let modelReady = false
+        for (let attempt = 0; attempt < 20 && !modelReady; attempt++) {
+          // 씬 렌더링 강제 실행 (모델 로딩 촉진)
+          viewer.scene.render()
+          await new Promise(resolve => setTimeout(resolve, 100))
+
+          // Entity의 Model primitive 추출 (여러 방법 시도)
+          // 방법 1: model._model (직접 접근)
+          if (loadedModelEntity.model?._model) {
+            if (!excludeObjects.includes(loadedModelEntity.model._model)) {
+              excludeObjects.push(loadedModelEntity.model._model)
+            }
+            modelReady = true
+          }
+          // 방법 2: _modelPrimitive (Entity가 렌더링된 후 생성됨)
+          if ((loadedModelEntity as any)._modelPrimitive) {
+            if (!excludeObjects.includes((loadedModelEntity as any)._modelPrimitive)) {
+              excludeObjects.push((loadedModelEntity as any)._modelPrimitive)
+            }
+            modelReady = true
+          }
+          // 방법 3: DataSourceDisplay의 visualizers에서 찾기
+          try {
+            const dataSourceDisplay = (viewer as any)._dataSourceDisplay
+            if (dataSourceDisplay) {
+              const visualizers = dataSourceDisplay._defaultDataSource?._visualizers || []
+              for (const visualizer of visualizers) {
+                if (visualizer._modelHash) {
+                  const modelData = visualizer._modelHash.get?.(loadedModelEntity.id)
+                  if (modelData?.model) {
+                    if (!excludeObjects.includes(modelData.model)) {
+                      excludeObjects.push(modelData.model)
+                      console.log('일조 분석: visualizer에서 모델 찾음')
+                    }
+                    modelReady = true
+                  }
                 }
               }
             }
+          } catch (e) {
+            // visualizer 접근 실패 무시
           }
-        } catch (e) {
-          // visualizer 접근 실패 무시
+          // 방법 4: scene.primitives에서 Model 찾기
+          try {
+            const primitives = viewer.scene.primitives
+            for (let i = 0; i < primitives.length; i++) {
+              const prim = primitives.get(i)
+              // ModelVisualizer가 생성한 primitive인지 확인
+              if (prim && prim._id === loadedModelEntity.id) {
+                if (!excludeObjects.includes(prim)) {
+                  excludeObjects.push(prim)
+                  console.log('일조 분석: scene.primitives에서 모델 찾음')
+                }
+                modelReady = true
+              }
+            }
+          } catch (e) {
+            // primitives 접근 실패 무시
+          }
         }
 
-        console.log('일조 분석: 사용자 매스 제외 설정됨, 제외 객체:', excludeObjects.length, '개')
+        console.log('일조 분석: 사용자 매스 제외 설정됨, 제외 객체:', excludeObjects.length, '개, 모델 준비:', modelReady)
       }
 
       console.log('일조 분석 시작:', {

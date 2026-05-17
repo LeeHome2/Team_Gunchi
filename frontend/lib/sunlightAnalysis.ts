@@ -223,22 +223,30 @@ export function checkShadowAtPoint(
     }
 
     // hit 있음 - 제외 대상인지 확인
-    // excludeObjects에 포함된 Entity의 ID와 매칭되면 무시
+    // excludeObjects에 포함된 Entity/primitive와 매칭되면 무시
     const hitObject = result.object
+    const hitPrimitive = hitObject?.primitive || hitObject
+    const hitId = hitObject?.id?.id || hitObject?.id || hitPrimitive?._id
+
     for (const excludeObj of excludeObjects) {
-      // Entity인 경우 ID 비교
-      if (excludeObj.id && hitObject.id) {
-        if (excludeObj.id === hitObject.id ||
-            (hitObject.id?.id && excludeObj.id === hitObject.id.id)) {
-          return true  // 자신의 모델 - 일조로 처리
-        }
-      }
-      // primitive 직접 비교
-      if (hitObject.primitive && excludeObj === hitObject.primitive) {
+      // 1. 직접 객체 비교
+      if (hitObject === excludeObj || hitPrimitive === excludeObj) {
         return true  // 자신의 모델 - 일조로 처리
       }
-      // model 비교
-      if (hitObject === excludeObj) {
+
+      // 2. Entity ID 비교 (여러 형태 지원)
+      const excludeId = excludeObj?.id?.id || excludeObj?.id || excludeObj?._id
+      if (hitId && excludeId && hitId === excludeId) {
+        return true  // 자신의 모델 - 일조로 처리
+      }
+
+      // 3. primitive._id와 Entity 비교
+      if (hitPrimitive?._id && excludeObj.id === hitPrimitive._id) {
+        return true  // 자신의 모델 - 일조로 처리
+      }
+
+      // 4. Entity와 primitive._id 비교
+      if (excludeObj?._id && hitId === excludeObj._id) {
         return true  // 자신의 모델 - 일조로 처리
       }
     }
