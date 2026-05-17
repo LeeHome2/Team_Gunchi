@@ -48,7 +48,7 @@ export default function ParkingZonePanel() {
   } = useProjectStore()
 
   const [parkingCount, setParkingCount] = useState(1)
-  const [disabledCount, setDisabledCount] = useState(1)
+  const [disabledCount, setDisabledCount] = useState(0)  // 기본값 0
   const [layoutPattern, setLayoutPattern] = useState<ParkingLayoutPattern>(
     parkingConfig.layoutPattern || 'perpendicular',
   )
@@ -258,12 +258,101 @@ export default function ParkingZonePanel() {
 
     setIsGenerating(true)
     try {
-      const siteLocal = toLocal(siteFootprint)
-      const { obstacles, additionalFootprintsLocal } = collectObstacles()
+      // 사이트 중심점 계산 (주차구역 원점으로 사용)
+      const siteCentroid = selectedBlockInfo?.centroid
+        ?? (siteFootprint.length > 0
+          ? [
+              siteFootprint.reduce((s, p) => s + p[0], 0) / siteFootprint.length,
+              siteFootprint.reduce((s, p) => s + p[1], 0) / siteFootprint.length,
+            ] as [number, number]
+          : null)
+
+      if (!siteCentroid) {
+        setError('사이트 중심점을 계산할 수 없습니다')
+        return
+      }
+
+      // 주차구역 원점을 사이트 중심으로 먼저 설정 (toLocal에서 사용)
+      const newParkingOrigin = {
+        longitude: siteCentroid[0],
+        latitude: siteCentroid[1],
+      }
+      setParkingOrigin(newParkingOrigin)
+
+      // 사이트 중심 기준으로 로컬 좌표 변환
+      const latRad = (siteCentroid[1] * Math.PI) / 180
+      const mPerDegLat = 111_320
+      const mPerDegLon = 111_320 * Math.cos(latRad)
+      const toLocalWithOrigin = (footprint: number[][]): number[][] =>
+        footprint.map(([lon, lat]) => [
+          (lon - siteCentroid[0]) * mPerDegLon,
+          (lat - siteCentroid[1]) * mPerDegLat,
+        ])
+
+      const siteLocal = toLocalWithOrigin(siteFootprint)
+
+      // collectObstacles도 새 원점 기준으로 재계산
+      const obstacles: { minX: number; minY: number; maxX: number; maxY: number }[] = []
+      const additionalFootprintsLocal: number[][][] = []
+
+      // 매스 모델 장애물 (사이트 중심 기준)
+      for (const mass of generatedMasses) {
+        const isCurrentlyLoaded = loadedMassGlbUrl && (
+          mass.glbUrl === loadedMassGlbUrl ||
+          mass.glbUrlNoRoof === loadedMassGlbUrl
+        )
+        if (!isCurrentlyLoaded) continue
+
+        if (mass.boundingBox) {
+          const width = mass.boundingBox.depth
+          const depth = mass.boundingBox.width
+          const halfW = width / 2
+          const halfD = depth / 2
+
+          // 건물 중심의 사이트 중심 기준 오프셋
+          const offsetX = (modelTransform.longitude - siteCentroid[0]) * mPerDegLon
+          const offsetY = (modelTransform.latitude - siteCentroid[1]) * mPerDegLat
+
+          // 회전 적용
+          const rotRad = (modelTransform.rotation * Math.PI) / 180
+          const cosR = Math.cos(rotRad)
+          const sinR = Math.sin(rotRad)
+
+          const corners = [
+            [-halfW, -halfD],
+            [halfW, -halfD],
+            [halfW, halfD],
+            [-halfW, halfD],
+          ].map(([x, y]) => {
+            const rx = x * cosR + y * sinR
+            const ry = -x * sinR + y * cosR
+            return [offsetX + rx, offsetY + ry]
+          })
+
+          const cXs = corners.map(c => c[0])
+          const cYs = corners.map(c => c[1])
+          obstacles.push({
+            minX: Math.min(...cXs),
+            minY: Math.min(...cYs),
+            maxX: Math.max(...cXs),
+            maxY: Math.max(...cYs),
+          })
+          additionalFootprintsLocal.push(corners)
+        } else if (mass.footprint?.length >= 3) {
+          const local = toLocalWithOrigin(mass.footprint)
+          obstacles.push({
+            minX: Math.min(...local.map(p => p[0])),
+            minY: Math.min(...local.map(p => p[1])),
+            maxX: Math.max(...local.map(p => p[0])),
+            maxY: Math.max(...local.map(p => p[1])),
+          })
+          additionalFootprintsLocal.push(local)
+        }
+      }
 
       // 메인 건물 (레이아웃용)
       const buildingLocal = loadedModelEntity && building?.footprint
-        ? toLocal(building.footprint)
+        ? toLocalWithOrigin(building.footprint)
         : []
 
       const result = generateParkingLayout({
@@ -298,13 +387,7 @@ export default function ParkingZonePanel() {
       setParkingConfig({ layoutPattern })
       setIsParkingVisible(true)
 
-      // 주차구역 원점 고정 (건물 이동과 독립적으로 유지)
-      setParkingOrigin({
-        longitude: modelTransform.longitude,
-        latitude: modelTransform.latitude,
-      })
-
-      // 변환 초기화
+      // 변환 초기화 (원점은 이미 siteCentroid로 설정됨)
       setParkingTransform({ longitude: 0, latitude: 0, rotation: 0 })
       setEntranceTransform({ longitude: 0, latitude: 0, rotation: 0 })
 
@@ -331,8 +414,7 @@ export default function ParkingZonePanel() {
     }
   }, [
     parkingCount, disabledCount, layoutPattern, site, building, selectedBlockInfo,
-    loadedModelEntity, generatedMasses, modelTransform, toLocal, showGrid,
-    collectObstacles, gridRotation,
+    loadedModelEntity, generatedMasses, loadedMassGlbUrl, modelTransform, showGrid, gridRotation,
     setParkingZone, setParkingEntrance, setParkingPath, setParkingConfig,
     setIsParkingVisible, setParkingTransform, setParkingOrigin, setEntranceTransform, setError,
   ])

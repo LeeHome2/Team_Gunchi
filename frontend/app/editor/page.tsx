@@ -71,16 +71,7 @@ function EditorContent() {
     plansOpen,
     setPlansOpen,
     activePlanId,
-    updatePlacementPlan,
-    generatedMasses,
-    parkingZone,
-    parkingTransform,
-    parkingOrigin,
-    parkingEntrance,
-    entranceTransform,
-    isParkingVisible,
-    gridRotation,
-    parkingPath,
+    saveActivePlan,
   } = useProjectStore()
 
   // URL에서 projectId 읽어서 프로젝트 정보 로드
@@ -207,20 +198,9 @@ function EditorContent() {
       setError('뷰어가 초기화되지 않았습니다')
       return
     }
-    // 활성 배치안이 있으면 현재 상태로 업데이트
+    // 활성 배치안이 있으면 현재 상태 저장
     if (activePlanId) {
-      updatePlacementPlan(activePlanId, {
-        modelTransform: { ...modelTransform },
-        generatedMasses: JSON.parse(JSON.stringify(generatedMasses)),
-        parkingZone: parkingZone ? JSON.parse(JSON.stringify(parkingZone)) : null,
-        parkingTransform: { ...parkingTransform },
-        parkingOrigin: parkingOrigin ? { ...parkingOrigin } : null,
-        parkingEntrance: parkingEntrance ? JSON.parse(JSON.stringify(parkingEntrance)) : null,
-        entranceTransform: { ...entranceTransform },
-        isParkingVisible,
-        gridRotation,
-        parkingPath: parkingPath ? JSON.parse(JSON.stringify(parkingPath)) : null,
-      })
+      saveActivePlan()
     }
     // projectId가 있으면 다이얼로그 없이 바로 DB 저장
     if (storeProjectId) {
@@ -229,30 +209,19 @@ function EditorContent() {
     }
     setProjectName('')
     setShowSaveDialog(true)
-  }, [saveProjectFn, storeProjectId, storeProjectName, setError, activePlanId, updatePlacementPlan, modelTransform, generatedMasses, parkingZone, parkingTransform, parkingOrigin, parkingEntrance, entranceTransform, isParkingVisible, gridRotation, parkingPath])
+  }, [saveProjectFn, storeProjectId, storeProjectName, setError, activePlanId, saveActivePlan])
 
   const handleSaveProject = useCallback(() => {
     if (saveProjectFn) {
-      // 활성 배치안이 있으면 현재 상태로 업데이트
+      // 활성 배치안이 있으면 현재 상태 저장
       if (activePlanId) {
-        updatePlacementPlan(activePlanId, {
-          modelTransform: { ...modelTransform },
-          generatedMasses: JSON.parse(JSON.stringify(generatedMasses)),
-          parkingZone: parkingZone ? JSON.parse(JSON.stringify(parkingZone)) : null,
-          parkingTransform: { ...parkingTransform },
-          parkingOrigin: parkingOrigin ? { ...parkingOrigin } : null,
-          parkingEntrance: parkingEntrance ? JSON.parse(JSON.stringify(parkingEntrance)) : null,
-          entranceTransform: { ...entranceTransform },
-          isParkingVisible,
-          gridRotation,
-          parkingPath: parkingPath ? JSON.parse(JSON.stringify(parkingPath)) : null,
-        })
+        saveActivePlan()
       }
       saveProjectFn(projectName || undefined)
       setShowSaveDialog(false)
       setProjectName('')
     }
-  }, [saveProjectFn, projectName, activePlanId, updatePlacementPlan, modelTransform, generatedMasses, parkingZone, parkingTransform, parkingOrigin, parkingEntrance, entranceTransform, isParkingVisible, gridRotation, parkingPath])
+  }, [saveProjectFn, projectName, activePlanId, saveActivePlan])
 
   const handleLoadClick = useCallback(async () => {
     // DB에서 불러오기 우선 (projectId가 있는 경우)

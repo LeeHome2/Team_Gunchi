@@ -242,13 +242,22 @@ export interface SerializedMainEntranceData {
   size: number
 }
 
+// 매스 배치 정보 (매스 ID + transform만 저장)
+export interface SerializedMassPlacement {
+  massId: string
+  transform: SerializedModelTransform
+}
+
 // 배치안 데이터
 export interface SerializedPlacementPlan {
   id: string
   name: string
   description?: string
+  /** 매스별 배치 정보 (매스 데이터는 프로젝트 레벨 generatedMasses에서 공유) */
+  massPlacement: SerializedMassPlacement[]
   modelTransform: SerializedModelTransform
-  generatedMasses: SerializedGeneratedMass[]
+  /** 현재 활성 매스 ID */
+  activeMassId: string | null
   parkingZone: SerializedParkingZoneData | null
   parkingTransform: SerializedParkingTransform
   parkingOrigin: { longitude: number; latitude: number } | null

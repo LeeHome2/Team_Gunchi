@@ -156,7 +156,7 @@ export default function PlacementPlansPanel() {
                 {/* 간단한 정보 표시 */}
                 <div className="mt-2 flex items-center gap-3 text-xs text-white/40">
                   <span>
-                    건물 {plan.generatedMasses.length}개
+                    건물 {(plan.massPlacement?.length ?? (plan as any).generatedMasses?.length ?? 0)}개
                   </span>
                   {plan.parkingZone && (
                     <span>

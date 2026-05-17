@@ -295,23 +295,52 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
   const slots = best.slots
   const aisles = best.aisles
 
-  // 소규모 (슬롯이 부족할 경우) 추가 시도 - 기존 알고리즘 폴백
+  // 소규모 (슬롯이 부족할 경우) 추가 시도 - 기존 슬롯 근처 우선 배치
   if (slots.length < requiredTotal && requiredTotal <= SMALL_THRESHOLD) {
-    // 간단한 그리드 스캔으로 빈 공간 찾기
     const scanStep = slotW + SLOT_GAP
     let slotId = slots.length
-    for (let scanY = siteAABB.minY + MARGIN + slotD / 2; scanY + slotD / 2 <= siteAABB.maxY - MARGIN && slots.length < requiredTotal; scanY += slotD + 0.5) {
-      for (let scanX = siteAABB.minX + MARGIN + slotW / 2; scanX + slotW / 2 <= siteAABB.maxX - MARGIN && slots.length < requiredTotal; scanX += scanStep) {
-        // 이미 이 위치에 슬롯이 있는지 확인
-        const alreadyPlaced = slots.some(s => Math.abs(s.cx - scanX) < slotW && Math.abs(s.cy - scanY) < slotD)
+
+    // 기존 슬롯이 있으면 그 옆에 먼저 배치 시도
+    if (slots.length > 0) {
+      const existingSlot = slots[slots.length - 1]
+      // 좌우로 인접 배치 시도
+      const adjacentPositions = [
+        [existingSlot.cx + slotW + SLOT_GAP, existingSlot.cy],  // 오른쪽
+        [existingSlot.cx - slotW - SLOT_GAP, existingSlot.cy],  // 왼쪽
+        [existingSlot.cx, existingSlot.cy + slotD + SLOT_GAP],  // 위
+        [existingSlot.cx, existingSlot.cy - slotD - SLOT_GAP],  // 아래
+      ]
+
+      for (const [adjX, adjY] of adjacentPositions) {
+        if (slots.length >= requiredTotal) break
+        const alreadyPlaced = slots.some(s => Math.abs(s.cx - adjX) < slotW * 0.5 && Math.abs(s.cy - adjY) < slotD * 0.5)
         if (alreadyPlaced) continue
 
         const isDisabled = slots.filter(s => s.slot_type === 'disabled').length < requiredDisabled
         const w = isDisabled ? slotWDisabled : slotW
-        const slot = tryPlaceSlot(scanX, scanY, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
+        const slot = tryPlaceSlot(adjX, adjY, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
         if (slot) {
           slots.push(slot)
           slotId++
+          console.log(`[주차] 인접 배치 성공: (${adjX.toFixed(1)}, ${adjY.toFixed(1)})`)
+        }
+      }
+    }
+
+    // 여전히 부족하면 전체 그리드 스캔
+    if (slots.length < requiredTotal) {
+      for (let scanY = siteAABB.minY + MARGIN + slotD / 2; scanY + slotD / 2 <= siteAABB.maxY - MARGIN && slots.length < requiredTotal; scanY += slotD + 0.5) {
+        for (let scanX = siteAABB.minX + MARGIN + slotW / 2; scanX + slotW / 2 <= siteAABB.maxX - MARGIN && slots.length < requiredTotal; scanX += scanStep) {
+          const alreadyPlaced = slots.some(s => Math.abs(s.cx - scanX) < slotW && Math.abs(s.cy - scanY) < slotD)
+          if (alreadyPlaced) continue
+
+          const isDisabled = slots.filter(s => s.slot_type === 'disabled').length < requiredDisabled
+          const w = isDisabled ? slotWDisabled : slotW
+          const slot = tryPlaceSlot(scanX, scanY, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
+          if (slot) {
+            slots.push(slot)
+            slotId++
+          }
         }
       }
     }

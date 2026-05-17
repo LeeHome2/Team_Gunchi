@@ -75,11 +75,25 @@ export interface ResultSnapshot {
 
 // ── 배치안 (Placement Plan) ──
 
+/** 배치안 내 매스 배치 정보 (매스 ID + transform만 저장, 매스 데이터는 프로젝트 레벨에서 공유) */
+export interface MassPlacement {
+  massId: string  // generatedMasses 내 매스의 id 참조
+  transform: {
+    longitude: number
+    latitude: number
+    height: number
+    rotation: number
+    scale: number
+  }
+}
+
 export interface PlacementPlan {
   id: string
   name: string
   description?: string
-  /** 모델 변환 정보 스냅샷 */
+  /** 매스별 배치 정보 (매스 데이터는 프로젝트 레벨 generatedMasses에서 공유) */
+  massPlacement: MassPlacement[]
+  /** 모델 변환 정보 (현재 활성 매스의 transform) */
   modelTransform: {
     longitude: number
     latitude: number
@@ -87,8 +101,8 @@ export interface PlacementPlan {
     rotation: number
     scale: number
   }
-  /** 생성된 매스 목록 스냅샷 */
-  generatedMasses: GeneratedMass[]
+  /** 현재 활성 매스 ID */
+  activeMassId: string | null
   /** 주차구역 스냅샷 */
   parkingZone: ParkingZoneData | null
   parkingTransform: { longitude: number; latitude: number; rotation: number }
@@ -357,8 +371,11 @@ interface ProjectState {
   // 현재 뷰포트에 로드된 매스 GLB URL (저장용)
   loadedMassGlbUrl: string | null
 
-  // 생성된 매스 모델 목록
+  // 생성된 매스 모델 목록 (프로젝트 레벨에서 공유)
   generatedMasses: GeneratedMass[]
+
+  // 현재 활성 매스 ID (배치안별로 다른 매스를 표시할 수 있음)
+  activeMassId: string | null
 
   // 매스 생성 기본 설정
   massSettings: {
@@ -477,6 +494,7 @@ interface ProjectState {
   setLoadedMassGlbUrl: (url: string | null) => void
   addGeneratedMass: (mass: GeneratedMass) => void
   removeGeneratedMass: (id: string) => void
+  setActiveMassId: (id: string | null) => void
   setMassSettings: (settings: Partial<ProjectState['massSettings']>) => void
   setShowRoof: (show: boolean) => void
   setShowOpeningMarkers: (show: boolean) => void
@@ -523,6 +541,8 @@ interface ProjectState {
   setActivePlanId: (id: string | null) => void
   /** 현재 상태를 새 배치안으로 저장 */
   saveCurrentAsPlan: (name: string, description?: string) => PlacementPlan
+  /** 현재 활성 배치안의 상태를 저장 (배치안 전환 전 호출) */
+  saveActivePlan: () => void
   /** 배치안 로드 (현재 상태를 해당 배치안으로 복원) */
   loadPlan: (id: string) => void
   reset: () => void
@@ -557,6 +577,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   massGlbRestoreTransform: null,
   loadedMassGlbUrl: null,
   generatedMasses: [],
+  activeMassId: null,
   massSettings: {
     defaultHeight: 3.0,  // 기본 건물 높이 3m (1층 기준)
     defaultFloors: 1,    // 기본 층수 1층
@@ -625,7 +646,34 @@ export const useProjectStore = create<ProjectState>((set) => ({
   projectError: null,
 
   // Actions
-  setProjectId: (id) => set({ projectId: id }),
+  setProjectId: (id) => set((state) => {
+    // 프로젝트 ID가 변경되면 프로젝트 종속 데이터 초기화
+    if (state.projectId !== id) {
+      console.log('[ProjectStore] 프로젝트 전환:', state.projectId, '->', id)
+      return {
+        projectId: id,
+        // 배치안은 프로젝트에 종속되므로 초기화
+        placementPlans: [],
+        activePlanId: null,
+        // 기타 프로젝트 종속 데이터도 초기화
+        generatedMasses: [],
+        activeMassId: null,
+        loadedMassGlbUrl: null,
+        massGlbToLoad: null,
+        massGlbRestoreTransform: null,
+        mainEntrance: null,
+        parkingZone: null,
+        parkingEntrance: null,
+        parkingPath: null,
+        parkingOrigin: null,
+        isParkingVisible: false,
+        aiScore: { isLoading: false, result: null, error: null },
+        sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
+        resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+      }
+    }
+    return { projectId: id }
+  }),
   setProjectName: (name) => set({ projectName: name }),
 
   setViewer: (viewer) => set({ viewer }),
@@ -680,6 +728,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
   removeGeneratedMass: (id) =>
     set((state) => ({ generatedMasses: state.generatedMasses.filter((m) => m.id !== id) })),
+
+  setActiveMassId: (id) => set({ activeMassId: id }),
 
   setMassSettings: (settings) =>
     set((state) => ({ massSettings: { ...state.massSettings, ...settings } })),
@@ -787,12 +837,20 @@ export const useProjectStore = create<ProjectState>((set) => ({
   saveCurrentAsPlan: (name, description) => {
     const state = useProjectStore.getState()
     const now = Date.now()
+
+    // 매스별 배치 정보만 저장 (매스 데이터는 프로젝트 레벨에서 공유)
+    const massPlacement: MassPlacement[] = state.generatedMasses.map(mass => ({
+      massId: mass.id,
+      transform: { ...state.modelTransform },  // 현재는 단일 transform, 추후 매스별 transform으로 확장 가능
+    }))
+
     const plan: PlacementPlan = {
       id: `plan_${now}`,
       name,
       description,
+      massPlacement,
       modelTransform: { ...state.modelTransform },
-      generatedMasses: JSON.parse(JSON.stringify(state.generatedMasses)),
+      activeMassId: state.activeMassId,
       parkingZone: state.parkingZone ? JSON.parse(JSON.stringify(state.parkingZone)) : null,
       parkingTransform: { ...state.parkingTransform },
       parkingOrigin: state.parkingOrigin ? { ...state.parkingOrigin } : null,
@@ -818,15 +876,55 @@ export const useProjectStore = create<ProjectState>((set) => ({
     return plan
   },
 
+  /** 현재 활성 배치안의 상태를 저장 (배치안 전환 전 호출) */
+  saveActivePlan: () => {
+    const state = useProjectStore.getState()
+    if (!state.activePlanId) return
+
+    const massPlacement: MassPlacement[] = state.generatedMasses.map(mass => ({
+      massId: mass.id,
+      transform: { ...state.modelTransform },
+    }))
+
+    set((s) => ({
+      placementPlans: s.placementPlans.map(p =>
+        p.id === s.activePlanId
+          ? {
+              ...p,
+              massPlacement,
+              modelTransform: { ...s.modelTransform },
+              activeMassId: s.activeMassId,
+              parkingZone: s.parkingZone ? JSON.parse(JSON.stringify(s.parkingZone)) : null,
+              parkingTransform: { ...s.parkingTransform },
+              parkingOrigin: s.parkingOrigin ? { ...s.parkingOrigin } : null,
+              parkingEntrance: s.parkingEntrance ? JSON.parse(JSON.stringify(s.parkingEntrance)) : null,
+              entranceTransform: { ...s.entranceTransform },
+              isParkingVisible: s.isParkingVisible,
+              gridRotation: s.gridRotation,
+              parkingPath: s.parkingPath ? JSON.parse(JSON.stringify(s.parkingPath)) : null,
+              updatedAt: Date.now(),
+            }
+          : p
+      ),
+    }))
+    console.log('[ProjectStore] 현재 배치안 저장:', state.activePlanId)
+  },
+
   loadPlan: (id) => {
     const state = useProjectStore.getState()
     const plan = state.placementPlans.find((p) => p.id === id)
     if (!plan) return
 
+    // 이전 배치안 상태 저장 (전환 전)
+    if (state.activePlanId && state.activePlanId !== id) {
+      useProjectStore.getState().saveActivePlan()
+    }
+
+    // 배치안 로드 (매스 데이터는 건드리지 않음, transform만 적용)
     set({
       activePlanId: id,
       modelTransform: { ...plan.modelTransform },
-      generatedMasses: JSON.parse(JSON.stringify(plan.generatedMasses)),
+      activeMassId: plan.activeMassId,
       parkingZone: plan.parkingZone ? JSON.parse(JSON.stringify(plan.parkingZone)) : null,
       parkingTransform: { ...plan.parkingTransform },
       parkingOrigin: plan.parkingOrigin ? { ...plan.parkingOrigin } : null,
@@ -836,6 +934,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       gridRotation: plan.gridRotation,
       parkingPath: plan.parkingPath ? JSON.parse(JSON.stringify(plan.parkingPath)) : null,
     })
+    console.log('[ProjectStore] 배치안 로드:', id, '매스는 프로젝트 레벨에서 공유')
   },
 
   reset: () =>
@@ -866,6 +965,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       massGlbRestoreTransform: null,
       loadedMassGlbUrl: null,
       generatedMasses: [],
+      activeMassId: null,
       massSettings: { defaultHeight: 3.0, defaultFloors: 1 },
       isLoadingModel: false,
       humanScaleModelLoaded: false,
