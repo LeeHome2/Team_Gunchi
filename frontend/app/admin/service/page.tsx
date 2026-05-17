@@ -181,6 +181,18 @@ export default function AdminServicePage() {
     }
   }
 
+  // update() 직후 saveAll() 을 부르면 React state 업데이트가 비동기라
+  // saveAll 이 옛 값을 백엔드에 다시 저장해버린다. 토글류는 명시적인 값을
+  // 받아 즉시 저장하도록 별도 헬퍼를 둔다.
+  const saveImmediate = async (key: string, value: string) => {
+    setSettings((prev) => ({ ...prev, [key]: value }))
+    try {
+      await adminApi.putServiceSetting(key, value)
+    } catch (e: any) {
+      alert(e.message || '저장 실패')
+    }
+  }
+
   const apiUrl = settings.api_url ?? ''
   const aiUrl = settings.ai_url ?? ''
   const rateLimit = settings.rate_limit ?? '100'
@@ -190,7 +202,8 @@ export default function AdminServicePage() {
   const maxDxfSizeMb = settings.max_dxf_size_mb ?? '50'
 
   // 재학습 트리거 설정
-  const retrainThreshold = settings.retrain_confidence_threshold ?? '70'
+  // 빈 문자열도 fallback (`??` 는 nullish만 잡으므로 || 사용)
+  const retrainThreshold = settings.retrain_confidence_threshold || '70'
   const retrainEnabled = settings.retrain_auto_enabled === 'true'
 
   // 주기별 재학습 설정
@@ -495,8 +508,7 @@ export default function AdminServicePage() {
                 <button
                   onClick={() => {
                     const next = retrainEnabled ? 'false' : 'true'
-                    update('retrain_auto_enabled', next)
-                    saveAll(['retrain_auto_enabled'])
+                    saveImmediate('retrain_auto_enabled', next)
                   }}
                   className={`relative h-6 w-11 rounded-full transition-colors ${
                     retrainEnabled ? 'bg-brand-500' : 'bg-white/20'
@@ -560,8 +572,7 @@ export default function AdminServicePage() {
                 <button
                   onClick={() => {
                     const next = periodicRetrainEnabled ? 'false' : 'true'
-                    update('periodic_retrain_enabled', next)
-                    saveAll(['periodic_retrain_enabled'])
+                    saveImmediate('periodic_retrain_enabled', next)
                   }}
                   className={`relative h-6 w-11 rounded-full transition-colors ${
                     periodicRetrainEnabled ? 'bg-brand-500' : 'bg-white/20'
