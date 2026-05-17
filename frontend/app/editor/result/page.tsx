@@ -526,6 +526,35 @@ export default function ResultPage() {
         total_points: sunlightAnalysisState.result.totalPoints,
       } : null
 
+      // validation 원본이 비어있어도 reviewData(검토 탭 결과)로 합성해
+      // LLM 이 "데이터 누락" 으로 잘못 판단하는 것을 막는다.
+      const composedValidation = {
+        building_coverage: validation?.building_coverage ?? (reviewData?.buildingCoverage ? {
+          value: reviewData.buildingCoverage.ratio,
+          limit: reviewData.buildingCoverage.limit,
+          status: reviewData.buildingCoverage.status === 'OK' ? 'OK' : 'fail',
+          building_area: reviewData.buildingCoverage.buildingArea,
+          site_area: reviewData.buildingCoverage.siteArea,
+        } : null),
+        setback: validation?.setback ?? (reviewData?.setback ? {
+          min_distance_m: reviewData.setback.minDistance,
+          required_m: reviewData.setback.required,
+          status: reviewData.setback.status === 'OK' ? 'OK' : 'fail',
+        } : null),
+        height: validation?.height ?? (reviewData?.heightCheck ? {
+          value_m: reviewData.heightCheck.value,
+          limit_m: reviewData.heightCheck.limit,
+          status: reviewData.heightCheck.status === 'OK' ? 'OK' : 'fail',
+        } : (building?.height != null ? {
+          value_m: building.height,
+          limit_m: null,
+          status: 'unknown',
+        } : null)),
+        violations: validation?.violations ?? [],
+        is_valid: validation?.is_valid,
+        zone_type: validation?.zone_type ?? reviewData?.selectedZoneType,
+      }
+
       // scoringEngine으로 점수 계산
       const parkingDistance = parkingPath?.length ?? 50
       const baseSunlightHours = sunlightAnalysisState?.result?.averageSunlightHours ?? 0
@@ -543,8 +572,8 @@ export default function ResultPage() {
         preferences,
       })
 
-      // LLM에서 요약/제안만 받아옴
-      const res = await requestAIScoring(validation, parkingData, sunlightData)
+      // LLM에서 요약/제안만 받아옴 — 합성된 validation 으로 누락 데이터 방지
+      const res = await requestAIScoring(composedValidation, parkingData, sunlightData)
 
       setAIScore({
         isLoading: false,
@@ -564,7 +593,7 @@ export default function ResultPage() {
     } catch (e: any) {
       setAIScore({ isLoading: false, error: e.message || 'AI 스코어링 실패' })
     }
-  }, [validation, parkingZone, parkingConfig, sunlightAnalysisState, parkingPath, preferences, setAIScore, saveActivePlan, scoringInputData])
+  }, [validation, reviewData, building, parkingZone, parkingConfig, sunlightAnalysisState, parkingPath, preferences, setAIScore, saveActivePlan, scoringInputData])
 
   // validation이 비어있으면 reviewData(검토 탭에서 계산된 값)으로 fallback.
   // 검토 탭은 reviewData에 저장하지만 result 페이지는 validation을 읽으므로 매핑이 필요.
