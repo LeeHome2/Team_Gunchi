@@ -1598,11 +1598,18 @@ def get_retrain_status(db: Session = Depends(get_db)):
     scheduler = get_retrain_scheduler()
     scheduler_running = scheduler is not None and scheduler._running
 
+    # 빈 문자열도 fallback 처리하는 헬퍼 (settings 값이 '' 로 저장돼있는 케이스 회피)
+    def _int_or(key: str, default: int) -> int:
+        try:
+            return int(settings.get(key) or default)
+        except (TypeError, ValueError):
+            return default
+
     # 다음 주기별 재학습 예정 시간 계산
     next_periodic_run = None
     if settings.get("periodic_retrain_enabled") == "true":
         last_run_str = settings.get("periodic_retrain_last_run", "")
-        interval_days = int(settings.get("periodic_retrain_interval", "14"))
+        interval_days = _int_or("periodic_retrain_interval", 14)
         if last_run_str:
             try:
                 from datetime import datetime, timedelta
@@ -1616,11 +1623,11 @@ def get_retrain_status(db: Session = Depends(get_db)):
         "scheduler_running": scheduler_running,
         "confidence_based": {
             "enabled": settings.get("retrain_auto_enabled") == "true",
-            "threshold": int(settings.get("retrain_confidence_threshold", "70")),
+            "threshold": _int_or("retrain_confidence_threshold", 70),
         },
         "periodic": {
             "enabled": settings.get("periodic_retrain_enabled") == "true",
-            "interval_days": int(settings.get("periodic_retrain_interval", "14")),
+            "interval_days": _int_or("periodic_retrain_interval", 14),
             "last_run": settings.get("periodic_retrain_last_run"),
             "next_run": next_periodic_run,
         },
