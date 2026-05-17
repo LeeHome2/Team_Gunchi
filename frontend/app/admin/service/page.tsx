@@ -487,9 +487,9 @@ export default function AdminServicePage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 p-4">
                 <div>
-                  <div className="text-sm font-semibold">자동 재학습 알림</div>
+                  <div className="text-sm font-semibold">자동 재학습 트리거</div>
                   <div className="text-xs text-white/50 mt-0.5">
-                    신뢰도 기준 미달 시 관리자에게 재학습 권장 알림
+                    신뢰도 기준 미달 시 AI 서버에 학습 잡을 즉시 추가합니다.
                   </div>
                 </div>
                 <button
@@ -530,7 +530,8 @@ export default function AdminServicePage() {
                   </div>
                 </div>
                 <p className="text-xs text-white/40 mt-2">
-                  평균 추론 신뢰도가 이 값 미만이면 재학습이 권장됩니다. (권장: 70~80%)
+                  최근 7일 평균 추론 신뢰도가 이 값 미만이면 학습 잡을 자동
+                  추가합니다. (권장: 70~80%)
                 </p>
               </div>
 
