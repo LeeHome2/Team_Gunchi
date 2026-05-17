@@ -47,6 +47,22 @@ const MAX_POINTS = 10000  // 최대 분석 포인트 수 (성능 제한)
 // ─── 유틸리티 함수 ───
 
 /**
+ * Ray casting algorithm — 점이 폴리곤 안인지 판정 (간단 ring 처리).
+ */
+function pointInPolygon(point: number[], ring: number[][]): boolean {
+  const [x, y] = point
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1]
+    const xj = ring[j][0], yj = ring[j][1]
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-15) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+/**
  * buildableArea 폴리곤 내부에 그리드 포인트 생성
  *
  * @param buildableArea - GeoJSON Polygon (건축 가능 영역)
@@ -297,7 +313,8 @@ export async function analyzeSunlight(
   analysisDate: Date,
   gridSpacing: number = 2,
   onProgress?: (progress: AnalysisProgress) => void,
-  excludeObjects: any[] = []
+  excludeObjects: any[] = [],
+  userMassRoof: { footprint: number[][]; topHeight: number } | null = null,
 ): Promise<SunlightAnalysisResult> {
   const Cesium = (window as any).Cesium
   if (!Cesium || !viewer) {
@@ -395,10 +412,30 @@ export async function analyzeSunlight(
 
       if (sunDirection) {
         let sunlitCount = 0
+        // 사전 계산: 각 grid point 가 사용자 매스 footprint 안인지
+        // → 매스 안쪽 포인트는 옥상 높이에서 샘플링 (자기 자신 그림자 회피 + 옥상 일조 측정)
+        const pointSampleOffsets: number[] = new Array(gridPoints.length).fill(1.5)
+        if (userMassRoof && userMassRoof.footprint.length >= 3) {
+          for (let i = 0; i < gridPoints.length; i++) {
+            if (pointInPolygon(gridPoints[i], userMassRoof.footprint)) {
+              // 옥상 + 약간의 마진 (지면 기준 절대 높이 - terrainHeight)
+              pointSampleOffsets[i] = Math.max(1.5, userMassRoof.topHeight + 0.5)
+            }
+          }
+        }
+
         // 각 포인트에서 ray casting (사용자 매스 제외)
         for (let i = 0; i < gridPoints.length; i++) {
           const [lon, lat] = gridPoints[i]
-          const isSunlit = checkShadowAtPoint(viewer, lon, lat, sunDirection, terrainHeight, 1.5, excludeObjects)
+          const isSunlit = checkShadowAtPoint(
+            viewer,
+            lon,
+            lat,
+            sunDirection,
+            terrainHeight,
+            pointSampleOffsets[i],
+            excludeObjects,
+          )
 
           if (isSunlit) {
             sunlightRecords.get(i)![step] = true

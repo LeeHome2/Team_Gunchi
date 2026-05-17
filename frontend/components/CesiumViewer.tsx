@@ -243,6 +243,48 @@ export default function CesiumViewer() {
     getBuildingLineResult: buildingLine.getBuildingLineResult,
     getSelectedBlocks: blockSelection.getSelectedBlocks,
     getLoadedModelEntity: () => loadedModelEntity,  // 사용자 매스 (일조분석에서 제외)
+    // 사용자 매스 footprint(위경도) + 옥상 절대 높이 — 일조 분석 grid 가 매스
+    // 안쪽이면 옥상 높이에서 샘플링 (자기 자신 그림자 회피 + 옥상 일조 측정)
+    getUserMassRoof: () => {
+      if (!loadedModelEntity) return null
+      const bbox = modelBoundingBoxRef.current
+      const t = modelTransformRef.current
+      if (!bbox || !t) return null
+
+      const currentMass = useProjectStore.getState().generatedMasses.find(
+        m => m.glbUrl === useProjectStore.getState().loadedMassGlbUrl
+          || m.glbUrlNoRoof === useProjectStore.getState().loadedMassGlbUrl,
+      )
+      const buildingH =
+        (currentMass?.boundingBox?.height && currentMass.boundingBox.height > 0
+          ? currentMass.boundingBox.height
+          : null) ??
+        (currentMass?.height && currentMass.height > 0 ? currentMass.height : null) ??
+        useProjectStore.getState().building?.height ??
+        3.0
+
+      const lat = t.latitude
+      const lon = t.longitude
+      const mPerDegLon = 111320 * Math.cos((lat * Math.PI) / 180)
+      const mPerDegLat = 111320
+      const r = (-t.rotation * Math.PI) / 180
+      const cos = Math.cos(r), sin = Math.sin(r)
+      const hw = (bbox.width * t.scale) / 2
+      const hd = (bbox.depth * t.scale) / 2
+      const corners: [number, number][] = [
+        [-hw, -hd],
+        [hw, -hd],
+        [hw, hd],
+        [-hw, hd],
+      ]
+      const footprint = corners.map(([cx, cy]) => [
+        lon + (cx * cos - cy * sin) / mPerDegLon,
+        lat + (cx * sin + cy * cos) / mPerDegLat,
+      ])
+      // 매스가 지면 위에 부유한 경우(z 양수) 옥상 = 부유 높이 + 건물 높이
+      const topHeight = Math.max(0, t.height) + buildingH
+      return { footprint, topHeight }
+    },
   })
 
   // === OSM 건물 숨기기 (Hook) ===

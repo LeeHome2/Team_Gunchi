@@ -26,6 +26,12 @@ interface UseSunlightAnalysisOptions {
   getSelectedBlocks?: () => SelectedBlock[]
   /** 사용자 매스 엔티티 가져오기 함수 (일조 분석에서 제외) */
   getLoadedModelEntity?: () => any
+  /**
+   * 사용자 매스의 footprint(위경도 폴리곤)와 옥상 절대 높이(미터, 지면 기준)
+   * 가져오기. 반환값이 있으면 footprint 안쪽 grid point 는 옥상 높이에서
+   * 샘플링하여 자기 자신을 그림자로 잡지 않고 옥상 일조량까지 측정한다.
+   */
+  getUserMassRoof?: () => { footprint: number[][]; topHeight: number } | null
 }
 
 interface UseSunlightAnalysisReturn {
@@ -53,7 +59,12 @@ export function useSunlightAnalysis(
   viewerRef: RefObject<any>,
   options: UseSunlightAnalysisOptions
 ): UseSunlightAnalysisReturn {
-  const { getBuildingLineResult, getSelectedBlocks, getLoadedModelEntity } = options
+  const {
+    getBuildingLineResult,
+    getSelectedBlocks,
+    getLoadedModelEntity,
+    getUserMassRoof,
+  } = options
 
   // 상태
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -203,14 +214,24 @@ export function useSunlightAnalysis(
         excludeCount: excludeObjects.length,
       })
 
-      // 분석 실행 (사용자 매스 제외)
+      // 사용자 매스 옥상 정보 (footprint 안쪽 grid 는 옥상 높이에서 샘플링)
+      const userMassRoof = getUserMassRoof?.() ?? null
+      if (userMassRoof) {
+        console.log('일조 분석: 사용자 매스 옥상 사용', {
+          footprintCount: userMassRoof.footprint.length,
+          topHeight: userMassRoof.topHeight,
+        })
+      }
+
+      // 분석 실행 (사용자 매스 제외 + 옥상 처리)
       const result = await analyzeSunlight(
         viewer,
         buildableArea,
         date,
         gridSpacing,
         (progress) => setAnalysisProgress(progress),
-        excludeObjects
+        excludeObjects,
+        userMassRoof
       )
 
       setAnalysisResult(result)
