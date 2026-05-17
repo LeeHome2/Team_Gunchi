@@ -24,14 +24,10 @@ const SLOT_DEPTH_PERP = 5.0
 const SLOT_DEPTH_PARA = 2.3 // 평행: 폭 방향이 짧음
 const SLOT_LENGTH_PARA = 6.0 // 평행: 길이 방향
 const SLOT_WIDTH_DISABLED = 3.3
-const AISLE_WIDTH = 6.0
 const SLOT_GAP = 0.15 // 슬롯 간 간격
 const MARGIN = 1.5 // 사이트 경계 마진
 const ENTRANCE_WIDTH = 5.0
 const ENTRANCE_DEPTH = 2.5
-
-/** 소규모 기준 (이 이하면 차로 없이 나란히) */
-const SMALL_THRESHOLD = 6
 
 // ─── 유틸리티 ───
 
@@ -140,6 +136,11 @@ function attemptPlacement(
   requiredTotal: number,
   requiredDisabled: number,
 ): PlacementAttempt {
+  // 단순화된 배치:
+  // - 사이트 AABB 안에서 왼쪽→오른쪽으로 슬롯을 이어 붙이고,
+  //   한 줄이 끝나면 아래/위 줄로 넘어가 다시 채운다.
+  // - 영역 사이즈에 따른 분기(소/중/대) 없이 그냥 들어가는 만큼만 배치.
+  // - 차로(aisle)는 사용자가 따로 요구하지 않는 한 추가하지 않는다.
   const slots: ParkingSlotData[] = []
   const aisles: ParkingAisleData[] = []
   let slotId = 0
@@ -149,76 +150,44 @@ function attemptPlacement(
   const minY = siteAABB.minY + MARGIN
   const maxY = siteAABB.maxY - MARGIN
 
-  // 방향에 따른 시작/종료 Y 및 증가 방향
   const isBottomUp = direction === 'bottom-up'
-  let y = isBottomUp ? minY + slotD / 2 : maxY - slotD / 2
   const yStep = isBottomUp ? 1 : -1
+  let y = isBottomUp ? minY + slotD / 2 : maxY - slotD / 2
 
-  const shouldContinue = () => {
-    if (isBottomUp) return y + slotD / 2 <= maxY
-    return y - slotD / 2 >= minY
-  }
+  const rowFits = () => (isBottomUp ? y + slotD / 2 <= maxY : y - slotD / 2 >= minY)
 
-  const advanceY = (amount: number) => {
-    y += yStep * amount
-  }
-
-  while (shouldContinue() && slots.length < requiredTotal) {
-    // ── 현재 줄 배치 ──
+  while (rowFits() && slots.length < requiredTotal) {
     let x = startX + slotW / 2
-    const rowStartCount = slots.length
+    let progressedInRow = false
 
     while (x + slotW / 2 <= endX && slots.length < requiredTotal) {
-      const isDisabled = slots.filter(s => s.slot_type === 'disabled').length < requiredDisabled
+      const isDisabled =
+        slots.filter((s) => s.slot_type === 'disabled').length < requiredDisabled
       const w = isDisabled ? slotWDisabled : slotW
-      const slot = tryPlaceSlot(x, y, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
+      const slot = tryPlaceSlot(
+        x,
+        y,
+        w,
+        slotD,
+        isDisabled ? 'disabled' : 'standard',
+        slotId,
+        siteFootprint,
+        exclusions,
+      )
       if (slot) {
         slots.push(slot)
         slotId++
+        progressedInRow = true
       }
       x += w + SLOT_GAP
     }
 
-    // 이 줄에 배치된 게 있으면 차로 추가 후 반대편 줄 시도
-    if (slots.length > rowStartCount && requiredTotal > SMALL_THRESHOLD) {
-      const aisleY = isBottomUp ? y + slotD / 2 + AISLE_WIDTH / 2 : y - slotD / 2 - AISLE_WIDTH / 2
-      const topRowY = isBottomUp ? aisleY + AISLE_WIDTH / 2 + slotD / 2 : aisleY - AISLE_WIDTH / 2 - slotD / 2
-
-      // 차로와 반대편 줄이 영역 안에 있는지 확인
-      const aisleInBounds = isBottomUp
-        ? aisleY + AISLE_WIDTH / 2 + slotD <= maxY
-        : aisleY - AISLE_WIDTH / 2 - slotD >= minY
-      const topRowInBounds = isBottomUp
-        ? topRowY + slotD / 2 <= maxY
-        : topRowY - slotD / 2 >= minY
-
-      if (aisleInBounds && topRowInBounds) {
-        const aislePoly = rectPolygon((startX + endX) / 2, aisleY, endX - startX, AISLE_WIDTH)
-        if (aislePoly.some(([px, py]) => isInsidePolygon(px, py, siteFootprint))) {
-          aisles.push({ polygon: aislePoly, direction: 'horizontal' })
-        }
-
-        // ── 반대편 줄 ──
-        x = startX + slotW / 2
-        while (x + slotW / 2 <= endX && slots.length < requiredTotal) {
-          const isDisabled = slots.filter(s => s.slot_type === 'disabled').length < requiredDisabled
-          const w = isDisabled ? slotWDisabled : slotW
-          const slot = tryPlaceSlot(x, topRowY, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
-          if (slot) {
-            slots.push(slot)
-            slotId++
-          }
-          x += w + SLOT_GAP
-        }
-
-        // 다음 줄로 이동
-        advanceY(slotD + AISLE_WIDTH + slotD + 1)
-      } else {
-        advanceY(slotD + 0.5)
-      }
+    // 다음 줄로 이동 (차로 없이 슬롯 깊이 + 작은 갭만)
+    if (progressedInRow) {
+      y += yStep * (slotD + SLOT_GAP)
     } else {
-      // 배치된 게 없으면 다음 위치로 빠르게 이동
-      advanceY(slotD + 0.5)
+      // 이 줄에서 하나도 배치 못 했으면 살짝 이동해 다시 시도
+      y += yStep * (slotD * 0.5 + SLOT_GAP)
     }
   }
 
@@ -295,8 +264,8 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
   const slots = best.slots
   const aisles = best.aisles
 
-  // 소규모 (슬롯이 부족할 경우) 추가 시도 - 기존 슬롯 근처 우선 배치
-  if (slots.length < requiredTotal && requiredTotal <= SMALL_THRESHOLD) {
+  // 부족분 추가 시도 — 기존 슬롯 근처 + 전체 그리드 스캔 (사이즈 분기 제거)
+  if (slots.length < requiredTotal) {
     const scanStep = slotW + SLOT_GAP
     let slotId = slots.length
 
