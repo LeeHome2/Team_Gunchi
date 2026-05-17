@@ -200,31 +200,51 @@ class RetrainScheduler:
             logger.error(f"Failed to trigger retrain: {e}")
 
     async def _get_latest_processed_dataset(self) -> Optional[Dict[str, Any]]:
-        """AI 서버에서 최신 전처리 완료 데이터셋 조회."""
+        """AI 서버에서 최신 전처리 완료 데이터셋 조회.
+
+        train.py 는 *라벨링된 CSV* 디렉토리만 학습 input 으로 받는다 (원본
+        DXF 디렉토리를 넘기면 FileNotFoundError). 따라서 다음 우선순위로
+        반환한다.
+          1) /api/mlops/datasets 의 processed_datasets[].csv_path
+          2) meta.datasets[].auto_csv.labeled_dir 또는 .labeled_dir
+          3) fallback "data/labeled" (학과 서버 기본 학습 디렉토리)
+        """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(f"{self.ai_server_url}/api/mlops/datasets")
+                if response.status_code != 200:
+                    return None
+                data = response.json()
 
-                if response.status_code == 200:
-                    data = response.json()
+                # 1) processed_datasets — 라벨링까지 완료된 학습 가능 데이터셋
+                processed = data.get("processed_datasets", []) or []
+                if processed:
+                    # 마지막 항목이 가장 최근 (별도 sort 없이도 등록 순서 보장)
+                    latest = processed[-1]
+                    csv_path = latest.get("csv_path") or "data/labeled"
+                    return {
+                        "path": csv_path,
+                        "id": latest.get("id"),
+                        "name": latest.get("name"),
+                        "count": latest.get("labeled_count"),
+                    }
 
-                    # processed 디렉토리에서 최신 데이터 확인
-                    for stage in data.get("stages", []):
-                        if stage.get("key") == "processed" and stage.get("count", 0) > 0:
-                            return {
-                                "path": "data/labeled",  # 기본 학습 데이터 경로
-                                "count": stage.get("count"),
-                            }
-
-                    # meta.datasets에서 최신 데이터셋 확인
-                    datasets = data.get("meta", {}).get("datasets", [])
-                    if datasets:
-                        latest = datasets[-1]  # 가장 최근 데이터셋
+                # 2) meta.datasets 의 auto_csv.labeled_dir
+                for ds in reversed(data.get("meta", {}).get("datasets", []) or []):
+                    auto = ds.get("auto_csv") or {}
+                    labeled_dir = (
+                        ds.get("labeled_dir")
+                        or auto.get("labeled_dir")
+                    )
+                    if labeled_dir and (auto.get("labeled_count", 0) > 0 or auto.get("success")):
                         return {
-                            "path": latest.get("dxf_dir", "data/labeled"),
-                            "id": latest.get("id"),
-                            "name": latest.get("name"),
+                            "path": labeled_dir,
+                            "id": ds.get("id"),
+                            "name": ds.get("name"),
                         }
+
+                # 3) fallback — 학과 서버의 디폴트 학습 디렉토리
+                return {"path": "data/labeled"}
 
         except Exception as e:
             logger.warning(f"Failed to get processed dataset: {e}")
