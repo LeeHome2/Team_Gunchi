@@ -165,7 +165,7 @@ class RetrainScheduler:
 
         try:
             # 최신 전처리 완료 데이터셋 조회
-            processed_dataset = await self._get_latest_processed_dataset()
+            processed_dataset = await self._get_latest_processed_dataset(db)
 
             if not processed_dataset:
                 logger.warning("No processed dataset available for retraining")
@@ -199,16 +199,29 @@ class RetrainScheduler:
         except Exception as e:
             logger.error(f"Failed to trigger retrain: {e}")
 
-    async def _get_latest_processed_dataset(self) -> Optional[Dict[str, Any]]:
-        """AI 서버에서 최신 전처리 완료 데이터셋 조회.
+    async def _get_latest_processed_dataset(self, db=None) -> Optional[Dict[str, Any]]:
+        """학습 input 으로 사용할 라벨링 CSV 디렉토리 결정.
 
-        train.py 는 *라벨링된 CSV* 디렉토리만 학습 input 으로 받는다 (원본
-        DXF 디렉토리를 넘기면 FileNotFoundError). 따라서 다음 우선순위로
-        반환한다.
-          1) /api/mlops/datasets 의 processed_datasets[].csv_path
-          2) meta.datasets[].auto_csv.labeled_dir 또는 .labeled_dir
-          3) fallback "data/labeled" (학과 서버 기본 학습 디렉토리)
+        train.py 는 라벨링된 CSV 디렉토리만 학습 input 으로 받는다.
+        선택 우선순위:
+          1) service_settings.retrain_dataset_id 가 지정돼있고 그 데이터셋이
+             processed_datasets 에 존재 → 그 csv_path 사용
+          2) processed_datasets 중 'default' id (학과 서버의 메인 98 DXF 셋)
+          3) processed_datasets 의 첫 항목
+          4) meta.datasets 중 labeled_dir 가 있는 마지막 항목
+          5) fallback "data/labeled"
         """
+        # 사용자가 명시 선택한 데이터셋 id (DB)
+        preferred_id: Optional[str] = None
+        if db is not None:
+            try:
+                from database.crud import list_service_settings
+                s = list_service_settings(db) or {}
+                v = s.get("retrain_dataset_id")
+                preferred_id = v if v else None
+            except Exception as e:
+                logger.warning(f"retrain_dataset_id read failed: {e}")
+
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(f"{self.ai_server_url}/api/mlops/datasets")
@@ -216,26 +229,38 @@ class RetrainScheduler:
                     return None
                 data = response.json()
 
-                # 1) processed_datasets — 라벨링까지 완료된 학습 가능 데이터셋
                 processed = data.get("processed_datasets", []) or []
-                if processed:
-                    # 마지막 항목이 가장 최근 (별도 sort 없이도 등록 순서 보장)
-                    latest = processed[-1]
-                    csv_path = latest.get("csv_path") or "data/labeled"
+
+                def _pack(item: Dict[str, Any]) -> Dict[str, Any]:
                     return {
-                        "path": csv_path,
-                        "id": latest.get("id"),
-                        "name": latest.get("name"),
-                        "count": latest.get("labeled_count"),
+                        "path": item.get("csv_path") or "data/labeled",
+                        "id": item.get("id"),
+                        "name": item.get("name"),
+                        "count": item.get("labeled_count"),
                     }
 
-                # 2) meta.datasets 의 auto_csv.labeled_dir
+                # 1) 사용자 명시 선택
+                if preferred_id:
+                    for p in processed:
+                        if p.get("id") == preferred_id:
+                            return _pack(p)
+                    logger.warning(
+                        f"retrain_dataset_id={preferred_id} 가 processed_datasets 에 없어 default 로 폴백"
+                    )
+
+                # 2) 'default' id 우선 (학과 서버 메인 98 DXF 라벨링 셋)
+                for p in processed:
+                    if p.get("id") == "default":
+                        return _pack(p)
+
+                # 3) processed_datasets 첫 항목
+                if processed:
+                    return _pack(processed[0])
+
+                # 4) meta.datasets 의 labeled_dir
                 for ds in reversed(data.get("meta", {}).get("datasets", []) or []):
                     auto = ds.get("auto_csv") or {}
-                    labeled_dir = (
-                        ds.get("labeled_dir")
-                        or auto.get("labeled_dir")
-                    )
+                    labeled_dir = ds.get("labeled_dir") or auto.get("labeled_dir")
                     if labeled_dir and (auto.get("labeled_count", 0) > 0 or auto.get("success")):
                         return {
                             "path": labeled_dir,
@@ -243,7 +268,7 @@ class RetrainScheduler:
                             "name": ds.get("name"),
                         }
 
-                # 3) fallback — 학과 서버의 디폴트 학습 디렉토리
+                # 5) fallback
                 return {"path": "data/labeled"}
 
         except Exception as e:

@@ -123,6 +123,17 @@ export default function ProcessedDatasetsPanel({
     }
   }, [aiUrl, refreshKey])
 
+  // 데이터셋 로드 완료 후 부모가 지정한 selectedDatasetId 와 매칭되는
+  // ProcessedDataset 객체를 자동으로 emit. 사용자가 다른 항목 클릭 전까지는
+  // 기본 선택을 유지하기 위한 동기화.
+  useEffect(() => {
+    if (!onSelectDataset || processedDatasets.length === 0) return
+    if (!selectedDatasetId) return
+    const match = processedDatasets.find((d) => d.id === selectedDatasetId)
+    if (match) onSelectDataset(match)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processedDatasets, selectedDatasetId])
+
   const labeledStage = stages.find(s =>
     s.label.toLowerCase().includes('labeled') || s.label.toLowerCase().includes('라벨')
   )

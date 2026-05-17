@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import AdminTopbar from '@/components/AdminTopbar'
 import {
   AdminTable,
@@ -77,8 +77,20 @@ export default function AdminAiPage() {
   const [selectedDataset, setSelectedDataset] = useState<DatasetMeta | null>(null)
   // 데이터셋 선택 모달 표시 여부
   const [selectModalOpen, setSelectModalOpen] = useState(false)
-  // 선택된 전처리 완료 데이터셋 (재학습용)
+  // 선택된 전처리 완료 데이터셋 (재학습용) — service_settings.retrain_dataset_id 에 영속.
+  // 미선택 시 '기본 라벨링 데이터셋' (id='default', 98 DXF → 190k labeled rows) 자동 적용.
   const [selectedProcessed, setSelectedProcessed] = useState<ProcessedDataset | null>(null)
+  // DB 에서 마지막 선택을 복원하기 위한 id (ProcessedDatasetsPanel 이 목록 로드 후 매칭)
+  const [savedRetrainDatasetId, setSavedRetrainDatasetId] = useState<string | null>(null)
+
+  // 사용자가 데이터셋 선택 시 즉시 service_settings 에 저장 (페이지 재진입/자동 재학습 모두 반영)
+  const handleSelectProcessed = useCallback((ds: ProcessedDataset | null) => {
+    setSelectedProcessed(ds)
+    setSavedRetrainDatasetId(ds?.id || null)
+    adminApi
+      .putServiceSetting('retrain_dataset_id', ds?.id || '')
+      .catch((e) => console.warn('retrain_dataset_id 저장 실패:', e))
+  }, [])
   // 모델 업로드 모달 표시 여부
   const [modelUploadOpen, setModelUploadOpen] = useState(false)
 
@@ -111,6 +123,10 @@ export default function AdminAiPage() {
       try {
         const res = await adminApi.getServiceSettings()
         if (res.settings.ai_url) setAiUrl(res.settings.ai_url)
+        // 저장된 재학습 대상 데이터셋 id 복원
+        if (res.settings.retrain_dataset_id) {
+          setSavedRetrainDatasetId(res.settings.retrain_dataset_id)
+        }
       } catch {
         /* ignore */
       }
@@ -381,8 +397,8 @@ export default function AdminAiPage() {
         <ProcessedDatasetsPanel
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
-          selectedDatasetId={selectedProcessed?.id || null}
-          onSelectDataset={setSelectedProcessed}
+          selectedDatasetId={selectedProcessed?.id || savedRetrainDatasetId || 'default'}
+          onSelectDataset={handleSelectProcessed}
           onPreprocessClick={() => setSelectModalOpen(true)}
         />
 
