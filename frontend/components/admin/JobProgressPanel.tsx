@@ -55,6 +55,9 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
       }
 
       const prevRunningIds = jobs.filter((j) => j.status === 'running').map((j) => j.job_id)
+      const prevCompletedRunIds = new Set(
+        jobs.filter((j) => j.status === 'completed').map((j) => j.job_id),
+      )
       const rawJobs: JobInfo[] = data.jobs || []
       const newJobs: JobInfo[] = rawJobs.map((j) => {
         // 보정 1: train 잡인데 실험 DB 에 completed 면 처리됨
@@ -75,13 +78,24 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
       })
       setJobs(newJobs)
 
-      // 완료된 작업 감지
+      // 완료된 작업 감지 — 두 케이스 모두 부모에 알림
+      //   (1) running → completed 트랜지션
+      //   (2) 첫 폴링이라 이전 jobs 상태가 비어있는데 completed 잡이 새로 등장
+      //       (사용자가 학습 트리거 후 페이지를 새로 진입한 시나리오)
       const nowCompletedIds = newJobs
-        .filter((j) => j.status === 'completed' && prevRunningIds.includes(j.job_id))
+        .filter(
+          (j) =>
+            j.status === 'completed' &&
+            (prevRunningIds.includes(j.job_id) || !prevCompletedRunIds.has(j.job_id)),
+        )
         .map((j) => j.job_id)
 
-      if (nowCompletedIds.length > 0) {
+      // 초기 마운트(jobs 비어있던 상태)는 무한 리프레시 방지를 위해 skip
+      if (nowCompletedIds.length > 0 && jobs.length > 0) {
         onJobCompleted?.()
+        // 학과 AI 서버가 잡 완료 직후 experiment DB 등록까지 약간 시간이
+        // 걸리는 케이스 회피 — 3초 후 한 번 더 갱신을 트리거.
+        setTimeout(() => onJobCompleted?.(), 3000)
       }
 
       setError(null)
