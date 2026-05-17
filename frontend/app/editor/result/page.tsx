@@ -259,6 +259,38 @@ export default function ResultPage() {
   // 데이터가 아예 없으면 에디터로 유도
   const hasAnyData = validation || reviewData?.buildingCoverage || site || building || resultSnapshot.sitePlan
 
+  // ─── 결과 페이지 PNG 다운로드 ─────────────
+  const [isDownloading, setIsDownloading] = useState(false)
+  const handleDownloadImage = useCallback(async () => {
+    if (typeof window === 'undefined') return
+    setIsDownloading(true)
+    try {
+      const html2canvas = (await import('html2canvas')).default
+      const target = document.getElementById('result-capture-target')
+      if (!target) throw new Error('캡처 대상이 없습니다')
+      const canvas = await html2canvas(target, {
+        backgroundColor: '#0a1224',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight,
+      })
+      const dataUrl = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.href = dataUrl
+      a.download = `검토결과_${stamp}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch (e: any) {
+      alert(`이미지 다운로드 실패: ${e?.message || e}`)
+    } finally {
+      setIsDownloading(false)
+    }
+  }, [])
+
   // ─── AI 렌더링 (Google AI Studio "Nano Banana") ─────────────
   const [isRendering, setIsRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
@@ -771,11 +803,31 @@ export default function ResultPage() {
             <Link href="/projects" className="btn-ghost text-sm">
               프로젝트 목록
             </Link>
+            <button
+              onClick={handleDownloadImage}
+              disabled={isDownloading || !hasAnyData}
+              className="btn-secondary text-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="결과 페이지를 PNG 이미지로 다운로드"
+            >
+              {isDownloading ? (
+                <>
+                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  생성 중…
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                  이미지 다운로드
+                </>
+              )}
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <main id="result-capture-target" className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         {!hasAnyData && (
           <div className="card p-8 text-center">
             <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-4">

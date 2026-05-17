@@ -12,6 +12,7 @@
     "@cesium/widgets": "^4.0.0",
     "@turf/turf": "^7.3.4",
     "cesium": "^1.114.0",
+    "html2canvas": "^1.4.1",
     "next": "14.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
