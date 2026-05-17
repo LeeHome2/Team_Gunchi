@@ -670,6 +670,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
         aiScore: { isLoading: false, result: null, error: null },
         sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
         resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+        // 규정 검토 결과도 초기화 (이전 프로젝트의 부적합 판정/이격거리 음수값이
+        // 다른 프로젝트로 넘어가지 않도록 함)
+        reviewData: {
+          zoneType: undefined,
+          selectedZoneType: undefined,
+          buildingCoverage: null,
+          setback: null,
+          heightCheck: null,
+          isModelInBounds: true,
+        },
+        validation: null,
       }
     }
     return { projectId: id }
@@ -933,6 +944,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isParkingVisible: plan.isParkingVisible,
       gridRotation: plan.gridRotation,
       parkingPath: plan.parkingPath ? JSON.parse(JSON.stringify(plan.parkingPath)) : null,
+      // 배치안 전환 시 이전 검토 결과를 비워서 stale 부적합 판정이 유지되지
+      // 않도록 한다. 사용자가 새 배치안에서 검토를 다시 실행하면 갱신됨.
+      reviewData: {
+        zoneType: state.reviewData.zoneType,
+        selectedZoneType: state.reviewData.selectedZoneType,
+        buildingCoverage: null,
+        setback: null,
+        heightCheck: null,
+        isModelInBounds: true,
+      },
+      validation: null,
     })
     console.log('[ProjectStore] 배치안 로드:', id, '매스는 프로젝트 레벨에서 공유')
   },

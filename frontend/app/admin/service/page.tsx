@@ -181,21 +181,10 @@ export default function AdminServicePage() {
     }
   }
 
-  const toggleMaintenance = async () => {
-    const next = settings.maintenance === 'true' ? 'false' : 'true'
-    update('maintenance', next)
-    try {
-      await adminApi.putServiceSetting('maintenance', next)
-    } catch (e: any) {
-      alert(e.message || '저장 실패')
-    }
-  }
-
   const apiUrl = settings.api_url ?? ''
   const aiUrl = settings.ai_url ?? ''
   const rateLimit = settings.rate_limit ?? '100'
   const timeoutVal = settings.timeout ?? '30'
-  const maintenance = settings.maintenance === 'true'
 
   // 업로드 제한
   const maxDxfSizeMb = settings.max_dxf_size_mb ?? '50'
@@ -729,29 +718,6 @@ export default function AdminServicePage() {
               )
             })}
           </div>
-        </section>
-
-        {/* 유지보수 모드 */}
-        <section className="card p-6 flex items-center gap-4">
-          <div className="flex-1">
-            <h3 className="text-base font-semibold">유지보수 모드</h3>
-            <p className="text-xs text-white/50 mt-0.5">
-              활성화하면 모든 사용자에게 점검 안내 페이지가 표시됩니다.
-            </p>
-          </div>
-          <button
-            onClick={toggleMaintenance}
-            className={`relative h-7 w-12 rounded-full transition-colors ${
-              maintenance ? 'bg-amber-500' : 'bg-white/20'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${
-                maintenance ? 'left-5' : 'left-0.5'
-              }`}
-            />
-          </button>
-          {maintenance && <Badge variant="warning">점검 중</Badge>}
         </section>
 
         {/* 접근 비밀번호 변경 */}

@@ -16,7 +16,10 @@ const LEVEL_STYLES: Record<
   error: { text: 'text-red-300', bg: 'bg-red-500/5', label: 'ERROR' },
 }
 
+type SourceTab = 'backend' | 'ai'
+
 export default function AdminLogsPage() {
+  const [source, setSource] = useState<SourceTab>('backend')
   const [filter, setFilter] = useState<'all' | LogLevel>('all')
   const [query, setQuery] = useState('')
   const [logs, setLogs] = useState<AdminLog[]>([])
@@ -33,19 +36,37 @@ export default function AdminLogsPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await adminApi.listLogs({
-        level: filter,
-        q: query || undefined,
-        limit: 300,
-      })
-      setLogs(res.logs)
-      setCounts(res.counts)
+      if (source === 'ai') {
+        // 학습 서버 잡 + 로그 통합
+        const res = await adminApi.listAILogs({ limit: 300, tail: 80 })
+        // AI 소스는 level 필터/검색을 클라이언트에서 적용
+        const ql = query.trim().toLowerCase()
+        const filtered = res.logs.filter((l) => {
+          if (filter !== 'all' && l.level !== filter) return false
+          if (!ql) return true
+          return (
+            l.message.toLowerCase().includes(ql) ||
+            (l.source || '').toLowerCase().includes(ql)
+          )
+        })
+        setLogs(filtered)
+        setCounts(res.counts)
+        if (res.error) setError(`AI 서버: ${res.error}`)
+      } else {
+        const res = await adminApi.listLogs({
+          level: filter,
+          q: query || undefined,
+          limit: 300,
+        })
+        setLogs(res.logs)
+        setCounts(res.counts)
+      }
     } catch (e: any) {
       setError(e.message || '로그 로드 실패')
     } finally {
       setLoading(false)
     }
-  }, [filter, query])
+  }, [source, filter, query])
 
   // Debounced query + poll
   useEffect(() => {
@@ -95,11 +116,27 @@ export default function AdminLogsPage() {
         </div>
 
         <div className="card p-4 flex flex-wrap items-center gap-3">
+          {/* 소스 탭 (백엔드 / AI 학습 서버) */}
+          <div className="flex gap-1 rounded-md border border-white/10 bg-white/5 p-1">
+            {(['backend', 'ai'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSource(s)}
+                className={`px-3 py-1 text-xs font-semibold rounded transition-colors ${
+                  source === s
+                    ? 'bg-brand-500/25 text-brand-200'
+                    : 'text-white/50 hover:text-white'
+                }`}
+              >
+                {s === 'backend' ? '백엔드' : 'AI 학습 서버'}
+              </button>
+            ))}
+          </div>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="메시지 / 소스 검색"
-            className="input-field flex-1 min-w-[240px] font-mono"
+            className="input-field flex-1 min-w-[200px] font-mono"
           />
           <div className="flex gap-1 rounded-md border border-white/10 bg-white/5 p-1">
             {(['all', 'info', 'warn', 'error'] as const).map((f) => (

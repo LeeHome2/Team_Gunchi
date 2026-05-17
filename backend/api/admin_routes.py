@@ -636,10 +636,19 @@ class DeployPayload(BaseModel):
 
 @router.post("/ai/deploy")
 async def deploy_model(payload: DeployPayload, db: Session = Depends(get_db)):
-    """선택한 실험을 운영 모델로 적용."""
+    """선택한 실험을 운영 모델로 적용.
+
+    학과 분류 서버 /api/mlops/deploy 는 notes 를 nullable 이 아니라 필수 string
+    으로 받기 때문에, None 인 경우 빈 문자열로 정규화해서 보낸다.
+    """
+    body = payload.model_dump()
+    if body.get("notes") is None:
+        body["notes"] = ""
+    if body.get("environment") is None:
+        body["environment"] = "production"
     return await _ai_proxy_post(
         "/api/mlops/deploy",
-        payload.model_dump(),
+        body,
         db,
     )
 
@@ -1049,6 +1058,106 @@ def list_logs(
     return {
         "logs": log_buffer.get_logs(level=level, query=q, limit=limit),
         "counts": log_buffer.level_counts(),
+    }
+
+
+@router.get("/logs/ai")
+async def list_ai_logs(
+    limit: int = 50,
+    tail: int = 80,
+    db: Session = Depends(get_db),
+):
+    """학과 AI 학습 서버의 잡 + 로그를 통합 조회.
+
+    /api/mlops/jobs 로 최근 잡 목록을 받고, running/recently-completed 잡의
+    /api/mlops/jobs/{id}/log 를 합쳐서 admin 로그 탭에 표시 가능한 형식
+    (ts/level/source/message) 로 변환한다.
+    """
+    base = _ai_base_url(db)
+    timeout = httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=5.0)
+    logs: List[dict] = []
+    counts = {"total": 0, "info": 0, "warn": 0, "error": 0}
+    fetch_error: Optional[str] = None
+
+    def _classify_level(line: str) -> str:
+        ll = line.lower()
+        if "error" in ll or "traceback" in ll or "exception" in ll or "fail" in ll:
+            return "error"
+        if "warn" in ll or "deprecat" in ll:
+            return "warn"
+        return "info"
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            jobs_resp = await client.get(f"{base}/api/mlops/jobs")
+            if jobs_resp.status_code != 200:
+                fetch_error = f"jobs 조회 실패 ({jobs_resp.status_code})"
+                jobs = []
+            else:
+                jobs = jobs_resp.json().get("jobs", [])
+
+            # 최근 N개 잡 + 각 잡의 로그 일부
+            for idx, j in enumerate(jobs[: max(1, limit // 5)]):
+                job_id = j.get("job_id")
+                jstatus = j.get("status", "?")
+                jtype = j.get("type", "?")
+                # 잡 자체의 상태를 하나의 로그 라인으로 첨가
+                started = j.get("started_at") or ""
+                lvl = "error" if jstatus in ("failed", "error") else (
+                    "warn" if jstatus == "running" else "info"
+                )
+                msg = f"[{jtype}] {jstatus} — {j.get('message', '')}"
+                logs.append({
+                    "id": f"job-{idx}",
+                    "ts": started,
+                    "level": lvl,
+                    "source": f"ai-job/{job_id[:16] if job_id else '?'}",
+                    "message": msg,
+                })
+                counts[lvl] = counts.get(lvl, 0) + 1
+                counts["total"] += 1
+
+                # 잡 로그 tail
+                if job_id:
+                    try:
+                        log_resp = await client.get(
+                            f"{base}/api/mlops/jobs/{job_id}/log?tail={tail}"
+                        )
+                        if log_resp.status_code == 200:
+                            lines = log_resp.json().get("tail", [])
+                            for li, line in enumerate(lines):
+                                line_str = line if isinstance(line, str) else str(line)
+                                line_str = line_str.rstrip("\n")
+                                if not line_str.strip():
+                                    continue
+                                level_str = _classify_level(line_str)
+                                logs.append({
+                                    "id": f"job-{idx}-{li}",
+                                    "ts": started,
+                                    "level": level_str,
+                                    "source": f"ai-log/{job_id[:16]}",
+                                    "message": line_str[:500],
+                                })
+                                counts[level_str] = counts.get(level_str, 0) + 1
+                                counts["total"] += 1
+                    except Exception as e:
+                        logs.append({
+                            "id": f"job-{idx}-err",
+                            "ts": started,
+                            "level": "warn",
+                            "source": f"ai-log/{job_id}",
+                            "message": f"로그 가져오기 실패: {e}",
+                        })
+                        counts["warn"] += 1
+                        counts["total"] += 1
+    except Exception as e:
+        fetch_error = str(e)
+
+    return {
+        "logs": logs[:limit],
+        "counts": counts,
+        "ai_server": base,
+        "error": fetch_error,
     }
 
 

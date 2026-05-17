@@ -776,6 +776,18 @@ export const adminApi = {
       `/logs${suffix}`
     )
   },
+  listAILogs: (params?: { limit?: number; tail?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.tail) qs.set('tail', String(params.tail))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return adminFetch<{
+      logs: AdminLog[]
+      counts: Record<string, number>
+      ai_server: string
+      error: string | null
+    }>(`/logs/ai${suffix}`)
+  },
 
   // Admin accounts
   listAdminAccounts: () =>
