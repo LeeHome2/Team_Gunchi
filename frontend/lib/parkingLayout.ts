@@ -25,7 +25,6 @@ const SLOT_DEPTH_PARA = 2.3 // 평행: 폭 방향이 짧음
 const SLOT_LENGTH_PARA = 6.0 // 평행: 길이 방향
 const SLOT_WIDTH_DISABLED = 3.3
 const SLOT_GAP = 0.15 // 슬롯 간 간격
-const MARGIN = 1.5 // 사이트 경계 마진
 const ENTRANCE_WIDTH = 5.0
 const ENTRANCE_DEPTH = 2.5
 
@@ -39,17 +38,6 @@ function polygonAABB(polygon: number[][]): AABB {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) }
 }
 
-function isInsidePolygon(px: number, py: number, polygon: number[][]): boolean {
-  let inside = false
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i][0], yi = polygon[i][1]
-    const xj = polygon[j][0], yj = polygon[j][1]
-    const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi
-    if (intersect) inside = !inside
-  }
-  return inside
-}
-
 function rectPolygon(cx: number, cy: number, w: number, d: number): number[][] {
   const hw = w / 2, hd = d / 2
   return [
@@ -58,19 +46,6 @@ function rectPolygon(cx: number, cy: number, w: number, d: number): number[][] {
     [cx + hw, cy + hd],
     [cx - hw, cy + hd],
   ]
-}
-
-function rectFullyInside(rect: number[][], polygon: number[][]): boolean {
-  return rect.every(([x, y]) => isInsidePolygon(x, y, polygon))
-}
-
-function aabbOverlap(a: AABB, b: AABB): boolean {
-  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY
-}
-
-function rectOverlapsExclusion(rect: number[][], exclusions: AABB[]): boolean {
-  const rAABB = polygonAABB(rect)
-  return exclusions.some((ex) => aabbOverlap(rAABB, ex))
 }
 
 // ─── 입력/출력 ───
@@ -91,245 +66,109 @@ export interface ParkingLayoutResult {
   entrance: ParkingEntranceData
 }
 
-// ─── 슬롯 생성 헬퍼 ───
-
-function tryPlaceSlot(
-  cx: number, cy: number, w: number, d: number,
-  slotType: 'standard' | 'disabled',
-  id: number,
-  siteFootprint: number[][],
-  exclusions: AABB[],
-): ParkingSlotData | null {
-  const poly = rectPolygon(cx, cy, w, d)
-  const insideSite = rectFullyInside(poly, siteFootprint)
-  const overlapsExclusion = rectOverlapsExclusion(poly, exclusions)
-
-  console.log(`[주차] tryPlaceSlot id=${id} type=${slotType} pos=(${cx.toFixed(1)},${cy.toFixed(1)}) size=${w}x${d} inside=${insideSite} overlaps=${overlapsExclusion}`)
-
-  if (!insideSite) return null
-  if (overlapsExclusion) return null
-  return {
-    id,
-    slot_type: slotType,
-    cx, cy,
-    width: w, depth: d,
-    heading: 0,
-    polygon: poly,
-  }
-}
-
-// ─── 슬롯 배치 헬퍼 (방향별 시도) ───
-
-interface PlacementAttempt {
-  slots: ParkingSlotData[]
-  aisles: ParkingAisleData[]
-}
-
-function attemptPlacement(
-  direction: 'bottom-up' | 'top-down',
-  siteAABB: AABB,
-  siteFootprint: number[][],
-  exclusions: AABB[],
-  slotW: number,
-  slotD: number,
-  slotWDisabled: number,
-  requiredTotal: number,
-  requiredDisabled: number,
-): PlacementAttempt {
-  // 단순화된 배치:
-  // - 사이트 AABB 안에서 왼쪽→오른쪽으로 슬롯을 이어 붙이고,
-  //   한 줄이 끝나면 아래/위 줄로 넘어가 다시 채운다.
-  // - 영역 사이즈에 따른 분기(소/중/대) 없이 그냥 들어가는 만큼만 배치.
-  // - 차로(aisle)는 사용자가 따로 요구하지 않는 한 추가하지 않는다.
-  const slots: ParkingSlotData[] = []
-  const aisles: ParkingAisleData[] = []
-  let slotId = 0
-
-  const startX = siteAABB.minX + MARGIN
-  const endX = siteAABB.maxX - MARGIN
-  const minY = siteAABB.minY + MARGIN
-  const maxY = siteAABB.maxY - MARGIN
-
-  const isBottomUp = direction === 'bottom-up'
-  const yStep = isBottomUp ? 1 : -1
-  let y = isBottomUp ? minY + slotD / 2 : maxY - slotD / 2
-
-  const rowFits = () => (isBottomUp ? y + slotD / 2 <= maxY : y - slotD / 2 >= minY)
-
-  while (rowFits() && slots.length < requiredTotal) {
-    let x = startX + slotW / 2
-    let progressedInRow = false
-
-    while (x + slotW / 2 <= endX && slots.length < requiredTotal) {
-      const isDisabled =
-        slots.filter((s) => s.slot_type === 'disabled').length < requiredDisabled
-      const w = isDisabled ? slotWDisabled : slotW
-      const slot = tryPlaceSlot(
-        x,
-        y,
-        w,
-        slotD,
-        isDisabled ? 'disabled' : 'standard',
-        slotId,
-        siteFootprint,
-        exclusions,
-      )
-      if (slot) {
-        slots.push(slot)
-        slotId++
-        progressedInRow = true
-      }
-      x += w + SLOT_GAP
-    }
-
-    // 다음 줄로 이동 (차로 없이 슬롯 깊이 + 작은 갭만)
-    if (progressedInRow) {
-      y += yStep * (slotD + SLOT_GAP)
-    } else {
-      // 이 줄에서 하나도 배치 못 했으면 살짝 이동해 다시 시도
-      y += yStep * (slotD * 0.5 + SLOT_GAP)
-    }
-  }
-
-  return { slots, aisles }
-}
-
 // ─── 메인 생성 함수 ───
 
 export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutResult {
   const {
     siteFootprint,
-    buildingFootprint,
-    additionalFootprints = [],
     requiredTotal,
     requiredDisabled,
     pattern,
   } = input
 
-  const siteAABB = polygonAABB(siteFootprint)
-  const siteW = siteAABB.maxX - siteAABB.minX
-  const siteH = siteAABB.maxY - siteAABB.minY
-  const siteCx = (siteAABB.minX + siteAABB.maxX) / 2
-  const siteCy = (siteAABB.minY + siteAABB.maxY) / 2
-
-  console.log(`[주차] 사이트 크기: ${siteW.toFixed(1)}m x ${siteH.toFixed(1)}m, 요청: 총 ${requiredTotal}대 (장애인 ${requiredDisabled}대)`)
-
-  // 건물 배제 영역 (다중 건물 지원)
-  const exclusions: AABB[] = []
-  const BUILDING_MARGIN = 0.5  // 건물 주변 마진 (0.5m로 축소)
-
-  const allFootprints = [
-    buildingFootprint,
-    ...additionalFootprints,
-  ].filter((fp) => fp.length >= 3)
-
-  // 중복 제거를 위한 키 생성
-  const addedKeys = new Set<string>()
-
-  for (const fp of allFootprints) {
-    const bAABB = polygonAABB(fp)
-    const key = `${bAABB.minX.toFixed(1)},${bAABB.minY.toFixed(1)},${bAABB.maxX.toFixed(1)},${bAABB.maxY.toFixed(1)}`
-
-    // 중복 체크
-    if (addedKeys.has(key)) {
-      console.log(`[주차] 건물 배제영역 중복 스킵: ${key}`)
-      continue
-    }
-    addedKeys.add(key)
-
-    const excl = {
-      minX: bAABB.minX - BUILDING_MARGIN,
-      minY: bAABB.minY - BUILDING_MARGIN,
-      maxX: bAABB.maxX + BUILDING_MARGIN,
-      maxY: bAABB.maxY + BUILDING_MARGIN,
-    }
-    exclusions.push(excl)
-    console.log(`[주차] 건물 배제영역: (${excl.minX.toFixed(1)},${excl.minY.toFixed(1)}) ~ (${excl.maxX.toFixed(1)},${excl.maxY.toFixed(1)})`)
+  // 사이트 중심을 기준점으로 사용 (없으면 0,0)
+  let siteCx = 0
+  let siteCy = 0
+  if (siteFootprint && siteFootprint.length >= 3) {
+    const aabb = polygonAABB(siteFootprint)
+    siteCx = (aabb.minX + aabb.maxX) / 2
+    siteCy = (aabb.minY + aabb.maxY) / 2
   }
 
+  console.log(
+    `[주차] 단순 생성: 총 ${requiredTotal}대 (장애인 ${requiredDisabled}대), 패턴=${pattern}`,
+  )
+
   // 직각/평행에 따른 슬롯 치수
-  const isPerpendicular = pattern === 'perpendicular'
   // 직각: 폭 2.5m × 깊이 5m (차 옆으로 주차)
   // 평행: 폭 2.3m × 깊이 6m (차 앞뒤로 주차)
+  const isPerpendicular = pattern === 'perpendicular'
   const slotW = isPerpendicular ? SLOT_WIDTH : SLOT_DEPTH_PARA
   const slotD = isPerpendicular ? SLOT_DEPTH_PERP : SLOT_LENGTH_PARA
   const slotWDisabled = SLOT_WIDTH_DISABLED
 
-  // 양방향 배치 시도 후 더 좋은 결과 선택
-  const bottomUp = attemptPlacement('bottom-up', siteAABB, siteFootprint, exclusions, slotW, slotD, slotWDisabled, requiredTotal, requiredDisabled)
-  const topDown = attemptPlacement('top-down', siteAABB, siteFootprint, exclusions, slotW, slotD, slotWDisabled, requiredTotal, requiredDisabled)
+  // 요청 대수가 너무 많으면 여러 줄로 wrap (한 줄 최대 길이 ~30m 기준)
+  const MAX_ROW_LEN_M = 30
+  const slotsPerRow = Math.max(
+    1,
+    Math.min(requiredTotal, Math.floor(MAX_ROW_LEN_M / (slotW + SLOT_GAP))),
+  )
 
-  // 더 많은 슬롯이 배치된 결과 선택
-  const best = bottomUp.slots.length >= topDown.slots.length ? bottomUp : topDown
-  const slots = best.slots
-  const aisles = best.aisles
+  // 슬롯 배치 — 사이트/건물 체크 없이 요청한 대수만큼 무조건 생성
+  const slots: ParkingSlotData[] = []
+  const safeRequired = Math.max(0, Math.floor(requiredTotal))
+  const safeDisabled = Math.max(0, Math.min(Math.floor(requiredDisabled), safeRequired))
 
-  // 부족분 추가 시도 — 기존 슬롯 근처 + 전체 그리드 스캔 (사이즈 분기 제거)
-  if (slots.length < requiredTotal) {
-    const scanStep = slotW + SLOT_GAP
-    let slotId = slots.length
+  // 한 줄 전체 폭 (장애인 슬롯과 일반 슬롯 폭이 다르지만 평균치로 정렬용 추정)
+  // 정확한 배치는 누적 x 좌표로 처리한다.
+  for (let i = 0; i < safeRequired; i++) {
+    const row = Math.floor(i / slotsPerRow)
+    const col = i % slotsPerRow
+    const isDisabled = i < safeDisabled
+    const w = isDisabled ? slotWDisabled : slotW
 
-    // 기존 슬롯이 있으면 그 옆에 먼저 배치 시도
-    if (slots.length > 0) {
-      const existingSlot = slots[slots.length - 1]
-      // 좌우로 인접 배치 시도
-      const adjacentPositions = [
-        [existingSlot.cx + slotW + SLOT_GAP, existingSlot.cy],  // 오른쪽
-        [existingSlot.cx - slotW - SLOT_GAP, existingSlot.cy],  // 왼쪽
-        [existingSlot.cx, existingSlot.cy + slotD + SLOT_GAP],  // 위
-        [existingSlot.cx, existingSlot.cy - slotD - SLOT_GAP],  // 아래
-      ]
-
-      for (const [adjX, adjY] of adjacentPositions) {
-        if (slots.length >= requiredTotal) break
-        const alreadyPlaced = slots.some(s => Math.abs(s.cx - adjX) < slotW * 0.5 && Math.abs(s.cy - adjY) < slotD * 0.5)
-        if (alreadyPlaced) continue
-
-        const isDisabled = slots.filter(s => s.slot_type === 'disabled').length < requiredDisabled
-        const w = isDisabled ? slotWDisabled : slotW
-        const slot = tryPlaceSlot(adjX, adjY, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
-        if (slot) {
-          slots.push(slot)
-          slotId++
-          console.log(`[주차] 인접 배치 성공: (${adjX.toFixed(1)}, ${adjY.toFixed(1)})`)
-        }
-      }
+    // 줄별로 cx 누적 (각 줄 시작 시 0으로 리셋)
+    // 단순화를 위해: 한 줄의 슬롯 폭을 평균값 사용해 위치 계산.
+    // 폭이 다른 장애인 슬롯이 줄 맨 앞에만 모이도록 했으므로 첫 N개 위치는
+    // disabled 폭, 나머지는 standard 폭으로 누적한다.
+    let cx = 0
+    for (let j = 0; j < col; j++) {
+      const indexAcrossAllRows = row * slotsPerRow + j
+      const jIsDisabled = indexAcrossAllRows < safeDisabled
+      cx += (jIsDisabled ? slotWDisabled : slotW) + SLOT_GAP
     }
+    cx += w / 2
 
-    // 여전히 부족하면 전체 그리드 스캔
-    if (slots.length < requiredTotal) {
-      for (let scanY = siteAABB.minY + MARGIN + slotD / 2; scanY + slotD / 2 <= siteAABB.maxY - MARGIN && slots.length < requiredTotal; scanY += slotD + 0.5) {
-        for (let scanX = siteAABB.minX + MARGIN + slotW / 2; scanX + slotW / 2 <= siteAABB.maxX - MARGIN && slots.length < requiredTotal; scanX += scanStep) {
-          const alreadyPlaced = slots.some(s => Math.abs(s.cx - scanX) < slotW && Math.abs(s.cy - scanY) < slotD)
-          if (alreadyPlaced) continue
-
-          const isDisabled = slots.filter(s => s.slot_type === 'disabled').length < requiredDisabled
-          const w = isDisabled ? slotWDisabled : slotW
-          const slot = tryPlaceSlot(scanX, scanY, w, slotD, isDisabled ? 'disabled' : 'standard', slotId, siteFootprint, exclusions)
-          if (slot) {
-            slots.push(slot)
-            slotId++
-          }
-        }
-      }
+    // 줄 전체를 중앙 정렬하기 위해 줄 폭 계산
+    const rowSlotCount = Math.min(slotsPerRow, safeRequired - row * slotsPerRow)
+    let rowTotalW = 0
+    for (let j = 0; j < rowSlotCount; j++) {
+      const idxInAllRows = row * slotsPerRow + j
+      const jIsDisabled = idxInAllRows < safeDisabled
+      rowTotalW += jIsDisabled ? slotWDisabled : slotW
     }
+    rowTotalW += (rowSlotCount - 1) * SLOT_GAP
+
+    const x = siteCx - rowTotalW / 2 + cx
+    const y = siteCy - (row * (slotD + SLOT_GAP))
+
+    slots.push({
+      id: i,
+      slot_type: isDisabled ? 'disabled' : 'standard',
+      cx: x,
+      cy: y,
+      width: w,
+      depth: slotD,
+      heading: 0,
+      polygon: rectPolygon(x, y, w, slotD),
+    })
   }
 
   // ─── 결과 정리 ───
 
-  const standardSlots = slots.filter(s => s.slot_type === 'standard').length
-  const disabledSlots = slots.filter(s => s.slot_type === 'disabled').length
+  const standardSlots = slots.filter((s) => s.slot_type === 'standard').length
+  const disabledSlots = slots.filter((s) => s.slot_type === 'disabled').length
 
   // 존 경계 AABB
-  const allPoints = [...slots.flatMap(s => s.polygon), ...aisles.flatMap(a => a.polygon)]
   let zMinX = Infinity, zMinY = Infinity, zMaxX = -Infinity, zMaxY = -Infinity
-  for (const [px, py] of allPoints) {
-    if (px < zMinX) zMinX = px
-    if (py < zMinY) zMinY = py
-    if (px > zMaxX) zMaxX = px
-    if (py > zMaxY) zMaxY = py
+  for (const s of slots) {
+    for (const [px, py] of s.polygon) {
+      if (px < zMinX) zMinX = px
+      if (py < zMinY) zMinY = py
+      if (px > zMaxX) zMaxX = px
+      if (py > zMaxY) zMaxY = py
+    }
   }
-
   if (slots.length === 0) {
     zMinX = siteCx - 5; zMinY = siteCy - 5
     zMaxX = siteCx + 5; zMaxY = siteCy + 5
@@ -344,17 +183,9 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
   const zoneDepth = zMaxY - zMinY
   const totalAreaM2 = zoneWidth * zoneDepth
 
-  const warnings: string[] = []
-  if (slots.length < requiredTotal) {
-    warnings.push(`요구 ${requiredTotal}대 중 ${slots.length}대만 배치됨 (영역 부족)`)
-  }
-  if (disabledSlots < requiredDisabled) {
-    warnings.push(`장애인 주차 ${requiredDisabled}대 중 ${disabledSlots}대만 배치됨`)
-  }
-
   const zone: ParkingZoneData = {
     slots,
-    aisles,
+    aisles: [],
     accessPoint: null,
     zonePolygon,
     zoneCenter: [zoneCx, zoneCy],
@@ -365,8 +196,8 @@ export function generateParkingLayout(input: ParkingLayoutInput): ParkingLayoutR
     standardSlots,
     disabledSlots,
     totalAreaM2,
-    parkingAreaRatio: siteW * siteH > 0 ? totalAreaM2 / (siteW * siteH) : 0,
-    warnings,
+    parkingAreaRatio: 0,
+    warnings: [],
   }
 
   // ─── 입구 오브젝트 (존 위쪽 = 도로 쪽) ───

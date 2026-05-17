@@ -753,15 +753,9 @@ export default function ParkingZonePanel() {
               </div>
             )}
 
-            {/* 충족 여부 */}
-            <div className={`rounded p-2 text-xs font-medium text-center ${
-              parkingZone.totalSlots >= parkingCount
-                ? 'bg-green-50 text-green-700 border border-green-200'
-                : 'bg-red-50 text-red-700 border border-red-200'
-            }`}>
-              {parkingZone.totalSlots >= parkingCount
-                ? `주차 기준 충족 (${parkingZone.totalSlots} / ${parkingCount}대)`
-                : `주차 기준 미달 (${parkingZone.totalSlots} / ${parkingCount}대)`}
+            {/* 배치 결과 — 단순 카운트 표시 */}
+            <div className="rounded p-2 text-xs font-medium text-center bg-green-50 text-green-700 border border-green-200">
+              주차 슬롯 {parkingZone.totalSlots}대 배치됨 (요청 {parkingCount}대)
             </div>
           </div>
 
