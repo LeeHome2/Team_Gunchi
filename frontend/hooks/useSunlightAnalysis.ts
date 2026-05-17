@@ -66,6 +66,14 @@ export function useSunlightAnalysis(
     getUserMassRoof,
   } = options
 
+  // options 의 콜백들은 매 render 마다 새로 생성되어 reference 가 바뀐다.
+  // useCallback 의 deps 에 직접 넣으면 startAnalysis 가 매 render 마다 재생성
+  // 되어 비효율적이고, deps 에서 빼면 클로저가 옛 값을 잡아 결과적으로
+  // getUserMassRoof 호출 시 stale 한 closure 의 (대부분 null) 을 보게 된다.
+  // 해결: ref 에 항상 최신 콜백을 저장해 startAnalysis 시점에 latest 를 호출.
+  const callbacksRef = useRef({ getLoadedModelEntity, getUserMassRoof })
+  callbacksRef.current = { getLoadedModelEntity, getUserMassRoof }
+
   // 상태
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null)
@@ -136,8 +144,8 @@ export function useSunlightAnalysis(
     setAnalysisProgress(null)
 
     try {
-      // 사용자 매스 엔티티 가져오기 (일조 분석에서 제외)
-      const loadedModelEntity = getLoadedModelEntity?.()
+      // 사용자 매스 엔티티 가져오기 (일조 분석에서 제외) — 항상 최신 ref 사용
+      const loadedModelEntity = callbacksRef.current.getLoadedModelEntity?.()
       const excludeObjects: any[] = []
       if (loadedModelEntity) {
         // Entity 자체 추가
@@ -215,13 +223,14 @@ export function useSunlightAnalysis(
       })
 
       // 사용자 매스 옥상 정보 (footprint 안쪽 grid 는 옥상 높이에서 샘플링)
-      const userMassRoof = getUserMassRoof?.() ?? null
-      if (userMassRoof) {
-        console.log('일조 분석: 사용자 매스 옥상 사용', {
-          footprintCount: userMassRoof.footprint.length,
-          topHeight: userMassRoof.topHeight,
-        })
-      }
+      // 항상 최신 ref 호출 — 매 render 마다 새 콜백이 들어오므로
+      const userMassRoof = callbacksRef.current.getUserMassRoof?.() ?? null
+      console.log(
+        '일조 분석: 사용자 매스 옥상',
+        userMassRoof
+          ? { footprintCount: userMassRoof.footprint.length, topHeight: userMassRoof.topHeight }
+          : '(없음 - getUserMassRoof 가 null 반환)',
+      )
 
       // 분석 실행 (사용자 매스 제외 + 옥상 처리)
       const result = await analyzeSunlight(
