@@ -4,7 +4,7 @@
 각 도면의 레이어 구성을 정의합니다.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 # 샘플 파일 디렉토리 (frontend/public/samples)
@@ -80,7 +80,7 @@ def get_all_presets() -> List[Dict[str, Any]]:
     return available
 
 
-def get_preset_by_id(preset_id: str) -> Dict[str, Any] | None:
+def get_preset_by_id(preset_id: str) -> Optional[Dict[str, Any]]:
     """ID로 특정 프리셋 조회."""
     for preset in SAMPLE_PRESETS:
         if preset["id"] == preset_id:
@@ -92,7 +92,7 @@ def get_preset_by_id(preset_id: str) -> Dict[str, Any] | None:
     return None
 
 
-def get_preset_filepath(preset_id: str) -> Path | None:
+def get_preset_filepath(preset_id: str) -> Optional[Path]:
     """프리셋 ID로 파일 경로 반환."""
     preset = get_preset_by_id(preset_id)
     if preset:
