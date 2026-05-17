@@ -10,7 +10,6 @@ import {
 } from '@/lib/api'
 import AnalysisModal, { AnalysisResult } from '@/components/AnalysisModal'
 import ParkingZonePanel from '@/components/ParkingZonePanel'
-import SampleCards from '@/components/SampleCards'
 
 import { ZONE_LIMITS, getZoneLimits, type ZoneType } from '@/lib/setbackTable'
 /**
@@ -738,11 +737,6 @@ export default function Sidebar() {
                 </div>
               </div>
             )}
-
-            {/* 샘플 도면 빠른 생성 */}
-            <div className="border-b pb-4">
-              <SampleCards />
-            </div>
 
             {/* 3D 샘플 모델 로드 */}
             <div className="border-b pb-4">

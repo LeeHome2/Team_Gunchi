@@ -127,16 +127,16 @@ export default function AdminProjectsPage() {
             changeType="neutral"
           />
           <StatCard
-            label="AI 추론 성공률"
-            value={classificationStats ? `${classificationStats.success_rate.toFixed(1)}%` : '—'}
+            label="AI 평균 신뢰도"
+            value={classificationStats ? `${(classificationStats.avg_confidence * 100).toFixed(1)}%` : '—'}
             change={classificationStats
-              ? `평균 신뢰도 ${(classificationStats.avg_confidence * 100).toFixed(1)}%`
+              ? `최근 7일 ${(classificationStats.recent_7d_avg_confidence * 100).toFixed(1)}%`
               : '로딩 중'
             }
             changeType={
-              classificationStats && classificationStats.success_rate >= 80
+              classificationStats && classificationStats.avg_confidence >= 0.8
                 ? 'up'
-                : classificationStats && classificationStats.success_rate >= 60
+                : classificationStats && classificationStats.avg_confidence >= 0.6
                   ? 'neutral'
                   : 'down'
             }
