@@ -66,7 +66,7 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
         //         잡 상태 update 누락 버그 회피.
         if (
           j.status === 'running' &&
-          j.progress >= 100 &&
+          (j.progress ?? 0) >= 100 &&
           /완료|complete/i.test(j.message || '')
         ) {
           return { ...j, status: 'completed' }
