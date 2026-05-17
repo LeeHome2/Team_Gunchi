@@ -60,13 +60,16 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
       )
       const rawJobs: JobInfo[] = data.jobs || []
       const newJobs: JobInfo[] = rawJobs.map((j) => {
-        // 보정 1: train 잡인데 실험 DB 에 completed 면 처리됨
-        if (j.status === 'running' && completedRunIds.has(j.job_id)) {
+        // 보정 1: train 잡인데 실험 DB 에 completed 면 처리됨 — running/failed 둘 다 보정.
+        //         학과 서버가 train.py 정상 종료 후에도 잡 상태를 잘못 마킹하는 케이스 회피.
+        if (
+          (j.status === 'running' || j.status === 'failed') &&
+          completedRunIds.has(j.job_id)
+        ) {
           return { ...j, status: 'completed', progress: 100, message: '완료됨' }
         }
         // 보정 2: build/train 잡이 progress=100% 인데 status 가 running 으로
-        //         남아있는 경우(메시지가 '완료' 포함하면 더 확실). 학과 서버의
-        //         잡 상태 update 누락 버그 회피.
+        //         남아있는 경우(메시지가 '완료' 포함하면 더 확실).
         if (
           j.status === 'running' &&
           (j.progress ?? 0) >= 100 &&
