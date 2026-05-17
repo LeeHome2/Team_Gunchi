@@ -124,7 +124,7 @@ def _build_prompt(
   "일조": "등급 또는 N",
   "overall_score": 0~100 사이 정수,
   "summary": "종합 평가를 2~3문장으로 작성",
-  "suggestions": "구체적인 개선 제안을 3개 이내로 작성"
+  "suggestions": "구체적인 개선 제안을 번호 목록으로 3개 작성. 예: 1. 건폐율 여유분 활용하여 주차면적 확대 검토\\n2. 남향 배치로 일조 확보 개선\\n3. 이격거리 추가 확보로 프라이버시 향상"
 }}"""
 
     return prompt
@@ -281,11 +281,24 @@ def _fallback_score(
 
     overall = int(sum(scores) / len(scores)) if scores else 50
 
+    # 데이터 기반 개선 제안 생성
+    suggestions_list = []
+    if grades.get("건폐율") in ("D", "E", "F"):
+        suggestions_list.append("건폐율이 한도에 근접하거나 초과합니다. 건축면적 축소를 검토하세요.")
+    if grades.get("이격거리") in ("D", "E", "F"):
+        suggestions_list.append("이격거리가 부족합니다. 건물 위치를 조정하여 법적 이격거리를 확보하세요.")
+    if grades.get("주차") in ("C", "D", "E", "F"):
+        suggestions_list.append("주차 대수가 부족합니다. 주차 배치 최적화 또는 기계식 주차 도입을 고려하세요.")
+    if grades.get("일조") in ("C", "D", "E", "F"):
+        suggestions_list.append("일조량이 부족합니다. 건물 배치를 남향으로 조정하거나 인동간격을 확보하세요.")
+    if len(suggestions_list) == 0:
+        suggestions_list.append("현재 배치가 양호합니다. 세부 설계 단계에서 마감재 및 에너지 효율을 검토하세요.")
+
     return {
         "category_grades": grades,
         "overall_score": overall,
         "summary": "규칙 기반 자동 평가 결과입니다. LLM 서버 연결 실패로 간이 평가를 수행했습니다.",
-        "suggestions": "LLM 서버 연결 후 상세 분석을 다시 요청해주세요.",
+        "suggestions": "\n".join(f"{i+1}. {s}" for i, s in enumerate(suggestions_list[:3])),
     }
 
 

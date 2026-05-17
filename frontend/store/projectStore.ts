@@ -87,6 +87,25 @@ export interface MassPlacement {
   }
 }
 
+/** 배치안별 일조 분석 결과 */
+export interface PlacementSunlightResult {
+  averageSunlightHours: number
+  minSunlightHours: number
+  maxSunlightHours: number
+  totalPoints: number
+  analysisDate: string
+}
+
+/** 배치안별 규정 검토 결과 */
+export interface PlacementReviewData {
+  zoneType?: string
+  selectedZoneType?: string
+  buildingCoverage: { buildingArea: number; siteArea: number; ratio: number; limit: number; status: 'OK' | 'VIOLATION' } | null
+  setback: { minDistance: number; required: number; status: 'OK' | 'VIOLATION'; details: { type: string; distance: number; required: number; status: 'OK' | 'VIOLATION' }[] } | null
+  heightCheck: { value: number; limit: number | null; status: 'OK' | 'VIOLATION' } | null
+  isModelInBounds: boolean
+}
+
 export interface PlacementPlan {
   id: string
   name: string
@@ -112,11 +131,21 @@ export interface PlacementPlan {
   isParkingVisible: boolean
   gridRotation: number
   parkingPath: ParkingPathData | null
+  /** 일조 분석 결과 (배치안별 저장) */
+  sunlightResult?: PlacementSunlightResult | null
+  /** 규정 검토 결과 (배치안별 저장) */
+  reviewData?: PlacementReviewData | null
+  /** 메인 창문 방향 (나침반 각도 0-360, 180=남향) */
+  mainWindowDirection?: number
   /** AI 스코어 (결과 확인 후 저장) */
   aiScore?: {
     overallScore: number
     categoryGrades: Record<string, string>
     summary: string
+    /** LLM 개선 제안 */
+    suggestions?: string
+    /** 카테고리별 숫자 점수 (scoringEngine 결과) */
+    categories?: { parking: number; sunlight: number; layout: number }
   }
   /** 생성 시각 */
   createdAt: number
@@ -445,6 +474,8 @@ interface ProjectState {
       summary: string
       suggestions: string
       source: 'llm' | 'fallback'
+      /** 카테고리별 숫자 점수 (scoringEngine 결과) */
+      categories?: { parking: number; sunlight: number; layout: number }
     } | null
     error: string | null
   }
@@ -870,11 +901,24 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isParkingVisible: state.isParkingVisible,
       gridRotation: state.gridRotation,
       parkingPath: state.parkingPath ? JSON.parse(JSON.stringify(state.parkingPath)) : null,
+      sunlightResult: state.sunlightAnalysisState.result
+        ? { ...state.sunlightAnalysisState.result }
+        : null,
+      reviewData: {
+        zoneType: state.reviewData.zoneType,
+        selectedZoneType: state.reviewData.selectedZoneType,
+        buildingCoverage: state.reviewData.buildingCoverage ? { ...state.reviewData.buildingCoverage } : null,
+        setback: state.reviewData.setback ? { ...state.reviewData.setback } : null,
+        heightCheck: state.reviewData.heightCheck ? { ...state.reviewData.heightCheck } : null,
+        isModelInBounds: state.reviewData.isModelInBounds,
+      },
       aiScore: state.aiScore.result
         ? {
             overallScore: state.aiScore.result.overallScore,
             categoryGrades: state.aiScore.result.categoryGrades,
             summary: state.aiScore.result.summary,
+            suggestions: state.aiScore.result.suggestions,
+            categories: state.aiScore.result.categories,
           }
         : undefined,
       createdAt: now,
@@ -913,6 +957,28 @@ export const useProjectStore = create<ProjectState>((set) => ({
               isParkingVisible: s.isParkingVisible,
               gridRotation: s.gridRotation,
               parkingPath: s.parkingPath ? JSON.parse(JSON.stringify(s.parkingPath)) : null,
+              sunlightResult: s.sunlightAnalysisState.result
+                ? { ...s.sunlightAnalysisState.result }
+                : p.sunlightResult,  // 기존 값 유지
+              reviewData: s.reviewData.buildingCoverage || s.reviewData.setback || s.reviewData.heightCheck
+                ? {
+                    zoneType: s.reviewData.zoneType,
+                    selectedZoneType: s.reviewData.selectedZoneType,
+                    buildingCoverage: s.reviewData.buildingCoverage ? { ...s.reviewData.buildingCoverage } : null,
+                    setback: s.reviewData.setback ? { ...s.reviewData.setback } : null,
+                    heightCheck: s.reviewData.heightCheck ? { ...s.reviewData.heightCheck } : null,
+                    isModelInBounds: s.reviewData.isModelInBounds,
+                  }
+                : p.reviewData,  // 기존 값 유지
+              aiScore: s.aiScore.result
+                ? {
+                    overallScore: s.aiScore.result.overallScore,
+                    categoryGrades: s.aiScore.result.categoryGrades,
+                    summary: s.aiScore.result.summary,
+                    suggestions: s.aiScore.result.suggestions,
+                    categories: s.aiScore.result.categories,
+                  }
+                : p.aiScore,  // 기존 값 유지
               updatedAt: Date.now(),
             }
           : p
@@ -932,6 +998,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }
 
     // 배치안 로드 (매스 데이터는 건드리지 않음, transform만 적용)
+    // 저장된 일조/규정/AI스코어 결과도 함께 복원
     set({
       activePlanId: id,
       modelTransform: { ...plan.modelTransform },
@@ -944,19 +1011,52 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isParkingVisible: plan.isParkingVisible,
       gridRotation: plan.gridRotation,
       parkingPath: plan.parkingPath ? JSON.parse(JSON.stringify(plan.parkingPath)) : null,
-      // 배치안 전환 시 이전 검토 결과를 비워서 stale 부적합 판정이 유지되지
-      // 않도록 한다. 사용자가 새 배치안에서 검토를 다시 실행하면 갱신됨.
-      reviewData: {
-        zoneType: state.reviewData.zoneType,
-        selectedZoneType: state.reviewData.selectedZoneType,
-        buildingCoverage: null,
-        setback: null,
-        heightCheck: null,
-        isModelInBounds: true,
-      },
+      // 저장된 일조 분석 결과 복원
+      sunlightAnalysisState: plan.sunlightResult
+        ? {
+            isAnalyzing: false,
+            progress: null,
+            result: { ...plan.sunlightResult },
+            showHeatmap: false,
+            heatmapMode: 'point' as const,
+          }
+        : { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
+      // 저장된 규정 검토 결과 복원
+      reviewData: plan.reviewData
+        ? {
+            zoneType: plan.reviewData.zoneType,
+            selectedZoneType: plan.reviewData.selectedZoneType,
+            buildingCoverage: plan.reviewData.buildingCoverage ? { ...plan.reviewData.buildingCoverage } : null,
+            setback: plan.reviewData.setback ? { ...plan.reviewData.setback } : null,
+            heightCheck: plan.reviewData.heightCheck ? { ...plan.reviewData.heightCheck } : null,
+            isModelInBounds: plan.reviewData.isModelInBounds,
+          }
+        : {
+            zoneType: state.reviewData.zoneType,
+            selectedZoneType: state.reviewData.selectedZoneType,
+            buildingCoverage: null,
+            setback: null,
+            heightCheck: null,
+            isModelInBounds: true,
+          },
+      // 저장된 AI 스코어 복원
+      aiScore: plan.aiScore
+        ? {
+            isLoading: false,
+            result: {
+              overallScore: plan.aiScore.overallScore,
+              categoryGrades: plan.aiScore.categoryGrades,
+              summary: plan.aiScore.summary,
+              suggestions: plan.aiScore.suggestions || '',
+              source: 'llm' as const,
+              categories: plan.aiScore.categories,
+            },
+            error: null,
+          }
+        : { isLoading: false, result: null, error: null },
       validation: null,
     })
-    console.log('[ProjectStore] 배치안 로드:', id, '매스는 프로젝트 레벨에서 공유')
+    console.log('[ProjectStore] 배치안 로드:', id, '일조/규정/AI스코어 복원됨')
   },
 
   reset: () =>

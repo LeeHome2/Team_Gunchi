@@ -20,9 +20,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Brand from '@/components/Brand'
-import { useProjectStore } from '@/store/projectStore'
+import { useProjectStore, PlacementPlan } from '@/store/projectStore'
 import { requestAIScoring } from '@/lib/analysisApi'
 import { calculatePolygonArea } from '@/lib/geometry'
+import { calculateVariantScore } from '@/lib/scoringEngine'
 import { fetchLatestReviewResult } from '@/lib/api'
 import { loadRegulationsFromServer, getZoneLimits, type ZoneType } from '@/lib/setbackTable'
 
@@ -203,8 +204,15 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId, placementPlans, saveActivePlan } =
     useProjectStore()
+
+  // 선호도 체크박스 상태
+  const [preferences, setPreferences] = useState({
+    parkingFitness: false,
+    southFacing: false,
+    layoutAppropriateness: false,
+  })
 
   // 페이지 진입 시 서버에서 최신 규정 기준값 로드
   // (관리자가 /admin/regulations 에서 변경한 값을 즉시 반영하기 위함)
@@ -319,118 +327,7 @@ export default function ResultPage() {
   const lon = modelTransform?.longitude ?? workArea?.longitude ?? null
   const lat = modelTransform?.latitude ?? workArea?.latitude ?? null
 
-  // AI 스코어링 요청
-  const handleAIScoring = useCallback(async () => {
-    setAIScore({ isLoading: true, error: null })
-    try {
-      // 주차 데이터 조립
-      const parkingData = parkingZone ? {
-        required_total: parkingConfig?.requiredTotal ?? 0,
-        placed_total: parkingZone.totalSlots,
-        required_disabled: parkingConfig?.requiredDisabled ?? 0,
-        placed_disabled: parkingZone.disabledSlots,
-        total_area_m2: parkingZone.totalAreaM2,
-        parking_area_ratio: parkingZone.parkingAreaRatio,
-      } : null
-
-      // 일조 데이터 조립
-      const sunlightData = sunlightAnalysisState?.result ? {
-        avg_sunlight_hours: sunlightAnalysisState.result.averageSunlightHours,
-        min_sunlight_hours: sunlightAnalysisState.result.minSunlightHours,
-        max_sunlight_hours: sunlightAnalysisState.result.maxSunlightHours,
-        total_points: sunlightAnalysisState.result.totalPoints,
-      } : null
-
-      const res = await requestAIScoring(validation, parkingData, sunlightData)
-
-      setAIScore({
-        isLoading: false,
-        result: {
-          categoryGrades: res.category_grades,
-          overallScore: res.overall_score,
-          summary: res.summary,
-          suggestions: res.suggestions,
-          source: res.source,
-        },
-        error: res.error || null,
-      })
-    } catch (e: any) {
-      setAIScore({ isLoading: false, error: e.message || 'AI 스코어링 실패' })
-    }
-  }, [validation, parkingZone, parkingConfig, sunlightAnalysisState, setAIScore])
-
-  // validation이 비어있으면 reviewData(검토 탭에서 계산된 값)으로 fallback.
-  // 검토 탭은 reviewData에 저장하지만 result 페이지는 validation을 읽으므로 매핑이 필요.
-  const cov = validation?.building_coverage ?? (reviewData?.buildingCoverage ? {
-    value: reviewData.buildingCoverage.ratio,
-    limit: reviewData.buildingCoverage.limit,
-    status: reviewData.buildingCoverage.status === 'OK' ? 'OK' : 'fail',
-    building_area: reviewData.buildingCoverage.buildingArea,
-    site_area: reviewData.buildingCoverage.siteArea,
-  } : null)
-
-  const setback = validation?.setback ?? (reviewData?.setback ? {
-    min_distance_m: reviewData.setback.minDistance,
-    required_m: reviewData.setback.required,
-    status: reviewData.setback.status === 'OK' ? 'OK' : 'fail',
-  } : null)
-
-  // validation에 height 정보가 없으면 reviewData.heightCheck 사용, 그것도 없으면 building.height로 추정
-  const height = validation?.height ?? (reviewData?.heightCheck ? {
-    value_m: reviewData.heightCheck.value,
-    limit_m: reviewData.heightCheck.limit,
-    status: reviewData.heightCheck.status === 'OK' ? 'OK' : 'fail',
-  } : building?.height != null ? {
-    value_m: building.height,
-    limit_m: null,
-    status: 'unknown',
-  } : null)
-
-  // 위반 사항: validation 우선, 없으면 reviewData에서 자동 생성
-  const violations = validation?.violations ?? (() => {
-    const v: { code: string; message: string }[] = []
-    if (reviewData?.buildingCoverage?.status === 'VIOLATION') {
-      v.push({
-        code: 'COVERAGE_EXCEED',
-        message: `건폐율 ${reviewData.buildingCoverage.ratio.toFixed(1)}% 가 한도 ${reviewData.buildingCoverage.limit}% 를 초과합니다`,
-      })
-    }
-    if (reviewData?.setback?.status === 'VIOLATION') {
-      v.push({
-        code: 'SETBACK_VIOLATION',
-        message: `이격거리 ${reviewData.setback.minDistance.toFixed(2)}m 가 최소 ${reviewData.setback.required}m 미만입니다`,
-      })
-    }
-    if (reviewData?.heightCheck?.status === 'VIOLATION') {
-      v.push({
-        code: 'HEIGHT_EXCEED',
-        message: `건물 높이 ${reviewData.heightCheck.value.toFixed(1)}m 가 한도 ${reviewData.heightCheck.limit}m 를 초과합니다`,
-      })
-    }
-    // isModelInBounds(건축선 안쪽 여부)는 setback 체크와 본질적으로 같은
-    // 제약이라 별도 위반으로 카운트하지 않는다. 시각 피드백(에디터의 바운더리
-    // 색상)에서만 활용.
-    return v
-  })()
-
-  // 종합 status: validation 우선, 없으면 reviewData / violations 기반
-  const overallStatus: StatusKey = (() => {
-    if (validation?.is_valid === true) return 'pass'
-    if (validation?.is_valid === false) return 'fail'
-    if (violations.length > 0) return 'fail'
-    if (reviewData?.buildingCoverage || reviewData?.setback || reviewData?.heightCheck) {
-      // reviewData가 있고 위반사항이 없으면 적합
-      const allOk =
-        (!reviewData.buildingCoverage || reviewData.buildingCoverage.status === 'OK') &&
-        (!reviewData.setback || reviewData.setback.status === 'OK') &&
-        (!reviewData.heightCheck || reviewData.heightCheck.status === 'OK') &&
-        reviewData.isModelInBounds !== false
-      return allOk ? 'pass' : 'fail'
-    }
-    return 'unknown'
-  })()
-
-  // ─── AI 스코어링 입력 데이터 계산 ─────────────────────────────
+  // ─── 배치안 분석 결과 계산 ─────────────────────────────
   const scoringInputData = useMemo(() => {
     // 1. 일조량 분석 결과
     const sunlight = sunlightAnalysisState?.result ? {
@@ -457,7 +354,7 @@ export default function ResultPage() {
     // 주차 경로 면적 (parkingPath)
     if (parkingPath?.points && parkingPath.points.length >= 2) {
       // 경로는 폴리라인이므로 폭(약 3m)을 가정하여 면적 계산
-      const pathWidth = parkingPath.vehicleWidth ?? 3 // m
+      const pathWidth = (parkingPath as any).vehicleWidth ?? 3 // m
       // parkingPath.length 가 이미 계산된 경로 길이
       pathArea += parkingPath.length * pathWidth
     }
@@ -574,6 +471,278 @@ export default function ResultPage() {
       totalWindows,
     }
   }, [sunlightAnalysisState, reviewData, site, parkingZone, parkingPath, generatedMasses, modelTransform, loadedMassGlbUrl])
+
+  // AI 스코어링 요청 - scoringEngine으로 점수 계산 후 LLM에서 요약/제안 생성
+  const handleAIScoring = useCallback(async () => {
+    setAIScore({ isLoading: true, error: null })
+    try {
+      // 주차 데이터 조립
+      const parkingData = parkingZone ? {
+        required_total: parkingConfig?.requiredTotal ?? 0,
+        placed_total: parkingZone.totalSlots,
+        required_disabled: parkingConfig?.requiredDisabled ?? 0,
+        placed_disabled: parkingZone.disabledSlots,
+        total_area_m2: parkingZone.totalAreaM2,
+        parking_area_ratio: parkingZone.parkingAreaRatio,
+      } : null
+
+      // 일조 데이터 조립
+      const sunlightData = sunlightAnalysisState?.result ? {
+        avg_sunlight_hours: sunlightAnalysisState.result.averageSunlightHours,
+        min_sunlight_hours: sunlightAnalysisState.result.minSunlightHours,
+        max_sunlight_hours: sunlightAnalysisState.result.maxSunlightHours,
+        total_points: sunlightAnalysisState.result.totalPoints,
+      } : null
+
+      // scoringEngine으로 점수 계산
+      const parkingDistance = parkingPath?.length ?? 50
+      const baseSunlightHours = sunlightAnalysisState?.result?.averageSunlightHours ?? 0
+      // 실제 각도 차이 사용 (정남향 180°에서 얼마나 벗어났는지)
+      const angleFromSouth = Math.abs(scoringInputData.mainWindowDirection - 180)
+      // 창문 방향에 따른 채광 보정 (남향 100%, 북향 50%)
+      // 변별력 강화: 주변 건물 없을 때도 배치 방향에 따라 의미있는 점수 차이 발생
+      const windowFactor = 1 - (angleFromSouth / 180) * 0.5
+      const effectiveSunlightHours = baseSunlightHours * windowFactor
+
+      const calculatedScores = calculateVariantScore({
+        parkingDistance,
+        sunlightHours: effectiveSunlightHours,
+        angleFromSouth,
+        preferences,
+      })
+
+      // LLM에서 요약/제안만 받아옴
+      const res = await requestAIScoring(validation, parkingData, sunlightData)
+
+      setAIScore({
+        isLoading: false,
+        result: {
+          categoryGrades: res.category_grades,
+          overallScore: calculatedScores.overall,  // scoringEngine 점수 사용
+          summary: res.summary,
+          suggestions: res.suggestions,
+          source: res.source,
+          categories: calculatedScores.categories,  // 카테고리별 점수 저장
+        },
+        error: res.error || null,
+      })
+
+      // 현재 배치안에 스코어 저장
+      saveActivePlan()
+    } catch (e: any) {
+      setAIScore({ isLoading: false, error: e.message || 'AI 스코어링 실패' })
+    }
+  }, [validation, parkingZone, parkingConfig, sunlightAnalysisState, parkingPath, preferences, setAIScore, saveActivePlan, scoringInputData])
+
+  // validation이 비어있으면 reviewData(검토 탭에서 계산된 값)으로 fallback.
+  // 검토 탭은 reviewData에 저장하지만 result 페이지는 validation을 읽으므로 매핑이 필요.
+  const cov = validation?.building_coverage ?? (reviewData?.buildingCoverage ? {
+    value: reviewData.buildingCoverage.ratio,
+    limit: reviewData.buildingCoverage.limit,
+    status: reviewData.buildingCoverage.status === 'OK' ? 'OK' : 'fail',
+    building_area: reviewData.buildingCoverage.buildingArea,
+    site_area: reviewData.buildingCoverage.siteArea,
+  } : null)
+
+  const setback = validation?.setback ?? (reviewData?.setback ? {
+    min_distance_m: reviewData.setback.minDistance,
+    required_m: reviewData.setback.required,
+    status: reviewData.setback.status === 'OK' ? 'OK' : 'fail',
+  } : null)
+
+  // validation에 height 정보가 없으면 reviewData.heightCheck 사용, 그것도 없으면 building.height로 추정
+  const height = validation?.height ?? (reviewData?.heightCheck ? {
+    value_m: reviewData.heightCheck.value,
+    limit_m: reviewData.heightCheck.limit,
+    status: reviewData.heightCheck.status === 'OK' ? 'OK' : 'fail',
+  } : building?.height != null ? {
+    value_m: building.height,
+    limit_m: null,
+    status: 'unknown',
+  } : null)
+
+  // 위반 사항: validation 우선, 없으면 reviewData에서 자동 생성
+  const violations = validation?.violations ?? (() => {
+    const v: { code: string; message: string }[] = []
+    if (reviewData?.buildingCoverage?.status === 'VIOLATION') {
+      v.push({
+        code: 'COVERAGE_EXCEED',
+        message: `건폐율 ${reviewData.buildingCoverage.ratio.toFixed(1)}% 가 한도 ${reviewData.buildingCoverage.limit}% 를 초과합니다`,
+      })
+    }
+    if (reviewData?.setback?.status === 'VIOLATION') {
+      v.push({
+        code: 'SETBACK_VIOLATION',
+        message: `이격거리 ${reviewData.setback.minDistance.toFixed(2)}m 가 최소 ${reviewData.setback.required}m 미만입니다`,
+      })
+    }
+    if (reviewData?.heightCheck?.status === 'VIOLATION') {
+      v.push({
+        code: 'HEIGHT_EXCEED',
+        message: `건물 높이 ${reviewData.heightCheck.value.toFixed(1)}m 가 한도 ${reviewData.heightCheck.limit}m 를 초과합니다`,
+      })
+    }
+    // isModelInBounds(건축선 안쪽 여부)는 setback 체크와 본질적으로 같은
+    // 제약이라 별도 위반으로 카운트하지 않는다. 시각 피드백(에디터의 바운더리
+    // 색상)에서만 활용.
+    return v
+  })()
+
+  // 종합 status: validation 우선, 없으면 reviewData / violations 기반
+  const overallStatus: StatusKey = (() => {
+    if (validation?.is_valid === true) return 'pass'
+    if (validation?.is_valid === false) return 'fail'
+    if (violations.length > 0) return 'fail'
+    if (reviewData?.buildingCoverage || reviewData?.setback || reviewData?.heightCheck) {
+      // reviewData가 있고 위반사항이 없으면 적합
+      const allOk =
+        (!reviewData.buildingCoverage || reviewData.buildingCoverage.status === 'OK') &&
+        (!reviewData.setback || reviewData.setback.status === 'OK') &&
+        (!reviewData.heightCheck || reviewData.heightCheck.status === 'OK') &&
+        reviewData.isModelInBounds !== false
+      return allOk ? 'pass' : 'fail'
+    }
+    return 'unknown'
+  })()
+
+  // 메인 창문 방향 계산 헬퍼 함수
+  const calculateWindowDirection = useCallback((massId: string | null, buildingRotation: number): number => {
+    // 매스 찾기
+    const mass = massId
+      ? generatedMasses?.find(m => m.id === massId)
+      : generatedMasses?.[0]
+
+    if (!mass?.openings) return 180  // 창문 없으면 기본값 남향
+
+    const windows = mass.openings.filter(o => o.type === 'window')
+    if (windows.length === 0) return 180
+
+    // 외부를 향하는 창문 필터링
+    const isExteriorFacing = (win: { x: number; y: number; rotation?: number }) => {
+      const radialAngle = Math.atan2(win.y, win.x) * 180 / Math.PI
+      const windowLineAngle = win.rotation || 0
+      let angleDiff = Math.abs(radialAngle - windowLineAngle) % 360
+      if (angleDiff > 180) angleDiff = 360 - angleDiff
+      return angleDiff >= 60 && angleDiff <= 120
+    }
+    const exteriorWindows = windows.filter(isExteriorFacing)
+    const candidateWindows = exteriorWindows.length > 0 ? exteriorWindows : windows
+
+    // 건물 중심에서 가장 먼 창문 찾기
+    let maxDist = 0
+    let mainWindow = candidateWindows[0]
+    for (const win of candidateWindows) {
+      const dist = Math.sqrt(win.x * win.x + win.y * win.y)
+      if (dist > maxDist) {
+        maxDist = dist
+        mainWindow = win
+      }
+    }
+
+    // GLB 좌표 변환 및 건물 회전 적용
+    const glbX = -mainWindow.y
+    const glbY = mainWindow.x
+    const rotRad = buildingRotation * Math.PI / 180
+    const rotatedX = glbX * Math.cos(rotRad) - glbY * Math.sin(rotRad)
+    const rotatedY = glbX * Math.sin(rotRad) + glbY * Math.cos(rotRad)
+    const mathAngle = Math.atan2(rotatedY, rotatedX) * 180 / Math.PI
+
+    return (90 - mathAngle + 360) % 360
+  }, [generatedMasses])
+
+  // 배치안별 점수 계산 (실제 placementPlans 데이터 사용)
+  const variantsData = useMemo(() => {
+    // 일조량은 대지에 대한 분석이므로 모든 배치안이 동일한 기본값 사용
+    // 우선순위: 현재 분석 결과 > 저장된 배치안 중 하나의 결과
+    const baseSunlightHours = sunlightAnalysisState?.result?.averageSunlightHours
+      ?? placementPlans.find(p => p.sunlightResult?.averageSunlightHours)?.sunlightResult?.averageSunlightHours
+      ?? 0
+
+    // 창문 방향에 따른 채광 보정 계수 계산
+    // 남향(0°): 100%, 동/서향(90°): 75%, 북향(180°): 50%
+    // 변별력 강화: 주변 건물 없어도 배치 방향에 따라 큰 점수 차이 발생
+    const getSunlightWithWindowFactor = (angleFromSouth: number) => {
+      const factor = 1 - (angleFromSouth / 180) * 0.5  // 0° → 1.0, 180° → 0.5
+      return baseSunlightHours * factor
+    }
+
+    // 현재 활성 배치안의 점수 (scoringEngine 계산)
+    const currentParkingDistance = parkingPath?.length ?? 50
+    // 실제 각도 차이 사용 (정남향 180°에서 얼마나 벗어났는지)
+    const currentAngleFromSouth = Math.abs(scoringInputData.mainWindowDirection - 180)
+    // 창문 방향 보정된 일조량
+    const currentEffectiveSunlight = getSunlightWithWindowFactor(currentAngleFromSouth)
+
+    const currentScores = calculateVariantScore({
+      parkingDistance: currentParkingDistance,
+      sunlightHours: currentEffectiveSunlight,
+      angleFromSouth: currentAngleFromSouth,
+      preferences,
+    })
+
+    // 현재 배치안 데이터
+    const currentPlan = placementPlans.find(p => p.id === activePlanId)
+    const currentVariant = {
+      id: activePlanId || 'current',
+      name: currentPlan?.name || '현재',
+      isCurrent: true,
+      score: aiScore.result?.categories ? aiScore.result.overallScore : currentScores.overall,
+      categories: aiScore.result?.categories || currentScores.categories,
+      angleFromSouth: currentAngleFromSouth,
+    }
+
+    // 다른 배치안들의 점수 (저장된 aiScore 또는 재계산)
+    const otherVariants = placementPlans
+      .filter(p => p.id !== activePlanId)
+      .map((plan) => {
+        // 배치안별 창문 방향 계산 (저장된 rotation 사용)
+        const planWindowDirection = calculateWindowDirection(plan.activeMassId, plan.modelTransform.rotation)
+        const planAngleFromSouth = Math.abs(planWindowDirection - 180)
+
+        // 저장된 점수가 있으면 사용, 없으면 저장된 데이터로 계산
+        if (plan.aiScore?.categories) {
+          return {
+            id: plan.id,
+            name: plan.name,
+            isCurrent: false,
+            score: plan.aiScore.overallScore,
+            categories: plan.aiScore.categories,
+            angleFromSouth: planAngleFromSouth,
+          }
+        }
+
+        // 저장된 데이터로 점수 계산
+        const planParkingDistance = plan.parkingPath?.length ?? 50
+        // 창문 방향 보정된 일조량 (기본 일조량 × 방향 계수)
+        const planEffectiveSunlight = getSunlightWithWindowFactor(planAngleFromSouth)
+
+        const planScores = calculateVariantScore({
+          parkingDistance: planParkingDistance,
+          sunlightHours: planEffectiveSunlight,
+          angleFromSouth: planAngleFromSouth,
+          preferences,
+        })
+
+        return {
+          id: plan.id,
+          name: plan.name,
+          isCurrent: false,
+          score: planScores.overall,
+          categories: planScores.categories,
+          angleFromSouth: planAngleFromSouth,
+        }
+      })
+
+    return [currentVariant, ...otherVariants]
+  }, [placementPlans, activePlanId, aiScore, parkingPath, sunlightAnalysisState, scoringInputData, preferences, calculateWindowDirection])
+
+  // 점수 순으로 정렬된 배치안
+  const sortedVariants = useMemo(() => {
+    return [...variantsData].sort((a, b) => b.score - a.score)
+  }, [variantsData])
+
+  // 1등 배치안
+  const topVariant = sortedVariants[0]
 
   return (
     <div className="min-h-screen bg-navy-950 text-white">
@@ -808,9 +977,9 @@ export default function ResultPage() {
               )}
             </section>
 
-            {/* AI 스코어링 입력 데이터 */}
+            {/* 배치안 분석 결과 */}
             <section>
-              <h2 className="text-base font-semibold text-white mb-3">AI 스코어링 입력 데이터</h2>
+              <h2 className="text-base font-semibold text-white mb-3">배치안 분석 결과</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* 일조량 분석 */}
                 <div className="card p-4">
@@ -936,9 +1105,9 @@ export default function ResultPage() {
               </div>
             </section>
 
-            {/* AI 종합 스코어링 */}
-            <section>
-              <div className="flex items-center justify-between mb-3">
+            {/* AI 종합 스코어링 - 배치안 비교 UI */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold text-white">AI 종합 스코어링</h2>
                 <button
                   onClick={handleAIScoring}
@@ -958,7 +1127,7 @@ export default function ResultPage() {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
-                      {aiScore.result ? 'AI 재평가' : 'AI 스코어링 실행'}
+                      {aiScore.result ? 'AI 재평가' : 'AI 재평가'}
                     </>
                   )}
                 </button>
@@ -970,81 +1139,144 @@ export default function ResultPage() {
                 </div>
               )}
 
-              {!aiScore.result && !aiScore.isLoading && !aiScore.error && (
-                <div className="card px-4 py-8 text-center">
-                  <div className="w-12 h-12 rounded-full bg-brand-500/10 flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-brand-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
+              {/* 메인 스코어링 카드 - 원형점수 + 테이블 + 체크박스 */}
+              <div className="flex flex-col lg:flex-row gap-4">
+                {/* 좌측: 원형 점수판 + 비교 테이블 */}
+                <div className="card flex-1 p-6 flex flex-col md:flex-row items-center gap-8">
+                  {/* 원형 점수 */}
+                  <div className="relative flex-shrink-0">
+                    <div className="absolute -top-3 -left-3 w-12 h-12 rounded-full bg-brand-500 border-2 border-brand-300 flex items-center justify-center font-bold text-white text-sm shadow-lg z-10">
+                      {topVariant?.name?.slice(0, 3) || 'A안'}
+                    </div>
+                    <div className="relative w-36 h-36 rounded-full bg-brand-500/10 border-4 border-brand-500/30 flex flex-col items-center justify-center">
+                      <span className="text-xs text-brand-300 font-semibold mb-0.5 uppercase tracking-tight">SCORE</span>
+                      <span className="text-5xl font-black text-brand-400">
+                        {topVariant?.score ?? 0}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-sm text-white/70 mb-1">AI 스코어링으로 배치를 종합 평가합니다</div>
-                  <div className="text-xs text-white/40">배치검토 · 주차 · 일조 결과를 LLM이 분석하여 항목별 등급과 개선점을 제안합니다</div>
+
+                  {/* 비교 테이블 */}
+                  <div className="flex-1 w-full overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-xs text-brand-300 uppercase bg-white/5 border-b border-white/10">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left font-semibold rounded-tl-lg">대안</th>
+                          <th className="px-4 py-2.5 text-center font-semibold">총점</th>
+                          <th className="px-4 py-2.5 text-center font-semibold">일조량</th>
+                          <th className="px-4 py-2.5 text-center font-semibold">배치 규정</th>
+                          <th className="px-4 py-2.5 text-center font-semibold rounded-tr-lg">주차 편의</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {variantsData.length > 0 ? variantsData.map((variant) => (
+                          <tr
+                            key={variant.id}
+                            className={`border-b border-white/5 ${variant.isCurrent ? 'bg-brand-500/10' : ''}`}
+                          >
+                            <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
+                              {variant.isCurrent && <span className="w-2 h-2 rounded-full bg-brand-400" />}
+                              {variant.name} {variant.isCurrent ? '(현재)' : ''}
+                            </td>
+                            <td className="px-4 py-3 text-center font-bold text-brand-300">
+                              {variant.score}점
+                            </td>
+                            <td className="px-4 py-3 text-center text-white/70">
+                              {variant.categories.sunlight}점
+                            </td>
+                            <td className="px-4 py-3 text-center text-white/70">
+                              {variant.categories.layout}점
+                            </td>
+                            <td className="px-4 py-3 text-center text-white/70">
+                              {variant.categories.parking}점
+                            </td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-center text-white/40">
+                              배치안이 없습니다. 먼저 배치안을 저장해주세요.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 우측: 선호도 체크박스 */}
+                <div className="card w-full lg:w-56 p-5 border-brand-500/30 bg-brand-500/5 flex flex-col gap-4">
+                  <div className="text-xs text-brand-300 font-semibold uppercase tracking-wider mb-1">선호도 가중치</div>
+                  {[
+                    { id: 'southFacing', label: '일조량' },
+                    { id: 'layoutAppropriateness', label: '배치' },
+                    { id: 'parkingFitness', label: '주차 편의' },
+                  ].map((pref) => (
+                    <label key={pref.id} className="flex items-center justify-between group cursor-pointer">
+                      <span className="text-sm text-white/80 group-hover:text-white flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
+                        {pref.label}
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="w-5 h-5 rounded border-white/20 bg-black/40 text-brand-500 focus:ring-brand-500/50 cursor-pointer"
+                        checked={preferences[pref.id as keyof typeof preferences] || false}
+                        onChange={(e) => setPreferences(p => ({ ...p, [pref.id]: e.target.checked }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 제안 순위 섹션 */}
+              <div className="card p-5">
+                <div className="flex flex-col md:flex-row items-center gap-4">
+                  <div className="text-brand-300 font-bold text-lg italic shrink-0">
+                    제안 순위
+                  </div>
+                  <div className="flex items-center justify-center flex-1 flex-wrap gap-3">
+                    {sortedVariants.map((variant, index) => (
+                      <div key={variant.id} className="flex items-center gap-3">
+                        <div className={`px-5 py-2.5 border-2 font-semibold rounded-lg transition-all ${
+                          index === 0
+                            ? 'border-brand-500 bg-brand-500/20 text-brand-100 shadow-[0_0_12px_rgba(59,130,246,0.25)]'
+                            : 'border-white/10 bg-white/5 text-white/50'
+                        }`}>
+                          {variant.name} ({variant.score}점)
+                        </div>
+                        {index < sortedVariants.length - 1 && (
+                          <svg className="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 5l7 7-7 7" />
+                          </svg>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {sortedVariants.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-white/5 text-sm flex items-center gap-2">
+                    <span className="text-brand-300 font-medium">○ 분석결과:</span>
+                    <span className="text-white/80">
+                      현재 선호도 기준 최적의 대안은 <span className="text-brand-400 font-bold">{topVariant?.name}</span>이며, 종합 스코어는 <span className="text-brand-400 font-bold">{topVariant?.score}점</span>입니다.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* LLM 요약 (LLM 연결 성공 시에만 표시) */}
+              {aiScore.result?.summary && aiScore.result.source === 'llm' && (
+                <div className="card p-4">
+                  <div className="text-xs text-white/40 uppercase tracking-wider mb-2">AI 분석 요약</div>
+                  <div className="text-sm text-white/80 leading-relaxed">{aiScore.result.summary}</div>
                 </div>
               )}
 
-              {aiScore.result && (
-                <div className="space-y-4">
-                  {/* 종합 점수 + 등급 그리드 */}
-                  <div className="card p-5">
-                    <div className="flex items-center gap-6 mb-5">
-                      {/* 원형 점수 */}
-                      <div className="relative w-24 h-24 flex-shrink-0">
-                        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
-                          <circle
-                            cx="50" cy="50" r="42" fill="none"
-                            stroke={aiScore.result.overallScore >= 80 ? '#10b981' : aiScore.result.overallScore >= 60 ? '#f59e0b' : '#ef4444'}
-                            strokeWidth="8"
-                            strokeLinecap="round"
-                            strokeDasharray={`${aiScore.result.overallScore * 2.64} 264`}
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="text-2xl font-bold text-white">{aiScore.result.overallScore}</span>
-                          <span className="text-[10px] text-white/40">/ 100</span>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm text-white/80 leading-relaxed">{aiScore.result.summary}</div>
-                        {aiScore.result.source === 'fallback' && (
-                          <div className="text-xs text-amber-400/80 mt-2">⚡ LLM 서버 연결 실패 — 규칙 기반 간이 평가</div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 항목별 등급 */}
-                    <div className="grid grid-cols-5 gap-3">
-                      {Object.entries(aiScore.result.categoryGrades).map(([cat, grade]) => {
-                        const gradeColors: Record<string, string> = {
-                          A: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-                          B: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
-                          C: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-                          D: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
-                          E: 'bg-red-500/20 text-red-300 border-red-500/40',
-                          F: 'bg-red-700/20 text-red-400 border-red-700/40',
-                          N: 'bg-white/5 text-white/40 border-white/10',
-                        }
-                        return (
-                          <div key={cat} className="text-center">
-                            <div className={`text-2xl font-bold rounded-lg border py-2 mb-1.5 ${gradeColors[grade] || gradeColors.N}`}>
-                              {grade}
-                            </div>
-                            <div className="text-xs text-white/50">{cat}</div>
-                          </div>
-                        )
-                      })}
-                    </div>
+              {/* 개선 제안 (LLM 연결 성공 시에만 표시) */}
+              {aiScore.result?.suggestions && aiScore.result.source === 'llm' && (
+                <div className="card p-4">
+                  <div className="text-xs text-white/40 uppercase tracking-wider mb-2">개선 제안</div>
+                  <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">
+                    {aiScore.result.suggestions}
                   </div>
-
-                  {/* 개선 제안 */}
-                  {aiScore.result.suggestions && (
-                    <div className="card p-4">
-                      <div className="text-xs text-white/40 uppercase tracking-wider mb-2">개선 제안</div>
-                      <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">
-                        {aiScore.result.suggestions}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </section>
