@@ -581,7 +581,12 @@ export default function ResultPage() {
           </span>
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={() => router.push('/editor')}
+              onClick={() => {
+                // projectId 를 유지한 채로 에디터로 돌아가야 editor 페이지의
+                // useEffect 가 setProjectId(null) 로 store 를 초기화하지 않음.
+                const dest = projectId ? `/editor?projectId=${projectId}` : '/editor'
+                router.push(dest)
+              }}
               className="btn-ghost text-sm flex items-center gap-1.5"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -608,7 +613,13 @@ export default function ResultPage() {
             <p className="text-sm text-white/60 mb-5">
               에디터에서 도면 업로드 → 배치 → 규정 검토까지 완료한 뒤 ‘결과 확인’ 버튼을 눌러주세요.
             </p>
-            <button onClick={() => router.push('/editor')} className="btn-primary text-sm">
+            <button
+              onClick={() => {
+                const dest = projectId ? `/editor?projectId=${projectId}` : '/editor'
+                router.push(dest)
+              }}
+              className="btn-primary text-sm"
+            >
               에디터로 이동
             </button>
           </div>
