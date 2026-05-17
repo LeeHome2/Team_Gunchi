@@ -27,20 +27,47 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
   const [logTails, setLogTails] = useState<Record<string, string[]>>({})
 
   // 작업 목록 폴링
+  // AI 분류 서버 버그 회피: 학습이 실제로는 끝났는데 잡 큐의 상태 메타가
+  // 'running 0%' 로 남는 경우가 있다. 동시에 /api/mlops/experiments 를
+  // 조회해 같은 run_id 가 completed 면 표시를 보정한다.
   const fetchJobs = useCallback(async () => {
     try {
-      const res = await fetch(`${aiUrl}/api/mlops/jobs`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const [jobsRes, expRes] = await Promise.all([
+        fetch(`${aiUrl}/api/mlops/jobs`),
+        fetch(`${aiUrl}/api/mlops/experiments?limit=100`).catch(() => null),
+      ])
+      if (!jobsRes.ok) throw new Error(`HTTP ${jobsRes.status}`)
+      const data = await jobsRes.json()
 
-      const prevRunningIds = jobs.filter(j => j.status === 'running').map(j => j.job_id)
-      const newJobs: JobInfo[] = data.jobs || []
+      // 완료된 실험의 run_id 집합 (실패 시 빈 set — 보정 없이 진행)
+      let completedRunIds = new Set<string>()
+      if (expRes && expRes.ok) {
+        try {
+          const expData = await expRes.json()
+          completedRunIds = new Set(
+            (expData.experiments || [])
+              .filter((e: any) => e.status === 'completed')
+              .map((e: any) => e.run_id as string),
+          )
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const prevRunningIds = jobs.filter((j) => j.status === 'running').map((j) => j.job_id)
+      const rawJobs: JobInfo[] = data.jobs || []
+      const newJobs: JobInfo[] = rawJobs.map((j) => {
+        if (j.status === 'running' && completedRunIds.has(j.job_id)) {
+          return { ...j, status: 'completed', progress: 100, message: '완료됨' }
+        }
+        return j
+      })
       setJobs(newJobs)
 
       // 완료된 작업 감지
       const nowCompletedIds = newJobs
-        .filter(j => j.status === 'completed' && prevRunningIds.includes(j.job_id))
-        .map(j => j.job_id)
+        .filter((j) => j.status === 'completed' && prevRunningIds.includes(j.job_id))
+        .map((j) => j.job_id)
 
       if (nowCompletedIds.length > 0) {
         onJobCompleted?.()
