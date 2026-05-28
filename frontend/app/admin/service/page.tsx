@@ -626,7 +626,7 @@ export default function AdminServicePage() {
                     </div>
                     {retrainStatus.last_auto_retrain && (
                       <div className="text-xs text-white/50">
-                        마지막 자동 재학습: {new Date(retrainStatus.last_auto_retrain).toLocaleString('ko-KR')}
+                        마지막 자동 재학습: {new Date(retrainStatus.last_auto_retrain).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
                         {retrainStatus.last_auto_retrain_reason && (
                           <span className="text-white/40"> ({retrainStatus.last_auto_retrain_reason})</span>
                         )}
@@ -634,7 +634,7 @@ export default function AdminServicePage() {
                     )}
                     {retrainStatus.periodic.next_run && (
                       <div className="text-xs text-white/50">
-                        다음 주기별 재학습: {new Date(retrainStatus.periodic.next_run).toLocaleDateString('ko-KR')}
+                        다음 주기별 재학습: {new Date(retrainStatus.periodic.next_run).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}
                       </div>
                     )}
                     <div className="text-xs text-white/40">
@@ -652,13 +652,13 @@ export default function AdminServicePage() {
                 <div className="rounded-lg border border-white/10 bg-white/5 p-4">
                   <div className="text-xs text-white/50 mb-1">마지막 주기별 재학습</div>
                   <div className="text-sm font-mono">
-                    {new Date(periodicRetrainLastRun).toLocaleString('ko-KR')}
+                    {new Date(periodicRetrainLastRun).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
                   </div>
                   <div className="text-xs text-white/40 mt-2">
                     다음 예정: {(() => {
                       const last = new Date(periodicRetrainLastRun)
                       const next = new Date(last.getTime() + Number(periodicRetrainInterval) * 24 * 60 * 60 * 1000)
-                      return next.toLocaleDateString('ko-KR')
+                      return next.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
                     })()}
                   </div>
                 </div>

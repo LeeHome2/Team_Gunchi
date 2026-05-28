@@ -68,7 +68,7 @@ const SERVICE_API_KEYS: ServiceApiKey[] = [
 function formatDateTime(iso: string | null): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleString('ko-KR')
+    return new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return iso
   }
@@ -77,7 +77,7 @@ function formatDateTime(iso: string | null): string {
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('ko-KR')
+    return new Date(iso).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return iso
   }

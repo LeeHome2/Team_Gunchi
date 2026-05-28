@@ -14,8 +14,8 @@ import * as turf from '@turf/turf'
 export interface SunlightPoint {
   longitude: number
   latitude: number
-  sunlightHours: number        // 0 ~ 13 (6시~18시 중 일조 받은 시간)
-  hourlyDetail: boolean[]      // 13개 요소, 각 시간대별 일조 여부
+  sunlightHours: number        // 0 ~ 7 (2시간 간격 7스텝 중 일조 받은 시간)
+  hourlyDetail: boolean[]      // 7개 요소, 각 시간대별 일조 여부
 }
 
 export interface SunlightAnalysisResult {
@@ -31,9 +31,9 @@ export interface SunlightAnalysisResult {
 }
 
 export interface AnalysisProgress {
-  currentStep: number          // 현재 시간 스텝 (0~12)
-  totalSteps: number           // 13
-  currentHour: number          // 현재 분석 중인 시각 (6~18)
+  currentStep: number          // 현재 시간 스텝 (0~6)
+  totalSteps: number           // 7
+  currentHour: number          // 현재 분석 중인 시각 (6,8,10,12,14,16,18)
   percentComplete: number      // 0~100
 }
 
@@ -41,10 +41,32 @@ export interface AnalysisProgress {
 
 const START_HOUR = 6
 const END_HOUR = 18
-const TOTAL_STEPS = END_HOUR - START_HOUR + 1  // 13
-const MAX_POINTS = 10000  // 최대 분석 포인트 수 (성능 제한)
+const HOUR_STEP = 2                                                    // 2시간 간격
+const TOTAL_STEPS = Math.floor((END_HOUR - START_HOUR) / HOUR_STEP) + 1  // 7 (6,8,10,12,14,16,18)
+const MAX_POINTS = 2500  // 최대 분석 포인트 수 (성능 최적화: 10000 → 2500)
 
 // ─── 유틸리티 함수 ───
+
+/**
+ * 적응형 그리드 간격 — 부지 면적에 따라 자동 결정
+ *
+ * @param buildableArea - GeoJSON Polygon (건축 가능 영역)
+ * @param userSpacing - 사용자 지정 간격 (미터)
+ * @returns 적정 그리드 간격 (미터)
+ */
+function adaptiveGridSpacing(buildableArea: GeoJSON.Polygon, userSpacing: number): number {
+  try {
+    const polygon = turf.polygon(buildableArea.coordinates)
+    const areaM2 = turf.area(polygon)
+    // 부지 면적에 따라 최소 간격 설정
+    if (areaM2 < 500) return Math.max(userSpacing, 2)       // 500m² 미만: 최소 2m
+    if (areaM2 < 2000) return Math.max(userSpacing, 3)      // 2000m² 미만: 최소 3m
+    if (areaM2 < 5000) return Math.max(userSpacing, 4)      // 5000m² 미만: 최소 4m
+    return Math.max(userSpacing, 5)                          // 그 이상: 최소 5m
+  } catch {
+    return userSpacing
+  }
+}
 
 /**
  * Ray casting algorithm — 점이 폴리곤 안인지 판정 (간단 ring 처리).
@@ -321,6 +343,9 @@ export async function analyzeSunlight(
     throw new Error('Cesium Viewer가 초기화되지 않았습니다')
   }
 
+  // 0. 적응형 그리드 간격 적용
+  gridSpacing = adaptiveGridSpacing(buildableArea, gridSpacing)
+
   // 1. 그리드 포인트 생성 (포인트 수가 너무 많으면 간격 자동 조정)
   let actualGridSpacing = gridSpacing
   let gridPoints = generateGridPoints(buildableArea, actualGridSpacing)
@@ -382,7 +407,7 @@ export async function analyzeSunlight(
   // 5. 시간 순회 + Ray Casting
   let debugLoggedOnce = false
   for (let step = 0; step < TOTAL_STEPS; step++) {
-    const hour = START_HOUR + step
+    const hour = START_HOUR + step * HOUR_STEP  // 6,8,10,12,14,16,18
 
     // Cesium 시계를 해당 시각으로 설정
     const analysisTime = new Date(analysisDate)

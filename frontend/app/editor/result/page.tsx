@@ -291,7 +291,7 @@ export default function ResultPage() {
     }
   }, [])
 
-  // ─── AI 렌더링 (Google AI Studio "Nano Banana") ─────────────
+  // ─── AI 렌더링 (Gemini / Nano Banana) ─────────────
   const [isRendering, setIsRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
   const [renderedSitePlan, setRenderedSitePlan] = useState<string | null>(null)
@@ -312,7 +312,7 @@ export default function ResultPage() {
       kind: 'sitePlan' | 'aerialView',
     ): Promise<{ ok: true; url: string } | { ok: false; error: string }> => {
       try {
-        const r = await fetch('/api/ai-render', {
+        const r = await fetch('/api/ai-render-gemini', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image, kind }),
@@ -926,16 +926,16 @@ export default function ResultPage() {
               />
             </section>
 
-            {/* AI 렌더링 버튼 (Google AI Studio - Nano Banana) */}
+            {/* AI 렌더링 버튼 (GPT / Gemini 선택) */}
             <section className="card px-4 py-4">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                  <h3 className="text-sm font-semibold text-white">AI 렌더링 (Nano Banana)</h3>
+                  <h3 className="text-sm font-semibold text-white">AI 렌더링</h3>
                   <p className="text-xs text-white/50 mt-0.5">
-                    Google AI Studio의 Gemini 2.5 Flash Image 모델로 캡처 이미지를
-                    사실적인 건축 렌더링 스타일로 변환합니다.
+                    캡처 이미지를 사실적인 건축 렌더링 스타일로 변환합니다.
                   </p>
                 </div>
+                <div className="flex items-center gap-2">
                 <button
                   onClick={handleAIRender}
                   disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}
@@ -950,6 +950,7 @@ export default function ResultPage() {
                     <>AI 렌더링 실행</>
                   )}
                 </button>
+                </div>
               </div>
               {renderError && (
                 <div className="mt-3 px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-xs text-red-300">

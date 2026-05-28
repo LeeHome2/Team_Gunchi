@@ -588,10 +588,31 @@ def _normalize_experiment(exp: dict) -> dict:
 
 @router.get("/ai/experiments")
 async def list_experiments(limit: int = 50, db: Session = Depends(get_db)):
-    """모델 실험(학습 이력) 목록 조회. 응답 필드명을 프론트 스키마로 정규화한다."""
+    """모델 실험(학습 이력) 목록 조회. 응답 필드명을 프론트 스키마로 정규화한다.
+
+    목록 항목에 metrics가 없으면 상세 조회를 병렬로 수행하여 병합한다.
+    """
     raw = await _ai_proxy_get(f"/api/mlops/experiments?limit={limit}", db)
     items = raw.get("experiments", []) if isinstance(raw, dict) else []
-    return {"experiments": [_normalize_experiment(e) for e in items]}
+
+    async def enrich_with_metrics(exp: dict) -> dict:
+        """metrics가 없으면 상세 조회하여 병합"""
+        if exp.get("metrics"):
+            return _normalize_experiment(exp)
+        run_id = exp.get("run_id")
+        if not run_id:
+            return _normalize_experiment(exp)
+        try:
+            detail = await _ai_proxy_get(f"/api/mlops/experiments/{run_id}", db)
+            if isinstance(detail, dict):
+                merged = {**exp, **detail}
+                return _normalize_experiment(merged)
+        except Exception:
+            pass
+        return _normalize_experiment(exp)
+
+    enriched = await asyncio.gather(*[enrich_with_metrics(e) for e in items])
+    return {"experiments": list(enriched)}
 
 
 @router.get("/ai/experiments/{run_id}")

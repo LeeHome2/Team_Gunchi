@@ -54,6 +54,8 @@ interface DatasetsResponse {
 interface Props {
   aiUrl: string
   refreshKey?: number  // 부모가 갱신 트리거 가능
+  /** 부모가 이미 로드한 데이터 (있으면 fetch 생략) */
+  preloadedData?: DatasetsResponse | null
   /** 강조할 데이터셋 ID (방금 업로드한 항목 등). 일치하면 행 highlight + NEW 배지 + scrollIntoView */
   highlightDatasetId?: string | null
   /** 현재 선택된 데이터셋 ID */
@@ -69,7 +71,7 @@ interface Props {
 function fmtTime(t: number | null): string {
   if (!t) return '—'
   try {
-    return new Date(t * 1000).toLocaleString('ko-KR')
+    return new Date(t * 1000).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return '—'
   }
@@ -78,6 +80,7 @@ function fmtTime(t: number | null): string {
 export default function DatasetsPanel({
   aiUrl,
   refreshKey = 0,
+  preloadedData,
   highlightDatasetId = null,
   selectedDatasetId = null,
   onSelectDataset,
@@ -85,7 +88,7 @@ export default function DatasetsPanel({
   onUploadClick,
 }: Props) {
   const [data, setData] = useState<DatasetsResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!preloadedData)
   const [error, setError] = useState<string | null>(null)
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null)
 
@@ -101,16 +104,32 @@ export default function DatasetsPanel({
   // 선택된 데이터셋 ID를 찾기 (DatasetMeta에서 id 추출)
   const selectedId = typeof selectedDatasetId === 'string' ? selectedDatasetId : null
 
+  // preloadedData 변경 감지 - 부모에서 로드한 데이터 반영
   useEffect(() => {
+    if (preloadedData) {
+      setData(preloadedData)
+      setLoading(false)
+    }
+  }, [preloadedData])
+
+  // 특정 데이터셋 선택 시에만 fetch (preloadedData가 있으면 기본 목록 fetch 생략)
+  useEffect(() => {
+    // preloadedData가 주어졌고 특정 데이터셋 선택이 아니면 fetch 생략
+    if (preloadedData !== undefined && !selectedId) {
+      return
+    }
+
+    // selectedId가 있을 때만 해당 데이터셋 상세 fetch
+    if (!selectedId) {
+      return
+    }
+
     let alive = true
     setLoading(true)
     setError(null)
     ;(async () => {
       try {
-        // 선택된 데이터셋이 있으면 해당 데이터셋의 파이프라인 정보 요청
-        const url = selectedId
-          ? `${aiUrl}/api/mlops/datasets?dataset_id=${encodeURIComponent(selectedId)}`
-          : `${aiUrl}/api/mlops/datasets`
+        const url = `${aiUrl}/api/mlops/datasets?dataset_id=${encodeURIComponent(selectedId)}`
         const r = await fetch(url)
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const d = await r.json()
@@ -124,7 +143,7 @@ export default function DatasetsPanel({
     return () => {
       alive = false
     }
-  }, [aiUrl, refreshKey, selectedId])
+  }, [aiUrl, refreshKey, selectedId, preloadedData])
 
   return (
     <section className="card p-6">

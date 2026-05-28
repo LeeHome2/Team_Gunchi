@@ -14,7 +14,7 @@ import { adminApi, AdminBaseRule, AdminZoneRule } from '@/lib/api'
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('ko-KR')
+    return new Date(iso).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return iso
   }

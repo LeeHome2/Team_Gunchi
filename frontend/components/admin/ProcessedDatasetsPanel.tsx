@@ -23,9 +23,16 @@ interface ProcessedDataset {
   status: 'ready' | 'processing' | 'failed'
 }
 
+interface DatasetsResponse {
+  stages?: StageInfo[]
+  processed_datasets?: ProcessedDataset[]
+}
+
 interface Props {
   aiUrl: string
   refreshKey?: number
+  /** 부모가 이미 로드한 데이터 (있으면 fetch 생략) */
+  preloadedData?: DatasetsResponse | null
   selectedDatasetId?: string | null
   onSelectDataset?: (dataset: ProcessedDataset | null) => void
   /** 전처리 버튼 클릭 시 콜백 */
@@ -35,7 +42,7 @@ interface Props {
 function fmtTime(t: number | null): string {
   if (!t) return '—'
   try {
-    return new Date(t * 1000).toLocaleString('ko-KR')
+    return new Date(t * 1000).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return '—'
   }
@@ -44,74 +51,89 @@ function fmtTime(t: number | null): string {
 export default function ProcessedDatasetsPanel({
   aiUrl,
   refreshKey = 0,
+  preloadedData,
   selectedDatasetId = null,
   onSelectDataset,
   onPreprocessClick,
 }: Props) {
   const [stages, setStages] = useState<StageInfo[]>([])
   const [processedDatasets, setProcessedDatasets] = useState<ProcessedDataset[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!preloadedData)
   const [error, setError] = useState<string | null>(null)
 
+  // 데이터 처리 함수 (preloaded 또는 fetch 결과 모두 동일 로직)
+  const processData = (data: any) => {
+    setStages(data.stages || [])
+
+    // labeled 단계에서 전처리 완료된 데이터셋 정보 추출
+    if (data.processed_datasets) {
+      setProcessedDatasets(data.processed_datasets)
+    } else {
+      // stages에서 labeled 데이터가 있으면 가상의 데이터셋 생성
+      const labeledStage = data.stages?.find((s: StageInfo) =>
+        s.label.toLowerCase().includes('labeled') || s.label.toLowerCase().includes('라벨')
+      )
+      const processedStage = data.stages?.find((s: StageInfo) =>
+        s.label.toLowerCase().includes('processed') || s.label.toLowerCase().includes('처리')
+      )
+
+      const datasets: ProcessedDataset[] = []
+
+      if (labeledStage && labeledStage.count > 0) {
+        datasets.push({
+          id: 'labeled_default',
+          name: '라벨링 완료 데이터셋',
+          processed_at: labeledStage.last_modified
+            ? new Date(labeledStage.last_modified * 1000).toISOString()
+            : undefined,
+          labeled_count: labeledStage.count,
+          csv_path: labeledStage.path,
+          size_mb: labeledStage.size_mb,
+          status: 'ready',
+        })
+      }
+
+      if (processedStage && processedStage.count > 0 && !labeledStage?.count) {
+        datasets.push({
+          id: 'processed_default',
+          name: '이미지 변환 완료',
+          processed_at: processedStage.last_modified
+            ? new Date(processedStage.last_modified * 1000).toISOString()
+            : undefined,
+          image_count: processedStage.count,
+          size_mb: processedStage.size_mb,
+          status: 'ready',
+        })
+      }
+
+      setProcessedDatasets(datasets)
+    }
+  }
+
+  // preloadedData 변경 감지 - 부모에서 로드한 데이터 반영
   useEffect(() => {
+    if (preloadedData) {
+      processData(preloadedData)
+      setLoading(false)
+    }
+  }, [preloadedData])
+
+  // preloadedData가 undefined가 아니면 (prop으로 주어졌으면) fetch 생략
+  useEffect(() => {
+    // preloadedData가 prop으로 주어졌으면 자체 fetch 생략
+    if (preloadedData !== undefined) {
+      return
+    }
+
     let alive = true
     setLoading(true)
     setError(null)
     ;(async () => {
       try {
-        // 파이프라인 단계 정보 가져오기
         const res = await fetch(`${aiUrl}/api/mlops/datasets`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
-
-        if (alive) {
-          setStages(data.stages || [])
-
-          // labeled 단계에서 전처리 완료된 데이터셋 정보 추출
-          // (실제 API에서 processed_datasets를 반환하면 그것을 사용)
-          if (data.processed_datasets) {
-            setProcessedDatasets(data.processed_datasets)
-          } else {
-            // stages에서 labeled 데이터가 있으면 가상의 데이터셋 생성
-            const labeledStage = data.stages?.find((s: StageInfo) =>
-              s.label.toLowerCase().includes('labeled') || s.label.toLowerCase().includes('라벨')
-            )
-            const processedStage = data.stages?.find((s: StageInfo) =>
-              s.label.toLowerCase().includes('processed') || s.label.toLowerCase().includes('처리')
-            )
-
-            const datasets: ProcessedDataset[] = []
-
-            if (labeledStage && labeledStage.count > 0) {
-              datasets.push({
-                id: 'labeled_default',
-                name: '라벨링 완료 데이터셋',
-                processed_at: labeledStage.last_modified
-                  ? new Date(labeledStage.last_modified * 1000).toISOString()
-                  : undefined,
-                labeled_count: labeledStage.count,
-                csv_path: labeledStage.path,
-                size_mb: labeledStage.size_mb,
-                status: 'ready',
-              })
-            }
-
-            if (processedStage && processedStage.count > 0 && !labeledStage?.count) {
-              datasets.push({
-                id: 'processed_default',
-                name: '이미지 변환 완료',
-                processed_at: processedStage.last_modified
-                  ? new Date(processedStage.last_modified * 1000).toISOString()
-                  : undefined,
-                image_count: processedStage.count,
-                size_mb: processedStage.size_mb,
-                status: 'ready',
-              })
-            }
-
-            setProcessedDatasets(datasets)
-          }
-        }
+        if (alive) processData(data)
       } catch (e: any) {
         if (alive) setError(e.message || '전처리 데이터 로드 실패')
       } finally {
@@ -121,7 +143,7 @@ export default function ProcessedDatasetsPanel({
     return () => {
       alive = false
     }
-  }, [aiUrl, refreshKey])
+  }, [aiUrl, refreshKey, preloadedData])
 
   // 데이터셋 로드 완료 후 부모가 지정한 selectedDatasetId 와 매칭되는
   // ProcessedDataset 객체를 자동으로 emit. 사용자가 다른 항목 클릭 전까지는
@@ -280,7 +302,7 @@ export default function ProcessedDatasetsPanel({
                       </div>
                       {ds.processed_at && (
                         <div className="mt-2 text-[11px] text-white/40">
-                          처리 완료: {new Date(ds.processed_at).toLocaleString('ko-KR')}
+                          처리 완료: {new Date(ds.processed_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
                         </div>
                       )}
                     </div>

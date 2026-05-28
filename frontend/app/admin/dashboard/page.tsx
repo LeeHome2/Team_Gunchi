@@ -175,7 +175,7 @@ export default function AdminDashboardPage() {
                     <td className="py-3 text-white/50">{p.address || '—'}</td>
                     <td className="py-3 text-white/50">
                       {p.created_at
-                        ? new Date(p.created_at).toLocaleDateString('ko-KR')
+                        ? new Date(p.created_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
                         : '—'}
                     </td>
                     <td className="py-3">

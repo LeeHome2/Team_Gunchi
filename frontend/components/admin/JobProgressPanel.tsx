@@ -13,15 +13,30 @@ interface JobInfo {
   log_tail?: string[]
 }
 
+interface AIExperiment {
+  run_id: string
+  status?: string
+}
+
 interface Props {
   aiUrl: string
   refreshKey?: number
+  /** 부모가 이미 로드한 jobs 데이터 (초기 로딩 최적화) */
+  preloadedJobs?: JobInfo[]
+  /** 부모가 이미 로드한 experiments 데이터 (상태 보정용) */
+  preloadedExperiments?: AIExperiment[]
   onJobCompleted?: () => void
 }
 
-export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted }: Props) {
-  const [jobs, setJobs] = useState<JobInfo[]>([])
-  const [loading, setLoading] = useState(true)
+export default function JobProgressPanel({
+  aiUrl,
+  refreshKey = 0,
+  preloadedJobs,
+  preloadedExperiments,
+  onJobCompleted,
+}: Props) {
+  const [jobs, setJobs] = useState<JobInfo[]>(preloadedJobs || [])
+  const [loading, setLoading] = useState(!preloadedJobs)
   const [error, setError] = useState<string | null>(null)
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null)
   const [logTails, setLogTails] = useState<Record<string, string[]>>({})
@@ -125,9 +140,42 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
     }
   }, [aiUrl])
 
+  // preloadedJobs가 변경되면 초기 상태 업데이트 (첫 로드 최적화)
+  useEffect(() => {
+    if (preloadedJobs && preloadedJobs.length > 0) {
+      // preloadedExperiments로 상태 보정 적용
+      const completedRunIds = new Set(
+        (preloadedExperiments || [])
+          .filter((e) => e.status === 'completed')
+          .map((e) => e.run_id),
+      )
+      const correctedJobs = preloadedJobs.map((j) => {
+        if (
+          (j.status === 'running' || j.status === 'failed') &&
+          completedRunIds.has(j.job_id)
+        ) {
+          return { ...j, status: 'completed' as const, progress: 100, message: '완료됨' }
+        }
+        if (
+          j.status === 'running' &&
+          (j.progress ?? 0) >= 100 &&
+          /완료|complete/i.test(j.message || '')
+        ) {
+          return { ...j, status: 'completed' as const }
+        }
+        return j
+      })
+      setJobs(correctedJobs)
+      setLoading(false)
+    }
+  }, [preloadedJobs, preloadedExperiments])
+
   // 초기 로드 및 폴링
   useEffect(() => {
-    fetchJobs()
+    // preloadedJobs가 있으면 초기 fetch 생략, 폴링만 시작
+    if (!preloadedJobs) {
+      fetchJobs()
+    }
     const interval = setInterval(fetchJobs, 5000) // 5초마다 폴링
     return () => clearInterval(interval)
   }, [aiUrl, refreshKey])
@@ -185,7 +233,7 @@ export default function JobProgressPanel({ aiUrl, refreshKey = 0, onJobCompleted
   const formatTime = (iso?: string) => {
     if (!iso) return '—'
     try {
-      return new Date(iso).toLocaleString('ko-KR')
+      return new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
     } catch {
       return iso
     }

@@ -13,7 +13,7 @@ interface Props {
 function fmt(iso: string | null | undefined): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleString('ko-KR')
+    return new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return iso
   }

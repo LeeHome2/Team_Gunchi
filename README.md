@@ -517,6 +517,30 @@ interface PlacementPlan {
 
 ---
 
+## 변경 이력 (Changelog)
+
+### v1.1.0 (2026-05-29)
+
+**성능 최적화 및 기능 개선**
+
+| 항목 | 변경 내용 |
+|------|----------|
+| **AI 모델 페이지 최적화** | 초기 로딩 시 5개 API 병렬 호출로 변경 (`Promise.all`). 하위 컴포넌트에 preloaded 데이터 전달하여 중복 API 호출 제거 |
+| **KST 타임존 적용** | 관리자 콘솔 전체 (17개 파일)의 시간 표시를 `Asia/Seoul` 타임존으로 통일 |
+| **Gemini 이미지 생성** | Google Gemini API (`gemini-2.5-flash-image`) 기반 AI 렌더링 추가. GPT 대신 Nano Banana 사용 |
+| **일조 분석 개선** | 샘플링 기반 일조 분석 로직 성능 최적화, AI 스코어링에 일조 데이터 연동 |
+
+**수정된 주요 파일**:
+- `frontend/app/admin/ai/page.tsx` — API 병렬 호출, preloaded 데이터 관리
+- `frontend/components/admin/DatasetsPanel.tsx` — preloadedData prop 지원
+- `frontend/components/admin/ProcessedDatasetsPanel.tsx` — preloadedData prop 지원
+- `frontend/components/admin/JobProgressPanel.tsx` — preloadedJobs/Experiments prop 지원
+- `frontend/app/api/ai-render-gemini/route.ts` — Gemini 이미지 생성 API 라우트
+- `frontend/lib/sunlightAnalysis.ts` — 일조 분석 로직 개선
+- `frontend/app/editor/result/page.tsx` — Gemini 렌더링 통합
+
+---
+
 ## 팀 정보
 
 **Team 건치 (Geonchi)** — 2026 종합설계프로젝트

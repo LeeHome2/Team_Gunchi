@@ -23,7 +23,7 @@ import QuickClassifyPanel from '@/components/admin/QuickClassifyPanel'
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleString('ko-KR')
+    return new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   } catch {
     return iso
   }
@@ -94,28 +94,34 @@ export default function AdminAiPage() {
   // 모델 업로드 모달 표시 여부
   const [modelUploadOpen, setModelUploadOpen] = useState(false)
 
+  // 하위 컴포넌트에 전달할 preloaded 데이터 (API 호출 최적화)
+  const [preloadedDatasets, setPreloadedDatasets] = useState<any>(null)
+  const [preloadedJobs, setPreloadedJobs] = useState<any[]>([])
+
   const loadAll = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [activeRes, expRes, statsRes] = await Promise.all([
+      // 모든 API를 한 번에 병렬 호출 (기존: 3개 → 최적화: 5개)
+      const [activeRes, expRes, statsRes, datasetsRes, jobsRes] = await Promise.all([
         adminApi.getActiveAIModel().catch(() => ({ active: null }) as any),
-        adminApi.listExperiments(50).catch((e) => {
-          throw e
-        }),
+        adminApi.listExperiments(100).catch((e) => { throw e }),
         fetch(`${aiUrl}/api/mlops/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${aiUrl}/api/mlops/datasets`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${aiUrl}/api/mlops/jobs`).then(r => r.ok ? r.json() : null).catch(() => null),
       ])
       const a: AIExperiment | null =
         (activeRes && 'active' in activeRes ? activeRes.active : activeRes) || null
       setActive(a as AIExperiment | null)
       setExperiments(expRes.experiments || [])
       setMlopsStats(statsRes)
+      setPreloadedDatasets(datasetsRes)
+      setPreloadedJobs(jobsRes?.jobs || [])
     } catch (e: any) {
       setError(e.message || 'AI 서버 통신 실패')
     } finally {
       setLoading(false)
     }
-    setDatasetsRefreshKey((k) => k + 1)
   }
 
   useEffect(() => {
@@ -370,6 +376,7 @@ export default function AdminAiPage() {
         <DatasetsPanel
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
+          preloadedData={preloadedDatasets}
           highlightDatasetId={highlightDatasetId}
           selectedDatasetId={selectedDataset?.id || null}
           onSelectDataset={setSelectedDataset}
@@ -397,6 +404,7 @@ export default function AdminAiPage() {
         <ProcessedDatasetsPanel
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
+          preloadedData={preloadedDatasets}
           selectedDatasetId={selectedProcessed?.id || savedRetrainDatasetId || 'default'}
           onSelectDataset={handleSelectProcessed}
           onPreprocessClick={() => setSelectModalOpen(true)}
@@ -429,6 +437,8 @@ export default function AdminAiPage() {
         <JobProgressPanel
           aiUrl={aiUrl}
           refreshKey={datasetsRefreshKey}
+          preloadedJobs={preloadedJobs}
+          preloadedExperiments={experiments}
           onJobCompleted={loadAll}
         />
 
@@ -490,9 +500,10 @@ export default function AdminAiPage() {
               const getDiff = (v: number | undefined, base: number | undefined) => {
                 if (isActive || v == null || base == null) return null
                 const diff = (v - base) * 100
-                if (Math.abs(diff) < 0.1) return { text: '', color: '' }
+                if (Math.abs(diff) < 0.01) return { text: '', color: '' }
+                const sign = diff > 0 ? '+' : ''
                 return {
-                  text: diff > 0 ? '↑' : '↓',
+                  text: `${diff > 0 ? '↑' : '↓'}${sign}${diff.toFixed(1)}`,
                   color: diff > 0 ? 'text-emerald-400' : 'text-red-400'
                 }
               }

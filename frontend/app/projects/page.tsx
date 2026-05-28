@@ -214,7 +214,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => void }) {
   const formatted = project.created_at
-    ? new Date(project.created_at).toLocaleDateString('ko-KR')
+    ? new Date(project.created_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })
     : '—'
 
   return (

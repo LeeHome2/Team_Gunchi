@@ -137,7 +137,7 @@ export default function ResultDetailPage() {
                 <p className="mt-1 text-sm text-white/50">
                   {project?.address || '주소 미지정'} · 생성{' '}
                   {project?.created_at
-                    ? new Date(project.created_at).toLocaleString('ko-KR')
+                    ? new Date(project.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
                     : '—'}
                 </p>
               </div>
