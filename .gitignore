@@ -37,9 +37,6 @@ coverage/
 
 # Uploaded files
 uploads/
-models/
-*.glb
-*.gltf
 
 # Database
 *.db
