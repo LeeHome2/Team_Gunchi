@@ -1,26 +1,30 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useProjectStore } from '@/store/projectStore'
 
 type Theme = 'light' | 'dark'
 
 /**
  * Reads the current theme (set by the blocking script in layout.tsx) and
- * toggles the `.dark` class on <html>. Persists to localStorage.
+ * toggles the `.dark` class on <html>. Persists to localStorage and syncs with zustand store.
  */
 export default function ThemeToggle({ className = '' }: { className?: string }) {
   const [theme, setTheme] = useState<Theme>('light')
   const [mounted, setMounted] = useState(false)
+  const setStoreTheme = useProjectStore((s) => s.setTheme)
 
   useEffect(() => {
     const initial = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
     setTheme(initial)
+    setStoreTheme(initial)  // 초기 테마를 store에도 동기화
     setMounted(true)
-  }, [])
+  }, [setStoreTheme])
 
   const toggle = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
+    setStoreTheme(next)  // store에도 동기화
     const root = document.documentElement
     if (next === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')

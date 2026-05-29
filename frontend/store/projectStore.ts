@@ -71,6 +71,9 @@ export interface ResultSnapshot {
   sitePlan: string | null
   aerialView: string | null
   capturedAt: string | null
+  // AI 렌더링 결과 (store에 저장하여 페이지 이동 후에도 유지)
+  renderedSitePlan: string | null
+  renderedAerialView: string | null
 }
 
 // ── 배치안 (Placement Plan) ──
@@ -333,7 +336,13 @@ export interface GeneratedMass {
   createdAt: number      // timestamp
 }
 
+// UI 테마 타입
+export type ThemeMode = 'light' | 'dark'
+
 interface ProjectState {
+  // UI 테마 (라이트/다크 모드)
+  theme: ThemeMode
+
   // DB 프로젝트 ID (백엔드 연동용)
   projectId: string | null
   projectName: string | null
@@ -576,11 +585,15 @@ interface ProjectState {
   saveActivePlan: () => void
   /** 배치안 로드 (현재 상태를 해당 배치안으로 복원) */
   loadPlan: (id: string) => void
+  // 테마 설정
+  setTheme: (theme: ThemeMode) => void
+  toggleTheme: () => void
   reset: () => void
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
   // 초기 상태
+  theme: 'dark' as ThemeMode,  // 기본 다크 모드
   projectId: null,
   projectName: null,
   viewer: null,
@@ -660,7 +673,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   },
   sunlightDate: (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d })(),
   setSunlightDate: (date: Date) => set({ sunlightDate: date }),
-  resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+  resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null, renderedSitePlan: null, renderedAerialView: null },
   placementPlans: [],
   activePlanId: null,
   plansOpen: false,
@@ -700,7 +713,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         isParkingVisible: false,
         aiScore: { isLoading: false, result: null, error: null },
         sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
-        resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+        resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null, renderedSitePlan: null, renderedAerialView: null },
         // 규정 검토 결과도 초기화 (이전 프로젝트의 부적합 판정/이격거리 음수값이
         // 다른 프로젝트로 넘어가지 않도록 함)
         reviewData: {
@@ -830,7 +843,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       resultSnapshot: { ...state.resultSnapshot, ...snapshot },
     })),
   clearResultSnapshot: () =>
-    set({ resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null } }),
+    set({ resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null, renderedSitePlan: null, renderedAerialView: null } }),
 
   setSaveProjectFn: (fn) => set({ saveProjectFn: fn }),
   setLoadProjectFn: (fn) => set({ loadProjectFn: fn }),
@@ -1059,6 +1072,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
     console.log('[ProjectStore] 배치안 로드:', id, '일조/규정/AI스코어 복원됨')
   },
 
+  // 테마 설정
+  setTheme: (theme) => set({ theme }),
+  toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
+
   reset: () =>
     set({
       projectId: null,
@@ -1112,7 +1129,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       reviewData: { zoneType: undefined, selectedZoneType: undefined, buildingCoverage: null, setback: null, heightCheck: null, isModelInBounds: true },
       aiScore: { isLoading: false, result: null, error: null },
       sunlightAnalysisState: { isAnalyzing: false, progress: null, result: null, showHeatmap: false, heatmapMode: 'point' as const },
-      resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null },
+      resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null, renderedSitePlan: null, renderedAerialView: null },
       placementPlans: [],
       activePlanId: null,
       plansOpen: false,

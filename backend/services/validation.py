@@ -12,7 +12,9 @@ from shapely.geometry import Polygon
 class ValidationConfig:
     """검토 기준 설정"""
     coverage_limit: float = 60.0      # 건폐율 제한 (%)
-    setback_required: float = 1.5     # 이격거리 (m)
+    setback_required: float = 1.5     # 이격거리 (m) - 하위호환용
+    setback_road: float = 1.0         # 도로변(건축선) 이격거리 (m)
+    setback_adjacent: float = 0.5     # 인접대지 이격거리 (m)
     height_limit: float = 12.0        # 높이 제한 (m)
     far_limit: Optional[float] = None # 용적률 제한 (%) - 미구현
 
@@ -27,46 +29,62 @@ class ValidationResult:
     violations: List[Dict[str, str]]
 
 
-# 용도지역별 기본 설정
+# 용도지역별 기본 설정 (setback_road=도로변, setback_adjacent=인접대지)
 ZONE_CONFIGS = {
     "제1종전용주거지역": ValidationConfig(
         coverage_limit=50.0,
         setback_required=2.0,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=10.0,
     ),
     "제2종전용주거지역": ValidationConfig(
         coverage_limit=50.0,
         setback_required=1.5,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=12.0,
     ),
     "제1종일반주거지역": ValidationConfig(
         coverage_limit=60.0,
         setback_required=1.5,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=16.0,
     ),
     "제2종일반주거지역": ValidationConfig(
         coverage_limit=60.0,
         setback_required=1.5,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=20.0,
     ),
     "제3종일반주거지역": ValidationConfig(
         coverage_limit=50.0,
-        setback_required=1.5,
+        setback_required=1.0,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=None,  # 제한 없음
     ),
     "준주거지역": ValidationConfig(
         coverage_limit=70.0,
         setback_required=1.0,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=None,
     ),
     "일반상업지역": ValidationConfig(
         coverage_limit=80.0,
         setback_required=0.0,
+        setback_road=0.0,
+        setback_adjacent=0.0,
         height_limit=None,
     ),
     "준공업지역": ValidationConfig(
         coverage_limit=70.0,
         setback_required=1.0,
+        setback_road=1.0,
+        setback_adjacent=0.5,
         height_limit=None,
     ),
 }
@@ -98,21 +116,93 @@ def calculate_building_coverage(
 
 def calculate_setback(
     site_polygon: Polygon,
-    building_polygon: Polygon
+    building_polygon: Polygon,
+    road_edges: Optional[List[List[List[float]]]] = None,
 ) -> Dict[str, Any]:
     """
-    이격거리 계산
-    대지경계선에서 건물까지의 최소 거리
+    이격거리 계산 (도로변/인접대지 분리)
+
+    Args:
+        site_polygon: 대지 Polygon
+        building_polygon: 건물 Polygon
+        road_edges: 도로변 경계 좌표 리스트 [[[x1,y1],[x2,y2]], ...]
+                    None이면 전체 경계를 인접대지로 간주
+
+    Returns:
+        {
+            "min_distance_m": 전체 최소 거리 (하위호환),
+            "min_distance_road_m": 도로변 최소 거리,
+            "min_distance_adjacent_m": 인접대지 최소 거리,
+            "is_within_site": 대지 내 포함 여부,
+        }
     """
+    from shapely.geometry import LineString, Point
+
     site_boundary = site_polygon.exterior
     building_boundary = building_polygon.exterior
-    min_distance = site_boundary.distance(building_boundary)
 
     # 건물이 대지 밖으로 나갔는지 확인
     is_within = site_polygon.contains(building_polygon)
 
+    # 전체 최소 거리 (하위호환용)
+    min_distance = site_boundary.distance(building_boundary)
+
+    # 도로변 경계가 없으면 전체를 인접대지로 간주
+    if not road_edges:
+        return {
+            "min_distance_m": round(min_distance, 2),
+            "min_distance_road_m": None,
+            "min_distance_adjacent_m": round(min_distance, 2),
+            "is_within_site": is_within,
+        }
+
+    # 도로변 경계 LineString 생성
+    road_lines = []
+    for edge in road_edges:
+        if len(edge) >= 2:
+            try:
+                line = LineString(edge)
+                if line.is_valid and line.length > 0:
+                    road_lines.append(line)
+            except Exception:
+                pass
+
+    if not road_lines:
+        return {
+            "min_distance_m": round(min_distance, 2),
+            "min_distance_road_m": None,
+            "min_distance_adjacent_m": round(min_distance, 2),
+            "is_within_site": is_within,
+        }
+
+    # 대지 경계를 도로변/인접대지로 분리
+    site_coords = list(site_boundary.coords)
+    min_road_dist = float('inf')
+    min_adjacent_dist = float('inf')
+
+    # 대지 경계의 각 변(segment)에 대해 검사
+    for i in range(len(site_coords) - 1):
+        segment = LineString([site_coords[i], site_coords[i + 1]])
+        segment_dist = segment.distance(building_boundary)
+
+        # 이 segment가 도로변인지 확인 (도로 라인과 겹치거나 매우 가까우면)
+        is_road_segment = False
+        for road_line in road_lines:
+            # segment의 중점이 도로 라인에 가까우면 도로변으로 판단
+            mid_point = segment.interpolate(0.5, normalized=True)
+            if road_line.distance(mid_point) < 0.5:  # 0.5m 이내면 도로변
+                is_road_segment = True
+                break
+
+        if is_road_segment:
+            min_road_dist = min(min_road_dist, segment_dist)
+        else:
+            min_adjacent_dist = min(min_adjacent_dist, segment_dist)
+
     return {
         "min_distance_m": round(min_distance, 2),
+        "min_distance_road_m": round(min_road_dist, 2) if min_road_dist != float('inf') else None,
+        "min_distance_adjacent_m": round(min_adjacent_dist, 2) if min_adjacent_dist != float('inf') else None,
         "is_within_site": is_within,
     }
 
@@ -142,7 +232,8 @@ def validate_placement(
     site_footprint: List[List[float]],
     building_footprint: List[List[float]],
     building_height: float,
-    config: Optional[ValidationConfig] = None
+    config: Optional[ValidationConfig] = None,
+    road_edges: Optional[List[List[List[float]]]] = None,
 ) -> ValidationResult:
     """
     건축 배치 검토 메인 함수
@@ -177,17 +268,48 @@ def validate_placement(
             "message": f"건폐율 {config.coverage_limit}% 초과 (현재 {coverage['value']}%)"
         })
 
-    # 2. 이격거리 검토
-    setback = calculate_setback(site_polygon, building_polygon)
-    setback_ok = setback["min_distance_m"] >= config.setback_required
-    setback["required_m"] = config.setback_required
-    setback["status"] = "OK" if setback_ok else "VIOLATION"
+    # 2. 이격거리 검토 (도로변/인접대지 분리)
+    setback = calculate_setback(site_polygon, building_polygon, road_edges)
 
-    if not setback_ok:
-        violations.append({
-            "code": "SETBACK_VIOLATION",
-            "message": f"이격거리 부족 (필요 {config.setback_required}m, 현재 {setback['min_distance_m']}m)"
-        })
+    # 도로변/인접대지 분리 검증
+    setback["required_road_m"] = config.setback_road
+    setback["required_adjacent_m"] = config.setback_adjacent
+    setback["required_m"] = config.setback_required  # 하위호환
+
+    road_ok = True
+    adjacent_ok = True
+
+    # 도로변 이격거리 검증
+    if setback.get("min_distance_road_m") is not None:
+        road_ok = setback["min_distance_road_m"] >= config.setback_road
+        if not road_ok:
+            violations.append({
+                "code": "SETBACK_ROAD_VIOLATION",
+                "message": f"도로변 이격거리 부족 (필요 {config.setback_road}m, 현재 {setback['min_distance_road_m']}m)"
+            })
+
+    # 인접대지 이격거리 검증
+    if setback.get("min_distance_adjacent_m") is not None:
+        adjacent_ok = setback["min_distance_adjacent_m"] >= config.setback_adjacent
+        if not adjacent_ok:
+            violations.append({
+                "code": "SETBACK_ADJACENT_VIOLATION",
+                "message": f"인접대지 이격거리 부족 (필요 {config.setback_adjacent}m, 현재 {setback['min_distance_adjacent_m']}m)"
+            })
+
+    # road_edges가 없을 경우 하위호환 (단일 기준 적용)
+    if road_edges is None:
+        # 인접대지 기준으로 검증 (더 느슨한 기준)
+        setback_ok = setback["min_distance_m"] >= config.setback_adjacent
+        if not setback_ok and adjacent_ok:  # 위에서 이미 추가 안했으면
+            violations.append({
+                "code": "SETBACK_VIOLATION",
+                "message": f"이격거리 부족 (필요 {config.setback_adjacent}m, 현재 {setback['min_distance_m']}m)"
+            })
+    else:
+        setback_ok = road_ok and adjacent_ok
+
+    setback["status"] = "OK" if setback_ok else "VIOLATION"
 
     if not setback["is_within_site"]:
         violations.append({
@@ -257,18 +379,21 @@ def validate_with_zone(
     site_footprint: List[List[float]],
     building_footprint: List[List[float]],
     building_height: float,
-    zone_name: str
+    zone_name: str,
+    road_edges: Optional[List[List[List[float]]]] = None,
 ) -> ValidationResult:
     """
     용도지역 기반 검토
 
     Args:
         zone_name: 용도지역명 (예: "제1종일반주거지역")
+        road_edges: 도로변 경계 좌표 리스트 [[[x1,y1],[x2,y2]], ...]
     """
     config = get_zone_config(zone_name)
     return validate_placement(
         site_footprint,
         building_footprint,
         building_height,
-        config
+        config,
+        road_edges,
     )

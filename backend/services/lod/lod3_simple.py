@@ -168,8 +168,10 @@ def _extract_door_rectangles(msp, layers: List[str], dxf_scale: float = 1.0) -> 
     return doors
 
 
-def _detect_dxf_scale(doc) -> float:
-    """DXF 단위 자동 감지.
+def _detect_dxf_scale(doc) -> Tuple[float, Dict[str, Any]]:
+    """DXF 단위 자동 감지 + 진단 정보.
+
+    [패치 3] 반환 형태 변경: (scale, diagnosis_dict)
 
     1차: DXF 헤더의 $INSUNITS 메타데이터 사용
     2차: 적용 후 결과 크기가 비합리적이면 휴리스틱으로 보정
@@ -177,8 +179,22 @@ def _detect_dxf_scale(doc) -> float:
 
     $INSUNITS 코드:
     0=Unspecified, 1=Inches, 2=Feet, 4=mm, 5=cm, 6=m
+
+    Returns:
+        (scale, diagnosis_dict)
+        diagnosis: {raw_extent, insunits, insunits_unit, decision_path, final_scale, final_size_m}
     """
     msp = doc.modelspace()
+
+    # 진단 정보 초기화
+    diagnosis: Dict[str, Any] = {
+        "raw_extent": None,
+        "insunits": None,
+        "insunits_unit": None,
+        "decision_path": "",
+        "final_scale": None,
+        "final_size_m": None,
+    }
 
     # 먼저 extent 계산 (헤더 검증에 필요)
     xs, ys = [], []
@@ -198,9 +214,12 @@ def _detect_dxf_scale(doc) -> float:
 
     if not xs or not ys:
         logger.warning("No geometry found for extent detection")
-        return 1.0
+        diagnosis["decision_path"] = "no_geometry_fallback_1.0"
+        diagnosis["final_scale"] = 1.0
+        return 1.0, diagnosis
 
     raw_extent = max(max(xs) - min(xs), max(ys) - min(ys))
+    diagnosis["raw_extent"] = raw_extent
     logger.info(f"DXF raw extent: {raw_extent:.4f}")
 
     # === 1차: DXF 헤더 메타데이터 확인 ===
@@ -223,49 +242,43 @@ def _detect_dxf_scale(doc) -> float:
 
     try:
         insunits = doc.header.get('$INSUNITS', 0)
+        diagnosis["insunits"] = insunits
+
         if insunits in UNIT_SCALES:
             scale, unit_name = UNIT_SCALES[insunits]
+            diagnosis["insunits_unit"] = unit_name
             resulting_size = raw_extent * scale
 
             # 결과 크기가 합리적인지 검증
             if MIN_BUILDING <= resulting_size <= MAX_BUILDING:
                 logger.info(f"DXF header $INSUNITS={insunits} ({unit_name}) -> scale={scale}, size={resulting_size:.1f}m (valid)")
-                return scale
+                diagnosis["decision_path"] = f"header_insunits_{insunits}_{unit_name}"
+                diagnosis["final_scale"] = scale
+                diagnosis["final_size_m"] = resulting_size
+                return scale, diagnosis
             else:
-                # $INSUNITS 적용 결과가 비합리적 → 추가 보정 필요
-                logger.warning(f"$INSUNITS={insunits} ({unit_name}) -> size={resulting_size:.4f}m is unreasonable, checking for scale drawing...")
-
-                # 1:100 축척 도면 가능성 (건축 도면에서 흔함)
-                if resulting_size < 3 and resulting_size * 100 >= MIN_BUILDING and resulting_size * 100 <= MAX_BUILDING:
-                    corrected_scale = scale * 100
-                    logger.info(f"Detected 1:100 scale drawing: $INSUNITS={insunits} + 100x -> final scale={corrected_scale}, size={resulting_size * 100:.1f}m")
-                    return corrected_scale
-
-                # 1:50 축척 도면
-                if resulting_size < 3 and resulting_size * 50 >= MIN_BUILDING and resulting_size * 50 <= MAX_BUILDING:
-                    corrected_scale = scale * 50
-                    logger.info(f"Detected 1:50 scale drawing: $INSUNITS={insunits} + 50x -> final scale={corrected_scale}, size={resulting_size * 50:.1f}m")
-                    return corrected_scale
-
-                # 1:200 축척 도면
-                if resulting_size < 3 and resulting_size * 200 >= MIN_BUILDING and resulting_size * 200 <= MAX_BUILDING:
-                    corrected_scale = scale * 200
-                    logger.info(f"Detected 1:200 scale drawing: $INSUNITS={insunits} + 200x -> final scale={corrected_scale}, size={resulting_size * 200:.1f}m")
-                    return corrected_scale
-
-                logger.warning(f"$INSUNITS={insunits} result unreasonable ({resulting_size:.4f}m), falling back to heuristics")
+                # INSUNITS 적용 결과가 비합리적이어도 자동 1:N 보정 X — 사용자가 force_scale 로 명시
+                # [패치 1] 1:100/1:50/1:200 자동 적용 블록 제거됨
+                logger.warning(
+                    f"$INSUNITS={insunits} ({unit_name}) -> size={resulting_size:.4f}m unreasonable. "
+                    f"Returning INSUNITS scale ({scale}) anyway. "
+                    f"User can override with force_scale parameter."
+                )
+                diagnosis["decision_path"] = f"header_insunits_{insunits}_{unit_name}_unreasonable_returned_anyway"
+                diagnosis["final_scale"] = scale
+                diagnosis["final_size_m"] = resulting_size
+                return scale, diagnosis
         elif insunits != 0:
             logger.warning(f"Unknown $INSUNITS value: {insunits}, falling back to extent detection")
     except Exception as e:
         logger.warning(f"Failed to read $INSUNITS: {e}")
 
     # === 2차: Extent 기반 휴리스틱 ===
-    # 이미 위에서 raw_extent 계산됨
     extent = raw_extent
     logger.info(f"DXF extent: {extent:.4f} (using heuristics)")
 
     # 단위별 변환값 계산
-    as_mm = extent / 1000      # mm -> m
+    as_mm = extent / 1000      # mm -> m (extent가 mm 단위라고 가정)
     as_cm = extent / 100       # cm -> m
     as_inch = extent * 0.0254  # inch -> m
     as_feet = extent * 0.3048  # feet -> m
@@ -273,10 +286,16 @@ def _detect_dxf_scale(doc) -> float:
     def is_valid_building(size_m):
         return MIN_BUILDING <= size_m <= MAX_BUILDING
 
+    def make_result(scale: float, decision_path: str) -> Tuple[float, Dict[str, Any]]:
+        diagnosis["decision_path"] = decision_path
+        diagnosis["final_scale"] = scale
+        diagnosis["final_size_m"] = raw_extent * scale
+        return scale, diagnosis
+
     # 10000 이상: 확실히 mm 단위 (10m+ 건물)
     if extent > 10000:
         logger.info(f"Heuristic: mm units (extent={extent:.0f}mm -> {as_mm:.1f}m)")
-        return 0.001
+        return make_result(0.001, "heuristic_extent_gt_10000_mm")
 
     # 500~10000: cm, inch, mm 중 선택
     if extent > 500:
@@ -289,7 +308,6 @@ def _detect_dxf_scale(doc) -> float:
             candidates.append(('mm', 0.001, as_mm))
 
         if candidates:
-            # 10m~50m 범위 선호
             def score(c):
                 size = c[2]
                 if 10 <= size <= 50:
@@ -300,9 +318,9 @@ def _detect_dxf_scale(doc) -> float:
             candidates.sort(key=score)
             unit, scale, size = candidates[0]
             logger.info(f"Heuristic: {unit} units (extent={extent:.0f} -> {size:.1f}m)")
-            return scale
+            return make_result(scale, f"heuristic_500_10000_{unit}")
         logger.info(f"Heuristic: fallback cm (extent={extent:.0f}cm -> {as_cm:.1f}m)")
-        return 0.01
+        return make_result(0.01, "heuristic_500_10000_fallback_cm")
 
     # 200~500: inch, feet, m 중 선택
     if extent > 200:
@@ -325,9 +343,9 @@ def _detect_dxf_scale(doc) -> float:
             candidates.sort(key=score)
             unit, scale, size = candidates[0]
             logger.info(f"Heuristic: {unit} units (extent={extent:.1f} -> {size:.1f}m)")
-            return scale
+            return make_result(scale, f"heuristic_200_500_{unit}")
         logger.info(f"Heuristic: meters (extent={extent:.1f}m, large building)")
-        return 1.0
+        return make_result(1.0, "heuristic_200_500_fallback_m")
 
     # 5~200: m, feet, inch 중 선택
     if extent >= 5:
@@ -350,33 +368,24 @@ def _detect_dxf_scale(doc) -> float:
             candidates.sort(key=score)
             unit, scale, size = candidates[0]
             logger.info(f"Heuristic: {unit} units (extent={extent:.1f} -> {size:.1f}m)")
-            return scale
+            return make_result(scale, f"heuristic_5_200_{unit}")
         logger.info(f"Heuristic: meters (extent={extent:.1f}m)")
-        return 1.0
+        return make_result(1.0, "heuristic_5_200_fallback_m")
 
     # 1~5: feet 또는 m
     if extent >= 1:
         if is_valid_building(as_feet):
             logger.info(f"Heuristic: feet (extent={extent:.2f}ft -> {as_feet:.2f}m)")
-            return 0.3048
-        return 1.0
+            return make_result(0.3048, "heuristic_1_5_feet")
+        return make_result(1.0, "heuristic_1_5_fallback_m")
 
-    # 0.1~1: 축척 도면 가능성 (1:100)
-    if extent >= 0.1:
-        scaled = extent * 100
-        if 5 < scaled < 200:
-            logger.info(f"Heuristic: 1:100 scale (extent={extent:.3f} -> {scaled:.1f}m)")
-            return 100.0
-        return 1.0
-
-    # 0.1 미만: 1:1000 축척
-    scaled = extent * 1000
-    if 5 < scaled < 500:
-        logger.info(f"Heuristic: 1:1000 scale (extent={extent:.4f} -> {scaled:.1f}m)")
-        return 1000.0
-
-    logger.info(f"Heuristic: default scale 1.0 (extent={extent})")
-    return 1.0
+    # extent < 1: 단위 추정 불가. 1.0 fallback (사용자 force_scale 권장)
+    # [패치 1] 1:100/1:1000 자동 적용 블록 제거됨
+    logger.warning(
+        f"Heuristic: extent={extent:.4f} is too small for reliable detection. "
+        f"Falling back to scale=1.0 (m). Use force_scale to override."
+    )
+    return make_result(1.0, "heuristic_extent_too_small_fallback_1.0")
 
 
 def _door_rects_to_panels(
@@ -1073,7 +1082,8 @@ def build_lod3_simple(
     height: float = 4.0,
     output_path: str = "building_lod3.glb",
     bounds: Optional[Dict[str, float]] = None,  # {"min_x", "max_x", "min_y", "max_y"}
-    include_roof: bool = True  # ★ 천장 슬래브 포함 여부
+    include_roof: bool = True,  # 천장 슬래브 포함 여부
+    force_scale: Optional[float] = None,  # [패치 2] 사용자 스케일 오버라이드
 ) -> Optional[Dict[str, Any]]:
     """LOD3 Simple 빌드 — LOD1 방식 + 문/창문 색상.
 
@@ -1103,9 +1113,22 @@ def build_lod3_simple(
     steps = []
     steps.append({"label": "DXF 파일 읽기", "detail": os.path.basename(dxf_path)})
 
-    # 스케일 감지 (헤더 $INSUNITS 우선, 없으면 extent 휴리스틱)
-    dxf_scale = _detect_dxf_scale(doc)
-    logger.info(f"DXF scale: {dxf_scale}")
+    # [패치 2+3] 스케일 결정 — force_scale 우선, diagnosis 포함
+    if force_scale is not None:
+        dxf_scale = force_scale
+        scale_diagnosis = {
+            "raw_extent": None,
+            "insunits": None,
+            "insunits_unit": None,
+            "decision_path": "user_force_scale",
+            "final_scale": force_scale,
+            "final_size_m": None,
+        }
+        logger.info(f"DXF scale FORCED by user: {force_scale}")
+    else:
+        # 스케일 감지 (헤더 $INSUNITS 우선, 없으면 extent 휴리스틱)
+        dxf_scale, scale_diagnosis = _detect_dxf_scale(doc)
+        logger.info(f"DXF scale (auto-detected): {dxf_scale}, path={scale_diagnosis.get('decision_path')}")
 
     # bounds에도 스케일 적용 (벽 선분과 동일한 좌표계로 변환)
     scaled_bounds = None
@@ -1454,6 +1477,7 @@ def build_lod3_simple(
             "window_count": len(window_segments) + len(window_inserts),
             "openings": openings,
             "dxf_scale": dxf_scale,  # 디버깅용: 감지된 스케일
+            "scale_diagnosis": scale_diagnosis,  # [패치 3] 스케일 진단 정보
         }
     except Exception as e:
         logger.error(f"GLB 생성 실패: {e}")

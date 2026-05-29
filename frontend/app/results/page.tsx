@@ -84,7 +84,7 @@ export default function ResultsIndexPage() {
               {projects.map((p, i) => (
                 <Link
                   key={p.id}
-                  href={`/results/${p.id}`}
+                  href={`/editor?projectId=${p.id}&view=result`}
                   className="card card-hover p-5 block"
                 >
                   <div className="flex items-start justify-between">

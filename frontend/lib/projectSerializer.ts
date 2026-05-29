@@ -23,6 +23,7 @@ import {
   SerializedParkingTransform,
   SerializedMainEntranceData,
   SerializedPlacementPlan,
+  SerializedResultSnapshot,
 } from '@/types/projectFile'
 
 /**
@@ -136,6 +137,8 @@ export function createProjectFile(params: {
   // 배치안 목록
   placementPlans?: SerializedPlacementPlan[]
   activePlanId?: string | null
+  // 결과 리포트 스냅샷
+  resultSnapshot?: SerializedResultSnapshot | null
 }): ProjectFile {
   const {
     viewer,
@@ -172,6 +175,8 @@ export function createProjectFile(params: {
     // 배치안 목록
     placementPlans,
     activePlanId,
+    // 결과 리포트 스냅샷
+    resultSnapshot,
   } = params
 
   return {
@@ -220,6 +225,9 @@ export function createProjectFile(params: {
     // 배치안 목록
     placementPlans,
     activePlanId,
+
+    // 결과 리포트 스냅샷
+    resultSnapshot,
   }
 }
 

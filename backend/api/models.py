@@ -95,6 +95,16 @@ class MassGenerateRequest(BaseModel):
         None,
         description="창문 레이어 이름 목록 (LOD3에서 사용)"
     )
+    force_scale: Optional[float] = Field(
+        None,
+        description=(
+            "DXF 스케일 자동 감지 무시 (m 단위로 환산하는 곱셈 인자). "
+            "예: 0.001(mm), 0.01(cm), 1.0(m), 0.0254(inch), 0.3048(feet). "
+            "None이면 _detect_dxf_scale 자동 감지 사용."
+        ),
+        gt=0,
+        le=10000,
+    )
 
 
 class MeshStats(BaseModel):
@@ -150,6 +160,10 @@ class MassGenerateResponse(BaseModel):
     openings: Optional[List[OpeningPosition]] = Field(
         default=None,
         description="문/창문 위치 목록 (Cesium 마커용)"
+    )
+    scale_diagnosis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="DXF 스케일 감지 진단 정보 (raw_extent, insunits, decision_path, final_size_m)"
     )
 
 
@@ -227,6 +241,10 @@ class ValidationRequest(BaseModel):
     height_limit: Optional[float] = Field(
         default=None,
         description="높이 한도 (m) - zone_type 미지정 시 사용"
+    )
+    road_edges: Optional[List[List[List[float]]]] = Field(
+        default=None,
+        description="도로변 경계 좌표 리스트 [[[x1,y1],[x2,y2]], ...] - 도로/인접대지 이격거리 분리 검증용"
     )
 
 

@@ -706,6 +706,7 @@ export default function CesiumViewer() {
           uri: modelUrl,
           scale: initialScale,
           heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          shadows: Cesium.ShadowMode.ENABLED,  // 그림자 캐스트 및 수신
         },
       })
 
@@ -877,6 +878,7 @@ export default function CesiumViewer() {
           maximumScale: 20000,
           minimumPixelSize: 0,
           backFaceCulling: false,
+          shadows: Cesium.ShadowMode.ENABLED,  // 그림자 캐스트 및 수신
         },
       })
 
@@ -1431,6 +1433,7 @@ export default function CesiumViewer() {
           uri: '/models/Meshy_AI_man_0315144539_texture.glb',
           scale: 0.9,  // 원본 2m × 0.9 = 180cm
           heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          shadows: Cesium.ShadowMode.ENABLED,  // 그림자 캐스트 및 수신
         },
       })
 

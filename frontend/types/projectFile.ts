@@ -248,6 +248,15 @@ export interface SerializedMassPlacement {
   transform: SerializedModelTransform
 }
 
+// 결과 리포트 스냅샷
+export interface SerializedResultSnapshot {
+  sitePlan: string | null          // 배치도 캡처 dataURL
+  aerialView: string | null        // 조감도 캡처 dataURL
+  capturedAt: string | null        // 캡처 시각 (ISO string)
+  renderedSitePlan: string | null  // AI 렌더링된 배치도
+  renderedAerialView: string | null // AI 렌더링된 조감도
+}
+
 // 배치안 데이터
 export interface SerializedPlacementPlan {
   id: string
@@ -330,6 +339,9 @@ export interface ProjectFile {
   // 배치안 목록
   placementPlans?: SerializedPlacementPlan[]
   activePlanId?: string | null
+
+  // 결과 리포트 스냅샷
+  resultSnapshot?: SerializedResultSnapshot | null
 }
 
 // 파일 검증 결과

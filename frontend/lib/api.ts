@@ -112,6 +112,8 @@ export async function validatePlacement(params: {
   coverage_limit?: number
   setback_required?: number
   height_limit?: number
+  zone_type?: string
+  road_edges?: number[][][]  // 도로변 경계 [[[x1,y1],[x2,y2]], ...]
 }) {
   const response = await fetch(`${API_URL}/api/validate-placement`, {
     method: 'POST',

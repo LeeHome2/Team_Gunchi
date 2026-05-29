@@ -141,6 +141,8 @@ export function useProjectPersistence(
         // 배치안 목록
         placementPlans: store.placementPlans,
         activePlanId: store.activePlanId,
+        // 결과 리포트 스냅샷
+        resultSnapshot: store.resultSnapshot,
       })
 
       // DB에 저장 시도 (projectId가 있는 경우)
@@ -396,6 +398,13 @@ export function useProjectPersistence(
       if (projectFile.activePlanId) {
         currentStore.setActivePlanId(projectFile.activePlanId)
       }
+    }
+
+    // 13. 결과 리포트 스냅샷 복원
+    if (projectFile.resultSnapshot) {
+      console.log('결과 리포트 스냅샷 복원 중...')
+      const { setResultSnapshot } = useProjectStore.getState()
+      setResultSnapshot(projectFile.resultSnapshot)
     }
 
     viewer.scene.requestRender()

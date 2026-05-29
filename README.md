@@ -519,6 +519,32 @@ interface PlacementPlan {
 
 ## 변경 이력 (Changelog)
 
+### v1.2.0 (2026-05-30)
+
+**결과 리포트 개선 및 스냅샷 저장**
+
+| 항목 | 변경 내용 |
+|------|----------|
+| **결과 스냅샷 저장** | `resultSnapshot` (배치도/조감도 캡처, AI 렌더링 결과)이 프로젝트 파일에 저장되어 복원 가능 |
+| **그림자 캡처 수정** | `requestRenderMode` 일시 비활성화 및 `requestAnimationFrame` 사용으로 그림자 캡처 문제 해결 |
+| **모델 그림자 활성화** | 3D 모델 로딩 시 `ShadowMode.ENABLED` 기본 적용 (건물/OSM/휴먼스케일) |
+| **결과 페이지 바로가기** | `/results` 목록에서 클릭 시 `/editor/result`로 직접 이동 (view=result 파라미터) |
+| **테마 토글 개선** | 다크/라이트 모드 토글 컴포넌트 분리 및 결과 페이지 통합 |
+| **AI 렌더링 프롬프트** | 배치도/조감도 렌더링 프롬프트 최적화 (건축영역 초록 경계선 유지) |
+
+**수정된 주요 파일**:
+- `lib/cesiumSnapshot.ts` — 그림자 캡처 로직 재구성, requestRenderMode 처리
+- `types/projectFile.ts` — `SerializedResultSnapshot` 타입 추가
+- `lib/projectSerializer.ts` — resultSnapshot 직렬화 추가
+- `hooks/useProjectPersistence.ts` — resultSnapshot 저장/복원 로직
+- `components/CesiumViewer.tsx` — 모델 ShadowMode.ENABLED 기본 적용
+- `hooks/useCesiumViewer.ts` — OSM Buildings 그림자 활성화
+- `app/editor/page.tsx` — view=result 파라미터 처리, 결과 페이지 자동 이동
+- `app/results/page.tsx` — 결과 리포트 직접 링크
+- `components/ThemeToggle.tsx` — 테마 토글 컴포넌트 분리
+
+---
+
 ### v1.1.0 (2026-05-29)
 
 **성능 최적화 및 기능 개선**

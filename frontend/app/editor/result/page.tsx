@@ -20,6 +20,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Brand from '@/components/Brand'
+import Lightbox from '@/components/Lightbox'
+import ThemeToggle from '@/components/ThemeToggle'
 import { useProjectStore, PlacementPlan } from '@/store/projectStore'
 import { requestAIScoring } from '@/lib/analysisApi'
 import { calculatePolygonArea } from '@/lib/geometry'
@@ -93,29 +95,31 @@ function MetaBar({
   address,
   coordinate,
   capturedAt,
+  isDark = true,
 }: {
   projectName: string
   address: string
   coordinate: string
   capturedAt: string
+  isDark?: boolean
 }) {
   return (
-    <div className="card px-6 py-4 flex flex-wrap items-center gap-x-10 gap-y-3">
+    <div className={`px-6 py-4 flex flex-wrap items-center gap-x-10 gap-y-3 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
       <div>
-        <div className="text-xs text-white/40 uppercase tracking-wider mb-0.5">프로젝트</div>
-        <div className="text-base font-semibold text-white">{projectName}</div>
+        <div className={`text-xs uppercase tracking-wider mb-0.5 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>프로젝트</div>
+        <div className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{projectName}</div>
       </div>
-      <div className="border-l border-white/10 pl-10">
-        <div className="text-xs text-white/40 uppercase tracking-wider mb-0.5">주소</div>
-        <div className="text-sm text-white/80">{address}</div>
+      <div className={`border-l pl-10 ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`text-xs uppercase tracking-wider mb-0.5 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>주소</div>
+        <div className={`text-sm ${isDark ? 'text-white/80' : 'text-gray-700'}`}>{address}</div>
       </div>
-      <div className="border-l border-white/10 pl-10">
-        <div className="text-xs text-white/40 uppercase tracking-wider mb-0.5">중심 좌표</div>
-        <div className="text-sm text-white/80 font-mono">{coordinate}</div>
+      <div className={`border-l pl-10 ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`text-xs uppercase tracking-wider mb-0.5 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>중심 좌표</div>
+        <div className={`text-sm font-mono ${isDark ? 'text-white/80' : 'text-gray-700'}`}>{coordinate}</div>
       </div>
-      <div className="border-l border-white/10 pl-10 ml-auto">
-        <div className="text-xs text-white/40 uppercase tracking-wider mb-0.5">캡처 시각</div>
-        <div className="text-sm text-white/80">{capturedAt}</div>
+      <div className={`border-l pl-10 ml-auto ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`text-xs uppercase tracking-wider mb-0.5 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>캡처 시각</div>
+        <div className={`text-sm ${isDark ? 'text-white/80' : 'text-gray-700'}`}>{capturedAt}</div>
       </div>
     </div>
   )
@@ -128,6 +132,8 @@ function DiagramCard({
   placeholderLabel,
   placeholderHint,
   badge,
+  onClick,
+  isDark = true,
 }: {
   title: string
   subtitle: string
@@ -135,39 +141,69 @@ function DiagramCard({
   placeholderLabel: string
   placeholderHint: string
   badge?: string
+  onClick?: () => void
+  isDark?: boolean
 }) {
   return (
-    <div className="card overflow-hidden flex flex-col">
-      <div className="px-5 py-4 flex items-center justify-between border-b border-white/5">
+    <div className={`overflow-hidden flex flex-col rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
+      <div className={`px-5 py-4 flex items-center justify-between border-b ${isDark ? 'border-white/5' : 'border-gray-100'}`}>
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold text-white">{title}</h3>
+            <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h3>
             {badge && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-200 border border-brand-500/20">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${isDark ? 'bg-brand-500/15 text-brand-200 border-brand-500/20' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
                 {badge}
               </span>
             )}
           </div>
-          <p className="text-xs text-white/40 mt-0.5">{subtitle}</p>
+          <p className={`text-xs mt-0.5 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>{subtitle}</p>
         </div>
+        {imageSrc && onClick && (
+          <button
+            onClick={onClick}
+            className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white/80' : 'hover:bg-gray-100 text-gray-400 hover:text-gray-600'}`}
+            title="크게 보기"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+            </svg>
+          </button>
+        )}
       </div>
-      <div className="relative aspect-[16/10] bg-navy-950 flex items-center justify-center">
+      <div
+        className={`relative aspect-[16/10] flex items-center justify-center ${isDark ? 'bg-navy-950' : 'bg-gray-100'} ${
+          imageSrc && onClick ? 'cursor-pointer group' : ''
+        }`}
+        onClick={imageSrc && onClick ? onClick : undefined}
+      >
         {imageSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imageSrc}
-            alt={title}
-            className="absolute inset-0 w-full h-full object-cover"
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageSrc}
+              alt={title}
+              className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
+            />
+            {/* 호버 시 확대 아이콘 오버레이 */}
+            {onClick && (
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 rounded-full p-3">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                  </svg>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-center px-8">
-            <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-7 h-7 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 ${isDark ? 'bg-white/5' : 'bg-gray-200'}`}>
+              <svg className={`w-7 h-7 ${isDark ? 'text-white/30' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
-            <div className="text-sm font-medium text-white/70 mb-1">{placeholderLabel}</div>
-            <div className="text-xs text-white/40 max-w-xs">{placeholderHint}</div>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-gray-600'}`}>{placeholderLabel}</div>
+            <div className={`text-xs max-w-xs ${isDark ? 'text-white/40' : 'text-gray-400'}`}>{placeholderHint}</div>
           </div>
         )}
       </div>
@@ -180,23 +216,25 @@ function SummaryCard({
   value,
   limit,
   status,
+  isDark = true,
 }: {
   label: string
   value: string
   limit: string
   status: StatusKey
+  isDark?: boolean
 }) {
   const s = STATUS_STYLES[status]
   return (
-    <div className={`card p-4 ring-1 ${s.ring}`}>
+    <div className={`p-4 ring-1 rounded-xl ${s.ring} ${isDark ? 'bg-white/5' : 'bg-navy-850 shadow-sm'}`}>
       <div className="flex items-start justify-between mb-3">
-        <div className="text-sm text-white/60">{label}</div>
+        <div className={`text-sm ${isDark ? 'text-white/60' : 'text-gray-500'}`}>{label}</div>
         <span className={`text-[11px] px-2 py-0.5 rounded border ${s.badge}`}>
           {s.label}
         </span>
       </div>
-      <div className="text-2xl font-semibold text-white tabular-nums">{value}</div>
-      <div className="text-xs text-white/40 mt-1">기준 {limit}</div>
+      <div className={`text-2xl font-semibold tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>{value}</div>
+      <div className={`text-xs mt-1 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>기준 {limit}</div>
     </div>
   )
 }
@@ -204,7 +242,7 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId, placementPlans, saveActivePlan } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId, placementPlans, saveActivePlan, theme } =
     useProjectStore()
 
   // 선호도 체크박스 상태
@@ -268,8 +306,10 @@ export default function ResultPage() {
       const html2canvas = (await import('html2canvas')).default
       const target = document.getElementById('result-capture-target')
       if (!target) throw new Error('캡처 대상이 없습니다')
+      // 테마에 따른 배경색 설정
+      const bgColor = theme === 'dark' ? '#0a1224' : '#f9fafb'
       const canvas = await html2canvas(target, {
-        backgroundColor: '#0a1224',
+        backgroundColor: bgColor,
         scale: 2,
         useCORS: true,
         logging: false,
@@ -289,13 +329,47 @@ export default function ResultPage() {
     } finally {
       setIsDownloading(false)
     }
-  }, [])
+  }, [theme])
 
   // ─── AI 렌더링 (Gemini / Nano Banana) ─────────────
   const [isRendering, setIsRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
-  const [renderedSitePlan, setRenderedSitePlan] = useState<string | null>(null)
-  const [renderedAerialView, setRenderedAerialView] = useState<string | null>(null)
+  // 렌더링 결과는 store에 저장하여 페이지 이동 후에도 유지
+  const renderedSitePlan = resultSnapshot.renderedSitePlan
+  const renderedAerialView = resultSnapshot.renderedAerialView
+  const setRenderedSitePlan = (url: string) => setResultSnapshot({ renderedSitePlan: url })
+  const setRenderedAerialView = (url: string) => setResultSnapshot({ renderedAerialView: url })
+
+  // ─── 이미지 라이트박스 ─────────────
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0) // 0: sitePlan, 1: aerialView
+
+  // 라이트박스용 이미지 목록
+  const lightboxImages = useMemo(() => {
+    const images: { src: string; title: string }[] = []
+    const sitePlanSrc = renderedSitePlan ?? resultSnapshot.sitePlan
+    const aerialViewSrc = renderedAerialView ?? resultSnapshot.aerialView
+    if (sitePlanSrc) images.push({ src: sitePlanSrc, title: '배치도' })
+    if (aerialViewSrc) images.push({ src: aerialViewSrc, title: '조감도' })
+    return images
+  }, [renderedSitePlan, renderedAerialView, resultSnapshot.sitePlan, resultSnapshot.aerialView])
+
+  const openLightbox = useCallback((index: number) => {
+    setLightboxIndex(index)
+    setLightboxOpen(true)
+  }, [])
+
+  const closeLightbox = useCallback(() => {
+    setLightboxOpen(false)
+  }, [])
+
+  const prevLightbox = useCallback(() => {
+    setLightboxIndex((i) => Math.max(0, i - 1))
+  }, [])
+
+  const nextLightbox = useCallback(() => {
+    setLightboxIndex((i) => Math.min(lightboxImages.length - 1, i + 1))
+  }, [])
 
   const handleAIRender = useCallback(async () => {
     if (!resultSnapshot.sitePlan && !resultSnapshot.aerialView) {
@@ -805,16 +879,20 @@ export default function ResultPage() {
   // 1등 배치안
   const topVariant = sortedVariants[0]
 
+  // 테마별 스타일 클래스
+  const isDark = theme === 'dark'
+
   return (
-    <div className="min-h-screen bg-navy-950 text-white">
+    <div className={`min-h-screen transition-colors ${isDark ? 'bg-navy-950 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {/* 상단 헤더 */}
-      <header className="border-b border-white/5 bg-navy-900/80 backdrop-blur-xl px-6 py-4">
+      <header className={`border-b backdrop-blur-xl px-6 py-4 ${isDark ? 'border-white/5 bg-navy-900/80' : 'border-gray-200 bg-navy-900/80'}`}>
         <div className="max-w-7xl mx-auto flex items-center gap-6">
           <Brand size="sm" />
-          <span className="hidden md:inline-flex text-xs text-white/40 border-l border-white/10 pl-4">
+          <span className={`hidden md:inline-flex text-xs border-l pl-4 ${isDark ? 'text-white/40 border-white/10' : 'text-gray-400 border-gray-200'}`}>
             배치 결과 확인
           </span>
           <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
             <button
               onClick={() => {
                 // projectId 를 유지한 채로 에디터로 돌아가야 editor 페이지의
@@ -822,20 +900,20 @@ export default function ResultPage() {
                 const dest = projectId ? `/editor?projectId=${projectId}` : '/editor'
                 router.push(dest)
               }}
-              className="btn-ghost text-sm flex items-center gap-1.5"
+              className={`text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
               에디터로 돌아가기
             </button>
-            <Link href="/projects" className="btn-ghost text-sm">
+            <Link href="/projects" className={`text-sm px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>
               프로젝트 목록
             </Link>
             <button
               onClick={handleDownloadImage}
               disabled={isDownloading || !hasAnyData}
-              className="btn-secondary text-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`text-sm flex items-center gap-1.5 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isDark ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-brand-500 hover:bg-brand-600 text-white'}`}
               title="결과 페이지를 PNG 이미지로 다운로드"
             >
               {isDownloading ? (
@@ -848,7 +926,7 @@ export default function ResultPage() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
                   </svg>
-                  이미지 다운로드
+                  결과 리포트 저장
                 </>
               )}
             </button>
@@ -864,9 +942,9 @@ export default function ResultPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold mb-1">표시할 배치 결과가 없습니다</h2>
-            <p className="text-sm text-white/60 mb-5">
-              에디터에서 도면 업로드 → 배치 → 규정 검토까지 완료한 뒤 ‘결과 확인’ 버튼을 눌러주세요.
+            <h2 className={`text-lg font-semibold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>표시할 배치 결과가 없습니다</h2>
+            <p className={`text-sm mb-5 ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+              에디터에서 도면 업로드 → 배치 → 규정 검토까지 완료한 뒤 '결과 확인' 버튼을 눌러주세요.
             </p>
             <button
               onClick={() => {
@@ -887,13 +965,14 @@ export default function ResultPage() {
               address={workArea?.address || workArea?.displayName || '주소 미지정'}
               coordinate={fmtCoord(lon, lat)}
               capturedAt={fmtDate(resultSnapshot.capturedAt)}
+              isDark={isDark}
             />
 
             {/* 종합 판정 */}
-            <div className="flex items-center justify-between card px-6 py-4">
+            <div className={`flex items-center justify-between px-6 py-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
               <div>
-                <div className="text-xs text-white/40 uppercase tracking-wider mb-1">종합 판정</div>
-                <div className="text-lg font-semibold text-white">
+                <div className={`text-xs uppercase tracking-wider mb-1 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>종합 판정</div>
+                <div className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                   {overallStatus === 'pass' && '모든 규정 기준을 충족했습니다'}
                   {overallStatus === 'fail' && '일부 규정을 충족하지 못했습니다'}
                   {overallStatus === 'unknown' && '규정 검토 결과가 없습니다'}
@@ -915,6 +994,8 @@ export default function ResultPage() {
                 placeholderLabel="배치도 이미지가 없습니다"
                 placeholderHint="에디터에서 '결과 확인' 버튼을 눌러 현재 뷰포트를 캡처해 주세요."
                 badge={renderedSitePlan ? 'AI 렌더링' : '캡처 이미지'}
+                onClick={() => openLightbox(0)}
+                isDark={isDark}
               />
               <DiagramCard
                 title="조감도"
@@ -923,33 +1004,57 @@ export default function ResultPage() {
                 placeholderLabel="조감도 이미지가 없습니다"
                 placeholderHint="에디터에서 '결과 확인' 버튼을 눌러 현재 뷰포트를 캡처해 주세요."
                 badge={renderedAerialView ? 'AI 렌더링' : '캡처 이미지'}
+                onClick={() => openLightbox(lightboxImages.length > 1 ? 1 : 0)}
+                isDark={isDark}
               />
             </section>
 
             {/* AI 렌더링 버튼 (GPT / Gemini 선택) */}
-            <section className="card px-4 py-4">
+            <section className={`px-4 py-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                  <h3 className="text-sm font-semibold text-white">AI 렌더링</h3>
-                  <p className="text-xs text-white/50 mt-0.5">
+                  <h3 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>AI 렌더링</h3>
+                  <p className={`text-xs mt-0.5 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
                     캡처 이미지를 사실적인 건축 렌더링 스타일로 변환합니다.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAIRender}
-                  disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}
-                  className="px-4 py-2 rounded-lg bg-white/10 border border-white/15 text-white font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/15 transition flex items-center gap-2"
-                >
-                  {isRendering ? (
-                    <>
-                      <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      렌더링 중...
-                    </>
-                  ) : (
-                    <>AI 렌더링 실행</>
-                  )}
-                </button>
+                  {/* 뷰포트 초기화 버튼 */}
+                  <button
+                    onClick={() => {
+                      setResultSnapshot({
+                        sitePlan: null,
+                        aerialView: null,
+                        capturedAt: null,
+                        renderedSitePlan: null,
+                        renderedAerialView: null,
+                      })
+                      setRenderError(null)
+                    }}
+                    disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}
+                    className={`px-3 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1.5 ${isDark ? 'bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 hover:text-white' : 'bg-gray-100 border border-gray-200 text-gray-600 hover:bg-gray-200 hover:text-gray-800'}`}
+                    title="캡처 이미지와 렌더링 결과를 초기화합니다. 에디터로 돌아가서 다시 결과 확인을 누르면 새로 캡처됩니다."
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    초기화
+                  </button>
+                  {/* AI 렌더링 버튼 */}
+                  <button
+                    onClick={handleAIRender}
+                    disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2 ${isDark ? 'bg-white/10 border border-white/15 text-white hover:bg-white/15' : 'bg-brand-500 text-[#fff] hover:bg-brand-600'}`}
+                  >
+                    {isRendering ? (
+                      <>
+                        <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        렌더링 중...
+                      </>
+                    ) : (
+                      <>AI 렌더링 실행</>
+                    )}
+                  </button>
                 </div>
               </div>
               {renderError && (
@@ -967,11 +1072,11 @@ export default function ResultPage() {
             {/* 규정 요약 카드 */}
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold text-white">규정 검토 요약</h2>
+                <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>규정 검토 요약</h2>
                 {/* 적용 용도지역 표시 (검토 탭에서 선택한 값) */}
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm">
-                  <span className="text-white/50">적용규정:</span>
-                  <span className="text-white font-medium">{selectedZoneType}</span>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${isDark ? 'bg-white/5 border border-white/10' : 'bg-gray-100 border border-gray-200'}`}>
+                  <span className={isDark ? 'text-white/50' : 'text-gray-500'}>적용규정:</span>
+                  <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedZoneType}</span>
                 </div>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -984,6 +1089,7 @@ export default function ResultPage() {
                       ? cov.value <= selectedZoneLimits.coverage ? 'pass' : 'fail'
                       : statusFromRaw(cov?.status)
                   }
+                  isDark={isDark}
                 />
                 <SummaryCard
                   label="이격거리"
@@ -994,6 +1100,7 @@ export default function ResultPage() {
                       ? setback.min_distance_m >= selectedZoneLimits.setback_road ? 'pass' : 'fail'
                       : statusFromRaw(setback?.status)
                   }
+                  isDark={isDark}
                 />
                 <SummaryCard
                   label="건물 높이"
@@ -1004,6 +1111,7 @@ export default function ResultPage() {
                       ? height.value_m <= selectedZoneLimits.height ? 'pass' : 'fail'
                       : 'pass'
                   }
+                  isDark={isDark}
                 />
                 <SummaryCard
                   label="층수 / 매스"
@@ -1019,19 +1127,20 @@ export default function ResultPage() {
                   }
                   // 층수 검토는 임시 — 적합 표시
                   status="pass"
+                  isDark={isDark}
                 />
               </div>
             </section>
 
             {/* 위반 사항 */}
             <section>
-              <h2 className="text-base font-semibold text-white mb-3">위반 사항</h2>
+              <h2 className={`text-base font-semibold mb-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>위반 사항</h2>
               {violations && violations.length > 0 ? (
                 <ul className="space-y-2">
                   {violations.map((vio, idx) => (
                     <li
                       key={`${vio.code}-${idx}`}
-                      className="card px-4 py-3 flex items-start gap-3"
+                      className={`px-4 py-3 flex items-start gap-3 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}
                     >
                       <div className="mt-0.5 w-6 h-6 rounded-full bg-red-500/15 text-red-300 flex items-center justify-center flex-shrink-0">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1039,122 +1148,122 @@ export default function ResultPage() {
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-mono text-red-300/80 mb-0.5">
+                        <div className={`text-xs font-mono mb-0.5 ${isDark ? 'text-red-300/80' : 'text-red-600'}`}>
                           {vio.code}
                         </div>
-                        <div className="text-sm text-white/80">{vio.message}</div>
+                        <div className={`text-sm ${isDark ? 'text-white/80' : 'text-gray-700'}`}>{vio.message}</div>
                       </div>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <div className="card px-4 py-6 text-center">
+                <div className={`px-4 py-6 text-center rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
                   <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-2">
                     <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <div className="text-sm text-white/70">감지된 위반 사항이 없습니다</div>
+                  <div className={`text-sm ${isDark ? 'text-white/70' : 'text-gray-600'}`}>감지된 위반 사항이 없습니다</div>
                 </div>
               )}
             </section>
 
             {/* 배치안 분석 결과 */}
             <section>
-              <h2 className="text-base font-semibold text-white mb-3">배치안 분석 결과</h2>
+              <h2 className={`text-base font-semibold mb-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>배치안 분석 결과</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* 일조량 분석 */}
-                <div className="card p-4">
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
                       <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                       </svg>
                     </div>
-                    <div className="text-sm font-medium text-white">일조량 분석</div>
+                    <div className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>일조량 분석</div>
                   </div>
                   {scoringInputData.sunlight.hasData ? (
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-white/60">평균 일조시간</span>
-                        <span className="text-white font-medium">{scoringInputData.sunlight.avgHours.toFixed(1)}시간</span>
+                        <span className={isDark ? 'text-white/60' : 'text-gray-500'}>평균 일조시간</span>
+                        <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{scoringInputData.sunlight.avgHours.toFixed(1)}시간</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/60">최소 / 최대</span>
-                        <span className="text-white/80">{scoringInputData.sunlight.minHours.toFixed(1)} ~ {scoringInputData.sunlight.maxHours.toFixed(1)}시간</span>
+                        <span className={isDark ? 'text-white/60' : 'text-gray-500'}>최소 / 최대</span>
+                        <span className={isDark ? 'text-white/80' : 'text-gray-700'}>{scoringInputData.sunlight.minHours.toFixed(1)} ~ {scoringInputData.sunlight.maxHours.toFixed(1)}시간</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/60">측정 포인트</span>
-                        <span className="text-white/80">{scoringInputData.sunlight.totalPoints.toLocaleString()}개</span>
+                        <span className={isDark ? 'text-white/60' : 'text-gray-500'}>측정 포인트</span>
+                        <span className={isDark ? 'text-white/80' : 'text-gray-700'}>{scoringInputData.sunlight.totalPoints.toLocaleString()}개</span>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-sm text-white/40 text-center py-3">
+                    <div className={`text-sm text-center py-3 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
                       일조 분석 미실행
                     </div>
                   )}
                 </div>
 
                 {/* 유효 면적 */}
-                <div className="card p-4">
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
                       <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
                       </svg>
                     </div>
-                    <div className="text-sm font-medium text-white">유효 면적</div>
+                    <div className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>유효 면적</div>
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-white/60">대지 면적</span>
-                      <span className="text-white font-medium">{scoringInputData.siteArea.toFixed(1)}㎡</span>
+                      <span className={isDark ? 'text-white/60' : 'text-gray-500'}>대지 면적</span>
+                      <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{scoringInputData.siteArea.toFixed(1)}㎡</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/60">주차 영역</span>
+                      <span className={isDark ? 'text-white/60' : 'text-gray-500'}>주차 영역</span>
                       <span className="text-red-400">-{scoringInputData.parkingArea.toFixed(1)}㎡</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/60">통로 영역</span>
+                      <span className={isDark ? 'text-white/60' : 'text-gray-500'}>통로 영역</span>
                       <span className="text-red-400">-{scoringInputData.pathArea.toFixed(1)}㎡</span>
                     </div>
-                    <div className="flex justify-between pt-2 border-t border-white/10">
-                      <span className="text-white/80 font-medium">유효 면적</span>
+                    <div className={`flex justify-between pt-2 border-t ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+                      <span className={`font-medium ${isDark ? 'text-white/80' : 'text-gray-700'}`}>유효 면적</span>
                       <span className="text-emerald-400 font-semibold">{scoringInputData.effectiveArea.toFixed(1)}㎡</span>
                     </div>
                   </div>
                 </div>
 
                 {/* 메인 창문 방향 */}
-                <div className="card p-4">
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
                   <div className="flex items-center gap-2 mb-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${scoringInputData.mainWindowFacesSouth ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
                       <svg className={`w-4 h-4 ${scoringInputData.mainWindowFacesSouth ? 'text-emerald-400' : 'text-amber-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                       </svg>
                     </div>
-                    <div className="text-sm font-medium text-white">메인 창문 방향</div>
+                    <div className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>메인 창문 방향</div>
                   </div>
                   {scoringInputData.totalWindows > 0 ? (
                     <div className="space-y-3 text-sm">
                       <div className="flex justify-between items-center">
-                        <span className="text-white/60">전체 창문</span>
-                        <span className="text-white font-medium">{scoringInputData.totalWindows}개</span>
+                        <span className={isDark ? 'text-white/60' : 'text-gray-500'}>전체 창문</span>
+                        <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{scoringInputData.totalWindows}개</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-white/60">메인 창문 방위</span>
-                        <span className="text-white/80">{scoringInputData.mainWindowDirection.toFixed(0)}°</span>
+                        <span className={isDark ? 'text-white/60' : 'text-gray-500'}>메인 창문 방위</span>
+                        <span className={isDark ? 'text-white/80' : 'text-gray-700'}>{scoringInputData.mainWindowDirection.toFixed(0)}°</span>
                       </div>
                       {/* 메인 창문 방향 표시 */}
-                      <div className="pt-3 border-t border-white/10">
+                      <div className={`pt-3 border-t ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
                         <div className="flex items-center justify-center gap-3">
                           {/* 방위 나침반 */}
                           <div className="relative w-16 h-16">
-                            <div className="absolute inset-0 rounded-full border-2 border-white/20" />
-                            <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 text-[10px] text-white/40">N</span>
-                            <span className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1 text-[10px] text-white/40">S</span>
-                            <span className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 text-[10px] text-white/40">W</span>
-                            <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 text-[10px] text-white/40">E</span>
+                            <div className={`absolute inset-0 rounded-full border-2 ${isDark ? 'border-white/20' : 'border-gray-300'}`} />
+                            <span className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 text-[10px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>N</span>
+                            <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1 text-[10px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>S</span>
+                            <span className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 text-[10px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>W</span>
+                            <span className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1 text-[10px] ${isDark ? 'text-white/40' : 'text-gray-400'}`}>E</span>
                             {/* 방향 화살표 */}
                             <div
                               className="absolute inset-2 flex items-center justify-center"
@@ -1179,7 +1288,7 @@ export default function ResultPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="text-sm text-white/40 text-center py-3">
+                    <div className={`text-sm text-center py-3 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
                       창문 정보 없음
                     </div>
                   )}
@@ -1190,7 +1299,7 @@ export default function ResultPage() {
             {/* AI 종합 스코어링 - 배치안 비교 UI */}
             <section className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold text-white">AI 종합 스코어링</h2>
+                <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>AI 종합 스코어링</h2>
                 <button
                   onClick={handleAIScoring}
                   disabled={aiScore.isLoading}
@@ -1216,7 +1325,7 @@ export default function ResultPage() {
               </div>
 
               {aiScore.error && !aiScore.result && (
-                <div className="card px-4 py-3 border border-red-500/30 text-sm text-red-300">
+                <div className={`px-4 py-3 rounded-xl border text-sm ${isDark ? 'bg-white/5 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600'}`}>
                   {aiScore.error}
                 </div>
               )}
@@ -1224,7 +1333,7 @@ export default function ResultPage() {
               {/* 메인 스코어링 카드 - 원형점수 + 테이블 + 체크박스 */}
               <div className="flex flex-col lg:flex-row gap-4">
                 {/* 좌측: 원형 점수판 + 비교 테이블 */}
-                <div className="card flex-1 p-6 flex flex-col md:flex-row items-center gap-8">
+                <div className={`flex-1 p-6 flex flex-col md:flex-row items-center gap-8 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
                   {/* 원형 점수 */}
                   <div className="relative flex-shrink-0">
                     <div className="absolute -top-3 -left-3 w-12 h-12 rounded-full bg-brand-500 border-2 border-brand-300 flex items-center justify-center font-bold text-white text-sm shadow-lg z-10">
@@ -1241,7 +1350,7 @@ export default function ResultPage() {
                   {/* 비교 테이블 */}
                   <div className="flex-1 w-full overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="text-xs text-brand-300 uppercase bg-white/5 border-b border-white/10">
+                      <thead className={`text-xs text-brand-300 uppercase ${isDark ? 'bg-white/5 border-b border-white/10' : 'bg-gray-50 border-b border-gray-200'}`}>
                         <tr>
                           <th className="px-4 py-2.5 text-left font-semibold rounded-tl-lg">대안</th>
                           <th className="px-4 py-2.5 text-center font-semibold">총점</th>
@@ -1254,28 +1363,28 @@ export default function ResultPage() {
                         {variantsData.length > 0 ? variantsData.map((variant) => (
                           <tr
                             key={variant.id}
-                            className={`border-b border-white/5 ${variant.isCurrent ? 'bg-brand-500/10' : ''}`}
+                            className={`${isDark ? 'border-b border-white/5' : 'border-b border-gray-100'} ${variant.isCurrent ? 'bg-brand-500/10' : ''}`}
                           >
-                            <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
+                            <td className={`px-4 py-3 font-medium flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
                               {variant.isCurrent && <span className="w-2 h-2 rounded-full bg-brand-400" />}
                               {variant.name} {variant.isCurrent ? '(현재)' : ''}
                             </td>
                             <td className="px-4 py-3 text-center font-bold text-brand-300">
                               {variant.score}점
                             </td>
-                            <td className="px-4 py-3 text-center text-white/70">
+                            <td className={`px-4 py-3 text-center ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
                               {variant.categories.sunlight}점
                             </td>
-                            <td className="px-4 py-3 text-center text-white/70">
+                            <td className={`px-4 py-3 text-center ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
                               {variant.categories.layout}점
                             </td>
-                            <td className="px-4 py-3 text-center text-white/70">
+                            <td className={`px-4 py-3 text-center ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
                               {variant.categories.parking}점
                             </td>
                           </tr>
                         )) : (
                           <tr>
-                            <td colSpan={5} className="px-4 py-6 text-center text-white/40">
+                            <td colSpan={5} className={`px-4 py-6 text-center ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
                               배치안이 없습니다. 먼저 배치안을 저장해주세요.
                             </td>
                           </tr>
@@ -1286,21 +1395,21 @@ export default function ResultPage() {
                 </div>
 
                 {/* 우측: 선호도 체크박스 */}
-                <div className="card w-full lg:w-56 p-5 border-brand-500/30 bg-brand-500/5 flex flex-col gap-4">
-                  <div className="text-xs text-brand-300 font-semibold uppercase tracking-wider mb-1">선호도 가중치</div>
+                <div className={`w-full lg:w-56 p-5 flex flex-col gap-4 rounded-xl ${isDark ? 'bg-brand-500/5 border border-brand-500/30' : 'bg-blue-50 border border-blue-200'}`}>
+                  <div className={`text-xs font-semibold uppercase tracking-wider mb-1 ${isDark ? 'text-brand-300' : 'text-blue-600'}`}>선호도 가중치</div>
                   {[
                     { id: 'southFacing', label: '일조량' },
                     { id: 'layoutAppropriateness', label: '배치' },
                     { id: 'parkingFitness', label: '주차 편의' },
                   ].map((pref) => (
                     <label key={pref.id} className="flex items-center justify-between group cursor-pointer">
-                      <span className="text-sm text-white/80 group-hover:text-white flex items-center gap-2">
+                      <span className={`text-sm flex items-center gap-2 ${isDark ? 'text-white/80 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'}`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
                         {pref.label}
                       </span>
                       <input
                         type="checkbox"
-                        className="w-5 h-5 rounded border-white/20 bg-black/40 text-brand-500 focus:ring-brand-500/50 cursor-pointer"
+                        className={`w-5 h-5 rounded text-brand-500 focus:ring-brand-500/50 cursor-pointer ${isDark ? 'border-white/20 bg-black/40' : 'border-gray-300 bg-navy-850'}`}
                         checked={preferences[pref.id as keyof typeof preferences] || false}
                         onChange={(e) => setPreferences(p => ({ ...p, [pref.id]: e.target.checked }))}
                       />
@@ -1310,9 +1419,9 @@ export default function ResultPage() {
               </div>
 
               {/* 제안 순위 섹션 */}
-              <div className="card p-5">
+              <div className={`p-5 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
                 <div className="flex flex-col md:flex-row items-center gap-4">
-                  <div className="text-brand-300 font-bold text-lg italic shrink-0">
+                  <div className={`font-bold text-lg italic shrink-0 ${isDark ? 'text-brand-300' : 'text-brand-600'}`}>
                     제안 순위
                   </div>
                   <div className="flex items-center justify-center flex-1 flex-wrap gap-3">
@@ -1321,12 +1430,14 @@ export default function ResultPage() {
                         <div className={`px-5 py-2.5 border-2 font-semibold rounded-lg transition-all ${
                           index === 0
                             ? 'border-brand-500 bg-brand-500/20 text-brand-100 shadow-[0_0_12px_rgba(59,130,246,0.25)]'
-                            : 'border-white/10 bg-white/5 text-white/50'
+                            : isDark
+                              ? 'border-white/10 bg-white/5 text-white/50'
+                              : 'border-gray-200 bg-gray-50 text-gray-500'
                         }`}>
                           {variant.name} ({variant.score}점)
                         </div>
                         {index < sortedVariants.length - 1 && (
-                          <svg className="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className={`w-5 h-5 ${isDark ? 'text-white/20' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 5l7 7-7 7" />
                           </svg>
                         )}
@@ -1335,9 +1446,9 @@ export default function ResultPage() {
                   </div>
                 </div>
                 {sortedVariants.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-white/5 text-sm flex items-center gap-2">
-                    <span className="text-brand-300 font-medium">○ 분석결과:</span>
-                    <span className="text-white/80">
+                  <div className={`mt-4 pt-4 text-sm flex items-center gap-2 ${isDark ? 'border-t border-white/5' : 'border-t border-gray-100'}`}>
+                    <span className={`font-medium ${isDark ? 'text-brand-300' : 'text-brand-600'}`}>○ 분석결과:</span>
+                    <span className={isDark ? 'text-white/80' : 'text-gray-700'}>
                       현재 선호도 기준 최적의 대안은 <span className="text-brand-400 font-bold">{topVariant?.name}</span>이며, 종합 스코어는 <span className="text-brand-400 font-bold">{topVariant?.score}점</span>입니다.
                     </span>
                   </div>
@@ -1346,17 +1457,17 @@ export default function ResultPage() {
 
               {/* LLM 요약 (LLM 연결 성공 시에만 표시) */}
               {aiScore.result?.summary && aiScore.result.source === 'llm' && (
-                <div className="card p-4">
-                  <div className="text-xs text-white/40 uppercase tracking-wider mb-2">AI 분석 요약</div>
-                  <div className="text-sm text-white/80 leading-relaxed">{aiScore.result.summary}</div>
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
+                  <div className={`text-xs uppercase tracking-wider mb-2 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>AI 분석 요약</div>
+                  <div className={`text-sm leading-relaxed ${isDark ? 'text-white/80' : 'text-gray-700'}`}>{aiScore.result.summary}</div>
                 </div>
               )}
 
               {/* 개선 제안 (LLM 연결 성공 시에만 표시) */}
               {aiScore.result?.suggestions && aiScore.result.source === 'llm' && (
-                <div className="card p-4">
-                  <div className="text-xs text-white/40 uppercase tracking-wider mb-2">개선 제안</div>
-                  <div className="text-sm text-white/80 leading-relaxed whitespace-pre-line">
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-navy-850 border border-gray-200 shadow-sm'}`}>
+                  <div className={`text-xs uppercase tracking-wider mb-2 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>개선 제안</div>
+                  <div className={`text-sm leading-relaxed whitespace-pre-line ${isDark ? 'text-white/80' : 'text-gray-700'}`}>
                     {aiScore.result.suggestions}
                   </div>
                 </div>
@@ -1364,13 +1475,25 @@ export default function ResultPage() {
             </section>
 
             <div className="pt-4 pb-2 text-center">
-              <p className="text-xs text-white/40">
+              <p className={`text-xs ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
                 ※ 본 결과는 Building Cesium 자동 검토 결과이며, 최종 인허가는 관할 지자체 및 건축사 확인을 통해 진행해야 합니다.
               </p>
             </div>
           </>
         )}
       </main>
+
+      {/* 이미지 라이트박스 */}
+      <Lightbox
+        isOpen={lightboxOpen}
+        imageSrc={lightboxImages[lightboxIndex]?.src || null}
+        title={lightboxImages[lightboxIndex]?.title}
+        onClose={closeLightbox}
+        onPrev={prevLightbox}
+        onNext={nextLightbox}
+        hasPrev={lightboxIndex > 0}
+        hasNext={lightboxIndex < lightboxImages.length - 1}
+      />
     </div>
   )
 }

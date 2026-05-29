@@ -220,6 +220,8 @@ export function useCesiumViewer(options: UseCesiumViewerOptions = {}): UseCesium
           color: "color('#D3D3D3')"
         })
         osmBuildingsTileset.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.REPLACE
+        // OSM 건물에 그림자 캐스트 및 수신 활성화
+        osmBuildingsTileset.shadows = Cesium.ShadowMode.ENABLED
         viewer.scene.primitives.add(osmBuildingsTileset)
         osmTilesetRef.current = osmBuildingsTileset
       } catch (e) {

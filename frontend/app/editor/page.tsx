@@ -9,6 +9,7 @@ import Sidebar from '@/components/Sidebar'
 import PlacementPlansPanel from '@/components/PlacementPlansPanel'
 import ErrorBanner from '@/components/ErrorBanner'
 import Brand from '@/components/Brand'
+import ThemeToggle from '@/components/ThemeToggle'
 import { captureTopDownDataUrl, captureCurrentViewDataUrl } from '@/lib/cesiumSnapshot'
 import { getProject } from '@/lib/api'
 import { loadRegulationsFromServer } from '@/lib/setbackTable'
@@ -64,6 +65,7 @@ function EditorContent() {
     projectError,
     setProjectError,
     setResultSnapshot,
+    resultSnapshot,
     projectId: storeProjectId,
     projectName: storeProjectName,
     setProjectId,
@@ -72,7 +74,14 @@ function EditorContent() {
     setPlansOpen,
     activePlanId,
     saveActivePlan,
+    sunlightAnalysisState,
+    setSunlightAnalysisState,
+    toggleSunlightHeatmapFn,
   } = useProjectStore()
+
+  // URL에서 view=result 파라미터 확인 (결과 페이지로 바로 이동)
+  const viewParam = searchParams.get('view')
+  const shouldRedirectToResult = viewParam === 'result'
 
   // URL에서 projectId 읽어서 프로젝트 정보 로드
   useEffect(() => {
@@ -154,6 +163,33 @@ function EditorContent() {
   }, [searchParams])
 
   // DB 자동 복원은 CesiumViewer 마운트 시 직접 수행 (race condition 방지)
+
+  // view=result 파라미터가 있으면 프로젝트 데이터 로드 후 결과 페이지로 자동 이동
+  const [hasRedirected, setHasRedirected] = useState(false)
+  useEffect(() => {
+    if (!shouldRedirectToResult || hasRedirected || !storeProjectId) return
+
+    // 프로젝트 데이터가 로드되었는지 확인
+    const hasProjectData = resultSnapshot?.sitePlan || resultSnapshot?.aerialView ||
+      resultSnapshot?.renderedSitePlan || resultSnapshot?.renderedAerialView
+
+    if (hasProjectData) {
+      // 데이터가 있으면 즉시 이동
+      console.log('[Editor] view=result: 프로젝트 데이터 발견, 결과 페이지로 이동')
+      setHasRedirected(true)
+      router.push(`/editor/result`)
+    } else if (!isLoadingProject && viewer) {
+      // 로딩 완료 후 약간의 지연을 두고 이동 (DB 복원 시간 확보)
+      const timer = setTimeout(() => {
+        if (!hasRedirected) {
+          console.log('[Editor] view=result: 로딩 완료, 결과 페이지로 이동')
+          setHasRedirected(true)
+          router.push(`/editor/result`)
+        }
+      }, 1500)
+      return () => clearTimeout(timer)
+    }
+  }, [shouldRedirectToResult, resultSnapshot, storeProjectId, hasRedirected, router, isLoadingProject, viewer])
 
   // 주소 검색 및 이동 — Nominatim (OSM)
   const handleSearch = useCallback(async () => {
@@ -265,11 +301,20 @@ function EditorContent() {
   }, [])
 
   // 결과 확인 — Cesium 탑다운 스크린샷 캡처 후 /editor/result 로 이동
+  // 항상 새로 캡처하여 최신 오버레이 숨김 로직이 적용되도록 함
   const handleOpenResult = useCallback(async () => {
+    console.log('[Editor] ===== 결과 확인 캡처 시작 =====')
+
     if (!viewer) {
       setError('뷰어가 초기화되지 않았습니다')
       return
     }
+
+    // 캡처 전 그림자 상태 확인 로깅
+    console.log('[Editor] 캡처 전 viewer 그림자 상태: viewer.shadows=', viewer.shadows,
+      ', shadowMap.enabled=', viewer.shadowMap?.enabled,
+      ', globe.enableLighting=', viewer.scene?.globe?.enableLighting)
+
     // 중심 좌표 우선순위: 배치된 모델 → 대지 중심 → 작업 영역
     const lon =
       modelTransform?.longitude ??
@@ -281,19 +326,44 @@ function EditorContent() {
       null
 
     setIsCapturingResult(true)
+
+    // 캡처 전 일조분석 히트맵 숨김 (원래 상태 저장 후 복원)
+    // toggleSunlightHeatmapFn을 사용하여 실제 히트맵 엔티티를 숨김
+    const wasHeatmapVisible = sunlightAnalysisState.showHeatmap
+    if (wasHeatmapVisible && toggleSunlightHeatmapFn) {
+      console.log('[Editor] 히트맵 숨김 (toggleSunlightHeatmapFn 호출)')
+      toggleSunlightHeatmapFn()
+      // Cesium 렌더링 반영을 위한 대기
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+
+    // 히트맵 숨김 후 그림자 상태 확인
+    console.log('[Editor] 히트맵 숨김 후 viewer 그림자 상태: viewer.shadows=', viewer.shadows,
+      ', shadowMap.enabled=', viewer.shadowMap?.enabled)
+
     try {
       let sitePlan: string | null = null
       let aerialView: string | null = null
+
+      // AI 렌더링용 캡처 옵션: 시각화 오버레이(대지경계, 건축선, 주차구역 등) 숨김
+      // 단, 건축영역 바운더리(model-boundary)는 유지
+      const captureOpts = { hideOverlays: true }
+      console.log('[Editor] 캡처 옵션:', captureOpts)
+
       // 1. 조감도 = 사용자가 현재 보고 있는 에디터 뷰 그대로 (카메라 이동 없음)
       try {
-        aerialView = await captureCurrentViewDataUrl(viewer)
+        console.log('[Editor] 조감도 캡처 시작...')
+        aerialView = await captureCurrentViewDataUrl(viewer, captureOpts)
+        console.log('[Editor] 조감도 캡처 완료')
       } catch (err) {
         console.warn('Cesium 조감도 캡처 실패:', err)
       }
       // 2. 배치도(탑다운)은 대지 중심 위로 이동해서 캡처 후 원래 카메라 복원
       if (lon != null && lat != null) {
         try {
-          sitePlan = await captureTopDownDataUrl(viewer, lon, lat, 220)
+          console.log('[Editor] 배치도 캡처 시작...')
+          sitePlan = await captureTopDownDataUrl(viewer, lon, lat, 220, captureOpts)
+          console.log('[Editor] 배치도 캡처 완료')
         } catch (err) {
           console.warn('Cesium 배치도 캡처 실패:', err)
         }
@@ -303,11 +373,17 @@ function EditorContent() {
         aerialView,         // 임시 Cesium 캡처. AI 렌더 후엔 렌더링 결과로 덮어씀.
         capturedAt: new Date().toISOString(),
       })
+      console.log('[Editor] ===== 결과 확인 캡처 완료, 결과 페이지로 이동 =====')
       router.push('/editor/result')
     } finally {
       setIsCapturingResult(false)
+      // 히트맵 상태 복원
+      if (wasHeatmapVisible && toggleSunlightHeatmapFn) {
+        console.log('[Editor] 히트맵 복원 (toggleSunlightHeatmapFn 호출)')
+        toggleSunlightHeatmapFn()
+      }
     }
-  }, [viewer, modelTransform, workArea, setError, setResultSnapshot, router])
+  }, [viewer, modelTransform, workArea, setError, setResultSnapshot, router, sunlightAnalysisState.showHeatmap, toggleSunlightHeatmapFn])
 
   return (
     <div className="h-screen flex flex-col bg-navy-900 text-white overflow-hidden">
@@ -413,6 +489,7 @@ function EditorContent() {
               )}
               결과 확인
             </button>
+            <ThemeToggle />
             <Link href="/projects" className="btn-ghost">
               프로젝트 목록
             </Link>

@@ -276,8 +276,9 @@ body > * {
 
   /* Card — glassy panel */
   .card {
-    @apply rounded-2xl bg-navy-850/70 border border-white/10
-           backdrop-blur-md shadow-card;
+    @apply rounded-2xl backdrop-blur-md shadow-card border
+           bg-navy-850 border-gray-200 shadow-sm
+           dark:bg-navy-850/70 dark:border-white/10 dark:shadow-none;
   }
 
   .card-hover {

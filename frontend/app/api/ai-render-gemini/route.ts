@@ -18,46 +18,10 @@ const STYLE_ANCHORS: Record<string, string> = {
   aerialView: process.env.ANCHOR_AERIAL_B64 || '',
 }
 
-// 고정 프롬프트 — GPT 와 동일한 스타일 유지
-const FIXED_SITEPLAN = `You are a professional architectural master-plan renderer.
+// 고정 프롬프트 — 버전 6: 배치도는 초록 경계 유지, 조감도는 제거
+const FIXED_SITEPLAN = `Architectural site plan rendering. Keep EXACT composition. Main building area with GREEN OUTLINE. Realistic buildings, roads, landscaping. NO text/labels.`
 
-KEEP EXACTLY AS IN THE INPUT (do not move, add, or remove anything):
-- The position, footprint, and rotation of every building
-- The site boundary and parcel lines
-- Roads, parking areas, and green space locations
-- The relative scale and proportions of all elements
-
-TRANSFORM the rough top-down capture into a clean professional master plan:
-- Flat top-down orthographic view (camera straight down, 90 degrees)
-- Buildings as solid filled shapes with subtle drop shadows
-- Roads in light grey, vegetation in muted sage green
-
-FIXED STYLE (always identical):
-- Calm beige/grey base palette (#f5f2ec background)
-- Soft single-direction shadow, top-left light source
-- Minimal flat-design
-
-DO NOT add text/dimensions/labels, change building count or placement, or apply perspective.`
-
-const FIXED_AERIAL = `You are a professional architectural visualization studio renderer.
-
-KEEP EXACTLY AS IN THE INPUT:
-- The position and shape of the main building(s)
-- Surrounding buildings, roads, and terrain layout
-- The camera angle and framing of the input view
-- Relative heights and scale of all structures
-
-TRANSFORM the rough 3D capture into a photorealistic aerial rendering:
-- Realistic building materials (concrete, glass, brick)
-- Accurate soft shadows
-- Natural surrounding context
-
-FIXED STYLE (always identical):
-- Bright clear daytime, sun from upper-left, soft ambient shadows
-- Slightly enhanced but natural color saturation
-- Clean architectural-viz aesthetic
-
-DO NOT add text, watermarks, people, vehicles, or change geometry/viewpoint.`
+const FIXED_AERIAL = `Architectural aerial rendering. Keep EXACT camera angle. Keep building SAME size and height as input. Realistic facades and roads. NO text/labels. Golden hour lighting.`
 
 
 interface RenderContext {
@@ -143,7 +107,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         contents: [{ parts }],
         generationConfig: {
-          temperature: 0.4,
+          temperature: 0.1,
           responseModalities: ['TEXT', 'IMAGE'],
         },
       }),

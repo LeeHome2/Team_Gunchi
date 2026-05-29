@@ -1041,7 +1041,8 @@ async def generate_mass(
                 height=request.height,
                 output_path=str(model_path),
                 bounds=lod3_bounds,
-                include_roof=True
+                include_roof=True,
+                force_scale=request.force_scale,  # [패치 2] 사용자 스케일 오버라이드
             )
             if lod_result:
                 wall_result = lod_result
@@ -1060,7 +1061,8 @@ async def generate_mass(
                     height=request.height,
                     output_path=str(model_path_no_roof),
                     bounds=lod3_bounds,
-                    include_roof=False
+                    include_roof=False,
+                    force_scale=request.force_scale,  # [패치 2] 사용자 스케일 오버라이드
                 )
                 if lod_result_no_roof:
                     glb_url_no_roof = f"/models/{model_id}_no_roof.glb"
@@ -1164,6 +1166,11 @@ async def generate_mass(
             bb_height = request.height
             bb_depth = 10.0
 
+        # [패치 3] scale_diagnosis 추출
+        scale_diagnosis = None
+        if wall_result and isinstance(wall_result, dict):
+            scale_diagnosis = wall_result.get("scale_diagnosis")
+
         logger.info(f"[DEBUG] Creating response: model_id={model_id}, lod_actual={lod_actual}, openings={len(openings_data)}개")
         response = MassGenerateResponse(
             success=True,
@@ -1185,6 +1192,7 @@ async def generate_mass(
             build_steps=build_steps if build_steps else None,
             lod_actual=lod_actual,
             openings=openings_data if openings_data else None,
+            scale_diagnosis=scale_diagnosis,  # [패치 3] 스케일 진단 정보
         )
         logger.info(f"[DEBUG] Response created successfully")
         return response
@@ -1319,6 +1327,7 @@ async def validate_placement_endpoint(
                 building_footprint=request.building_footprint,
                 building_height=request.building_height,
                 zone_name=request.zone_type,
+                road_edges=request.road_edges,  # 도로변 경계 전달
             )
         else:
             # 수동 설정 또는 기본값 사용
@@ -1332,6 +1341,7 @@ async def validate_placement_endpoint(
                 building_footprint=request.building_footprint,
                 building_height=request.building_height,
                 config=config,
+                road_edges=request.road_edges,  # 도로변 경계 전달
             )
 
         # Save to database if project_id and model_id provided

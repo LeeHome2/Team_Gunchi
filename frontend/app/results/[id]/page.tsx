@@ -142,6 +142,9 @@ export default function ResultDetailPage() {
                 </p>
               </div>
               <div className="flex gap-2">
+                <Link href={`/editor?projectId=${id}&view=result`} className="btn-primary">
+                  결과 리포트 보기
+                </Link>
                 <Link href={`/editor?projectId=${id}`} className="btn-secondary">
                   에디터에서 열기
                 </Link>

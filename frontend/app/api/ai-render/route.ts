@@ -20,20 +20,14 @@ const MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
 const SIZE = process.env.OPENAI_IMAGE_SIZE || '1024x1024'
 const QUALITY = process.env.OPENAI_IMAGE_QUALITY || 'medium' // low | medium | high | auto
 
-// 기본 프롬프트 — kind에 따라 분기
+// 기본 프롬프트 — 버전 6: 배치도는 초록 경계 유지, 조감도는 제거
 const DEFAULT_PROMPTS: Record<string, string> = {
   sitePlan:
-    'Transform this top-down architectural site plan into a clean, professional ' +
-    'master-plan rendering used by architecture firms. Calm beige/grey palette, ' +
-    'subtle building shadows, clearly differentiated roads and green spaces. ' +
-    'Do not add text, dimensions or labels — graphics only. Preserve the building ' +
-    'placement and site geometry exactly as in the input.',
+    'Architectural site plan rendering. Keep EXACT composition. ' +
+    'Main building area with GREEN OUTLINE. Realistic buildings, roads, landscaping. NO text/labels.',
   aerialView:
-    'Transform this 3D city view into a photorealistic architectural aerial ' +
-    'rendering as produced by an architectural visualization studio. Bright ' +
-    'natural daylight, soft shadows, realistic building textures, accurate ' +
-    'reflections. Keep the surrounding context, roads, and building positions ' +
-    'identical to the input. Slightly enhanced natural color saturation, no text.',
+    'Architectural aerial rendering. Keep EXACT camera angle. ' +
+    'Keep building SAME size and height as input. Realistic facades and roads. NO text/labels. Golden hour lighting.',
 }
 
 function stripDataUrl(dataUrl: string): { mime: string; bytes: Buffer } {

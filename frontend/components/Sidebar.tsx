@@ -1038,18 +1038,18 @@ export default function Sidebar() {
               </div>
             )}
 
-            {/* 이격거리 */}
+            {/* 이격거리 (도로측/인접대지측 분리 검증) */}
             {reviewData.setback && (
-              <div className={`rounded-lg p-3 ${reviewData.setback.minDistance >= effectiveZoneLimits.setback_road ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <div className={`rounded-lg p-3 ${reviewData.setback.status === 'OK' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium">이격거리</span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.setback.minDistance >= effectiveZoneLimits.setback_road ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {reviewData.setback.minDistance >= effectiveZoneLimits.setback_road ? '적합' : '위반'}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${reviewData.setback.status === 'OK' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {reviewData.setback.status === 'OK' ? '적합' : '위반'}
                   </span>
                 </div>
                 <div className="text-2xl font-bold text-gray-800 mb-1">
                   {reviewData.setback.minDistance}m
-                  <span className="text-sm font-normal text-gray-500 ml-1">/ 최소 {effectiveZoneLimits.setback_road}m</span>
+                  <span className="text-sm font-normal text-gray-500 ml-1">(최소 측정값)</span>
                 </div>
                 {reviewData.setback.details.map((d, i) => (
                   <div key={i} className="flex justify-between text-xs text-gray-600 mt-1">
@@ -1075,15 +1075,15 @@ export default function Sidebar() {
             {/* 전체 판정 */}
             {reviewData.buildingCoverage && (
               <div className={`p-4 rounded-lg text-center ${
-                reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage && (!reviewData.setback || reviewData.setback.minDistance >= effectiveZoneLimits.setback_road) && reviewData.isModelInBounds
+                reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
                   ? 'bg-green-100 border-2 border-green-300'
                   : 'bg-red-100 border-2 border-red-300'
               }`}>
                 <p className={`text-lg font-bold ${
-                  reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage && (!reviewData.setback || reviewData.setback.minDistance >= effectiveZoneLimits.setback_road) && reviewData.isModelInBounds
+                  reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
                     ? 'text-green-700' : 'text-red-700'
                 }`}>
-                  {reviewData.buildingCoverage.ratio <= effectiveZoneLimits.coverage && (!reviewData.setback || reviewData.setback.minDistance >= effectiveZoneLimits.setback_road) && reviewData.isModelInBounds
+                  {reviewData.buildingCoverage.status === 'OK' && (!reviewData.setback || reviewData.setback.status === 'OK') && reviewData.isModelInBounds
                     ? '종합: 적합' : '종합: 부적합'}
                 </p>
               </div>
