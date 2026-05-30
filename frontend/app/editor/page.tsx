@@ -326,23 +326,16 @@ function EditorContent() {
       workArea?.latitude ??
       null
 
-    // 매스 변경 여부 시그니처 — 같으면 캡처 스킵해서 기존 렌더 결과 유지.
-    // 사용자가 매스를 안 만지고 결과 페이지를 왕복할 때 매번 새 캡처가 일어나
-    // 어제 푸시한 'rendered* 자동 클리어' 로직이 발동하던 문제 차단.
-    const captureSignature = JSON.stringify({
-      rotation: modelTransform?.rotation,
-      height: modelTransform?.height,
-      lon: modelTransform?.longitude,
-      lat: modelTransform?.latitude,
-      mass: loadedMassGlbUrl ?? null,
-    })
+    // 캡처 스킵 정책: AI 렌더 결과(rendered*) 가 store 에 있으면 매스를
+    // 바꿨더라도 새 캡처하지 않음. 사용자가 명시적으로 결과 페이지의
+    // '초기화' 버튼을 눌러 rendered* 까지 비웠을 때만 새 캡처 트리거.
     const prevSnap = useProjectStore.getState().resultSnapshot
     if (
-      prevSnap.captureSignature === captureSignature &&
+      (prevSnap.renderedSitePlan || prevSnap.renderedAerialView) &&
       prevSnap.sitePlan &&
       prevSnap.aerialView
     ) {
-      console.log('[Editor] 매스 변경 없음 — 기존 캡처/렌더 그대로 사용')
+      console.log('[Editor] 기존 AI 렌더 유지 — 캡처 스킵')
       router.push('/editor/result')
       return
     }
@@ -394,9 +387,6 @@ function EditorContent() {
         sitePlan,
         aerialView,         // 임시 Cesium 캡처. AI 렌더 후엔 렌더링 결과로 덮어씀.
         capturedAt: new Date().toISOString(),
-        captureSignature,
-        // 매스 변경으로 새 캡처를 했으니 이전 AI 렌더는 stale.
-        // 결과 페이지가 renderedBasedOn !== capturedAt 으로 stale 판별 후 숨김.
       })
       console.log('[Editor] ===== 결과 확인 캡처 완료, 결과 페이지로 이동 =====')
       router.push('/editor/result')

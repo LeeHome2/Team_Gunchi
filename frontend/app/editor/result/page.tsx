@@ -335,19 +335,12 @@ export default function ResultPage() {
   const [isRendering, setIsRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
   // 렌더링 결과는 store에 저장하여 페이지 이동 후에도 유지
-  // 렌더가 현재 캡처(capturedAt) 기반인지 확인. 다르면 stale 로 간주하고
-  // store 의 rendered* 는 표시 안 함 (다음 렌더 트리거까지 raw 캡처를 표시).
-  // store 데이터 자체는 삭제하지 않으므로 사용자가 같은 캡처로 돌아가면
-  // 자동으로 다시 보임. 사용자가 명시적으로 '초기화' 누를 때만 데이터 클리어.
-  const renderIsFresh =
-    !!resultSnapshot.capturedAt &&
-    resultSnapshot.renderedBasedOn === resultSnapshot.capturedAt
-  const renderedSitePlan = renderIsFresh ? resultSnapshot.renderedSitePlan : null
-  const renderedAerialView = renderIsFresh ? resultSnapshot.renderedAerialView : null
-  const setRenderedSitePlan = (url: string) =>
-    setResultSnapshot({ renderedSitePlan: url, renderedBasedOn: resultSnapshot.capturedAt })
-  const setRenderedAerialView = (url: string) =>
-    setResultSnapshot({ renderedAerialView: url, renderedBasedOn: resultSnapshot.capturedAt })
+  // rendered* 는 사용자가 '초기화' 누를 때까지 그대로 유지. 매스를 바꿔
+  // 새 캡처가 들어와도 옛 렌더가 우선 표시되도록 단순 fallback 만 사용.
+  const renderedSitePlan = resultSnapshot.renderedSitePlan
+  const renderedAerialView = resultSnapshot.renderedAerialView
+  const setRenderedSitePlan = (url: string) => setResultSnapshot({ renderedSitePlan: url })
+  const setRenderedAerialView = (url: string) => setResultSnapshot({ renderedAerialView: url })
 
   // ─── 이미지 라이트박스 ─────────────
   const [lightboxOpen, setLightboxOpen] = useState(false)

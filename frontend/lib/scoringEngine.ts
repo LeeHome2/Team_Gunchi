@@ -77,19 +77,18 @@ export const calculateVariantScore = (input: ScoringInput): ScoringOutput => {
   }
 
   // 3. 배치 규정 점수 산출
-  //   - 위반 사항(이격/건폐율/높이)이 있으면 위반 1건당 -30 감점
-  //   - 건축선 영역 밖이면 0점
-  //   - 유효면적 비율(주차/통로 제외 후 남은 비율) 이 낮으면 추가 감점
-  //     · 0.7 이상: 보정 0
-  //     · 0.5~0.7: -10
-  //     · 0.5 미만: -20
+  //   - 영역 이탈: 0 점
+  //   - 그 외: 유효면적 비율(주차/통로 제외 후 남은 대지 비율) 을 점수에
+  //     직접 매핑하여 plan 별 변별력 확보. 40 + ratio*60 (ratio 0 → 40,
+  //     1.0 → 100). 같은 대지/매스라도 주차·통로 면적 작을수록 점수↑.
+  //   - 위반 사항(이격/건폐율/높이) 1건당 -25 점 추가 감점.
   let layoutScore: number;
   if (isOutOfBounds) {
     layoutScore = 0;
   } else {
-    layoutScore = 100 - violationCount * 30;
-    if (effectiveAreaRatio < 0.5) layoutScore -= 20;
-    else if (effectiveAreaRatio < 0.7) layoutScore -= 10;
+    const clampedRatio = Math.max(0, Math.min(1, effectiveAreaRatio));
+    layoutScore = 40 + clampedRatio * 60;
+    layoutScore -= violationCount * 25;
   }
   layoutScore = Math.max(0, Math.min(100, layoutScore));
 
