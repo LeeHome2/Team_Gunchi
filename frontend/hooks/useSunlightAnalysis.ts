@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useState, useRef, RefObject } from 'react'
+import { useProjectStore } from '@/store/projectStore'
 import {
   analyzeSunlight,
   debugSunDirection,
@@ -77,7 +78,25 @@ export function useSunlightAnalysis(
   // 상태
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null)
-  const [analysisResult, setAnalysisResult] = useState<SunlightAnalysisResult | null>(null)
+  // CesiumViewer 가 재마운트 되면 이 hook 도 재초기화되어 analysisResult 가
+  // null 로 시작 → effect 가 store.sunlightAnalysisState.result 를 null 로
+  // 덮어쓰며 분석 결과가 사라지던 버그. mount 시 store 의 직전 결과를 복원.
+  // 히트맵용 points[] 는 영속화 안 되어 비어있지만, 점수/평균 통계는 살아남음.
+  const [analysisResult, setAnalysisResult] = useState<SunlightAnalysisResult | null>(() => {
+    const stored = useProjectStore.getState().sunlightAnalysisState.result
+    if (!stored) return null
+    return {
+      analysisDate: stored.analysisDate,
+      gridSpacing: 0,
+      totalPoints: stored.totalPoints,
+      points: [],
+      statistics: {
+        averageSunlightHours: stored.averageSunlightHours,
+        minSunlightHours: stored.minSunlightHours,
+        maxSunlightHours: stored.maxSunlightHours,
+      },
+    }
+  })
   const [showHeatmap, setShowHeatmap] = useState(true)
   const [heatmapMode, setHeatmapMode] = useState<'point' | 'cell'>('point')
 
