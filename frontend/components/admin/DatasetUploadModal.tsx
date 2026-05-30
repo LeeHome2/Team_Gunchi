@@ -195,7 +195,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
                       onChange={(e) => setMock(e.target.checked)}
                       disabled={uploading}
                     />
-                    <span className="text-xs text-white/70">vLLM mock</span>
+                    <span className="text-xs text-white/70">레이어 분류 AI mock</span>
                   </label>
                   <div>
                     <label className="block text-xs text-white/60 mb-0.5">
@@ -217,7 +217,7 @@ export default function DatasetUploadModal({ aiUrl, onClose, onUploaded }: Props
 
               {autoBuild && !mock && (
                 <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded p-2">
-                  ⚠ vLLM Vision 호출 비용 발생 (DXF 1개당 ~1k token)
+                  ⚠ 레이어 분류 AI 서버 호출 비용 발생 (ceprj2.gachon.ac.kr:65006, DXF 1개당 ~1k token)
                 </div>
               )}
             </div>

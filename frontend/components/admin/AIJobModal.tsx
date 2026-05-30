@@ -329,7 +329,7 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
               />
             </Field>
             <Grid3>
-              <Field label="Mock 모드 (vLLM 호출 없이)">
+              <Field label="Mock 모드 (레이어 분류 AI 호출 없이)">
                 <label className="flex items-center gap-2 mt-2">
                   <input
                     type="checkbox"
@@ -351,7 +351,9 @@ export default function AIJobModal({ kind, aiUrl, prefillDxfDir, onClose, onComp
               <div />
             </Grid3>
             <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded p-2">
-              ⚠ Mock 끄면 학과 vLLM Vision API 호출 (토큰 소모, ~80k for 98 files)
+              ⚠ Mock 끄면 레이어 분류 AI 서버 호출
+              (<code className="font-mono">http://ceprj2.gachon.ac.kr:65006/api/detect-floorplan</code>,
+              토큰 소모 ~80k for 98 files)
             </div>
           </div>
         )}
