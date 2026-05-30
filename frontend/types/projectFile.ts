@@ -255,6 +255,10 @@ export interface SerializedResultSnapshot {
   capturedAt: string | null        // 캡처 시각 (ISO string)
   renderedSitePlan: string | null  // AI 렌더링된 배치도
   renderedAerialView: string | null // AI 렌더링된 조감도
+  // 렌더가 어느 캡처 기반인지(capturedAt). 캡처 변경 시 stale 판별용.
+  renderedBasedOn?: string | null
+  // 매스 변경 감지용 시그니처 (modelTransform + 매스 URL). 같으면 캡처 재실행 skip.
+  captureSignature?: string | null
 }
 
 // 배치안 데이터

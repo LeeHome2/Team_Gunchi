@@ -7,6 +7,10 @@ interface ScoringInput {
   parkingDistance: number;    // 주차 입구까지 거리 (m)
   sunlightHours: number;      // 평균 일조시간 (h)
   angleFromSouth?: number;    // 메인 창의 방향과 정남향의 차이 각도 (0도 ~ 180도)
+  // 배치 규정 점수 산출용
+  violationCount?: number;        // 건폐율/이격/높이 위반 카운트 (0~3)
+  isOutOfBounds?: boolean;        // 건물이 건축선 영역 밖이면 true
+  effectiveAreaRatio?: number;    // 유효면적/대지면적 (0~1)
   preferences: {
     parkingFitness?: boolean;
     southFacing?: boolean;
@@ -24,7 +28,15 @@ interface ScoringOutput {
 }
 
 export const calculateVariantScore = (input: ScoringInput): ScoringOutput => {
-  const { parkingDistance, sunlightHours, angleFromSouth = 0, preferences } = input;
+  const {
+    parkingDistance,
+    sunlightHours,
+    angleFromSouth = 0,
+    violationCount = 0,
+    isOutOfBounds = false,
+    effectiveAreaRatio = 1,
+    preferences,
+  } = input;
 
   // 1. 주차 점수 산출 (경로가 짧을수록 높은 점수)
   // 10m 이하: 100점, 10m~50m: 선형 감점, 50m 이상: 50점, 100m 이상: 30점
@@ -61,18 +73,30 @@ export const calculateVariantScore = (input: ScoringInput): ScoringOutput => {
     else sunlightScore = Math.max(0, sunlightScore - 15);
   }
 
-  // 3. 배치 점수 산출 (정남향 100점, 10도 틀어질 때마다 4점 감점)
-  const deviationSteps = Math.floor(angleFromSouth / 10);
-  let layoutScore = 100 - (deviationSteps * 4);
-
-  // 방어 로직: 28점~100점 사이를 벗어나지 않게 고정
-  layoutScore = Math.max(28, Math.min(100, layoutScore));
+  // 3. 배치 규정 점수 산출
+  //   - 위반 사항(이격/건폐율/높이)이 있으면 위반 1건당 -30 감점
+  //   - 건축선 영역 밖이면 0점
+  //   - 유효면적 비율(주차/통로 제외 후 남은 비율) 이 낮으면 추가 감점
+  //     · 0.7 이상: 보정 0
+  //     · 0.5~0.7: -10
+  //     · 0.5 미만: -20
+  let layoutScore: number;
+  if (isOutOfBounds) {
+    layoutScore = 0;
+  } else {
+    layoutScore = 100 - violationCount * 30;
+    if (effectiveAreaRatio < 0.5) layoutScore -= 20;
+    else if (effectiveAreaRatio < 0.7) layoutScore -= 10;
+  }
+  layoutScore = Math.max(0, Math.min(100, layoutScore));
 
   // 배치 선호도 가중치 반영
   if (preferences.layoutAppropriateness) {
     if (layoutScore >= 80) layoutScore = Math.min(100, layoutScore + 10);
-    else layoutScore = Math.max(28, layoutScore - 10);
+    else layoutScore = Math.max(0, layoutScore - 10);
   }
+  // angleFromSouth(메인 창 방향) 는 sunlightScore 의 windowFactor 보정에서만
+  // 사용되며 layoutScore 에는 영향 없음 (다른 호출처 호환 위해 인자 유지).
 
   // 4. 총점 계산 (평균)
   const overallScore = Math.round((parkingScore + sunlightScore + layoutScore) / 3);

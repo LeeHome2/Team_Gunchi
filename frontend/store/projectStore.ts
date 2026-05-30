@@ -74,6 +74,11 @@ export interface ResultSnapshot {
   // AI 렌더링 결과 (store에 저장하여 페이지 이동 후에도 유지)
   renderedSitePlan: string | null
   renderedAerialView: string | null
+  // 렌더가 어느 capturedAt 기반인지 — capturedAt 과 다르면 렌더가 stale.
+  // 결과 페이지 표시 로직이 이 값을 비교해 stale 렌더는 숨긴다 (raw 캡처를
+  // 대신 표시). 사용자가 명시적으로 초기화 누르지 않는 한 store 에는 그대로
+  // 유지되어, 같은 캡처로 다시 들어오면 렌더가 그대로 보임.
+  renderedBasedOn?: string | null
 }
 
 // ── 배치안 (Placement Plan) ──

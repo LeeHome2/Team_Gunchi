@@ -77,6 +77,7 @@ function EditorContent() {
     sunlightAnalysisState,
     setSunlightAnalysisState,
     toggleSunlightHeatmapFn,
+    loadedMassGlbUrl,
   } = useProjectStore()
 
   // URL에서 view=result 파라미터 확인 (결과 페이지로 바로 이동)
@@ -325,6 +326,27 @@ function EditorContent() {
       workArea?.latitude ??
       null
 
+    // 매스 변경 여부 시그니처 — 같으면 캡처 스킵해서 기존 렌더 결과 유지.
+    // 사용자가 매스를 안 만지고 결과 페이지를 왕복할 때 매번 새 캡처가 일어나
+    // 어제 푸시한 'rendered* 자동 클리어' 로직이 발동하던 문제 차단.
+    const captureSignature = JSON.stringify({
+      rotation: modelTransform?.rotation,
+      height: modelTransform?.height,
+      lon: modelTransform?.longitude,
+      lat: modelTransform?.latitude,
+      mass: loadedMassGlbUrl ?? null,
+    })
+    const prevSnap = useProjectStore.getState().resultSnapshot
+    if (
+      prevSnap.captureSignature === captureSignature &&
+      prevSnap.sitePlan &&
+      prevSnap.aerialView
+    ) {
+      console.log('[Editor] 매스 변경 없음 — 기존 캡처/렌더 그대로 사용')
+      router.push('/editor/result')
+      return
+    }
+
     setIsCapturingResult(true)
 
     // 캡처 전 일조분석 히트맵 숨김 (원래 상태 저장 후 복원)
@@ -372,11 +394,9 @@ function EditorContent() {
         sitePlan,
         aerialView,         // 임시 Cesium 캡처. AI 렌더 후엔 렌더링 결과로 덮어씀.
         capturedAt: new Date().toISOString(),
-        // 새로 캡처할 때마다 이전 AI 렌더 결과 무효화 — 결과 페이지의 표시
-        // 우선순위(renderedSitePlan ?? sitePlan) 때문에 클리어 안 하면 이전
-        // 렌더가 새 캡처를 가려 사용자가 변경을 못 알아챈다.
-        renderedSitePlan: null,
-        renderedAerialView: null,
+        captureSignature,
+        // 매스 변경으로 새 캡처를 했으니 이전 AI 렌더는 stale.
+        // 결과 페이지가 renderedBasedOn !== capturedAt 으로 stale 판별 후 숨김.
       })
       console.log('[Editor] ===== 결과 확인 캡처 완료, 결과 페이지로 이동 =====')
       router.push('/editor/result')
@@ -388,7 +408,7 @@ function EditorContent() {
         toggleSunlightHeatmapFn()
       }
     }
-  }, [viewer, modelTransform, workArea, setError, setResultSnapshot, router, sunlightAnalysisState.showHeatmap, toggleSunlightHeatmapFn])
+  }, [viewer, modelTransform, workArea, loadedMassGlbUrl, setError, setResultSnapshot, router, sunlightAnalysisState.showHeatmap, toggleSunlightHeatmapFn])
 
   return (
     <div className="h-screen flex flex-col bg-navy-900 text-white overflow-hidden">

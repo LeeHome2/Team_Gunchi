@@ -335,10 +335,19 @@ export default function ResultPage() {
   const [isRendering, setIsRendering] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
   // 렌더링 결과는 store에 저장하여 페이지 이동 후에도 유지
-  const renderedSitePlan = resultSnapshot.renderedSitePlan
-  const renderedAerialView = resultSnapshot.renderedAerialView
-  const setRenderedSitePlan = (url: string) => setResultSnapshot({ renderedSitePlan: url })
-  const setRenderedAerialView = (url: string) => setResultSnapshot({ renderedAerialView: url })
+  // 렌더가 현재 캡처(capturedAt) 기반인지 확인. 다르면 stale 로 간주하고
+  // store 의 rendered* 는 표시 안 함 (다음 렌더 트리거까지 raw 캡처를 표시).
+  // store 데이터 자체는 삭제하지 않으므로 사용자가 같은 캡처로 돌아가면
+  // 자동으로 다시 보임. 사용자가 명시적으로 '초기화' 누를 때만 데이터 클리어.
+  const renderIsFresh =
+    !!resultSnapshot.capturedAt &&
+    resultSnapshot.renderedBasedOn === resultSnapshot.capturedAt
+  const renderedSitePlan = renderIsFresh ? resultSnapshot.renderedSitePlan : null
+  const renderedAerialView = renderIsFresh ? resultSnapshot.renderedAerialView : null
+  const setRenderedSitePlan = (url: string) =>
+    setResultSnapshot({ renderedSitePlan: url, renderedBasedOn: resultSnapshot.capturedAt })
+  const setRenderedAerialView = (url: string) =>
+    setResultSnapshot({ renderedAerialView: url, renderedBasedOn: resultSnapshot.capturedAt })
 
   // ─── 이미지 라이트박스 ─────────────
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -644,10 +653,24 @@ export default function ResultPage() {
       const windowFactor = 1 - (angleFromSouth / 180) * 0.5
       const effectiveSunlightHours = baseSunlightHours * windowFactor
 
+      // 배치 규정 점수 입력 — reviewData(현재 store) 기준
+      const rv = reviewData
+      const currentViolations = [
+        rv?.buildingCoverage?.status === 'VIOLATION',
+        rv?.setback?.status === 'VIOLATION',
+        rv?.heightCheck?.status === 'VIOLATION',
+      ].filter(Boolean).length
+      const currentEffectiveRatio = scoringInputData.siteArea > 0
+        ? scoringInputData.effectiveArea / scoringInputData.siteArea
+        : 1
+
       const calculatedScores = calculateVariantScore({
         parkingDistance,
         sunlightHours: effectiveSunlightHours,
         angleFromSouth,
+        violationCount: currentViolations,
+        isOutOfBounds: rv?.isModelInBounds === false,
+        effectiveAreaRatio: currentEffectiveRatio,
         preferences,
       })
 
@@ -810,6 +833,33 @@ export default function ResultPage() {
       return baseSunlightHours * factor
     }
 
+    // 배치 규정 점수 입력 계산 (위반 카운트 + 영역 이탈 + 유효면적 비율)
+    const computeLayoutInputs = (rv: any, pZone: any, pPath: any, siteAreaOverride?: number) => {
+      const violationCount = [
+        rv?.buildingCoverage?.status === 'VIOLATION',
+        rv?.setback?.status === 'VIOLATION',
+        rv?.heightCheck?.status === 'VIOLATION',
+      ].filter(Boolean).length
+      const isOutOfBounds = rv?.isModelInBounds === false
+      const siteArea = siteAreaOverride ?? rv?.buildingCoverage?.siteArea ?? 0
+      const parkingArea = pZone?.totalAreaM2 ?? 0
+      let pathArea = 0
+      if (pZone?.aisles) {
+        for (const aisle of pZone.aisles) {
+          if (aisle?.polygon && aisle.polygon.length >= 3) {
+            pathArea += calculatePolygonArea(aisle.polygon)
+          }
+        }
+      }
+      if (pPath?.points && pPath.points.length >= 2) {
+        const pathWidth = (pPath as any).vehicleWidth ?? 3
+        pathArea += pPath.length * pathWidth
+      }
+      const effectiveArea = Math.max(0, siteArea - parkingArea - pathArea)
+      const effectiveAreaRatio = siteArea > 0 ? effectiveArea / siteArea : 1
+      return { violationCount, isOutOfBounds, effectiveAreaRatio }
+    }
+
     // 현재 활성 배치안의 점수 (scoringEngine 계산)
     const currentParkingDistance = parkingPath?.length ?? 50
     // 실제 각도 차이 사용 (정남향 180°에서 얼마나 벗어났는지)
@@ -817,10 +867,17 @@ export default function ResultPage() {
     // 창문 방향 보정된 일조량
     const currentEffectiveSunlight = getSunlightWithWindowFactor(currentAngleFromSouth)
 
+    const currentLayoutInputs = computeLayoutInputs(
+      reviewData,
+      parkingZone,
+      parkingPath,
+      scoringInputData.siteArea,
+    )
     const currentScores = calculateVariantScore({
       parkingDistance: currentParkingDistance,
       sunlightHours: currentEffectiveSunlight,
       angleFromSouth: currentAngleFromSouth,
+      ...currentLayoutInputs,
       preferences,
     })
 
@@ -849,11 +906,17 @@ export default function ResultPage() {
         const planAngleFromSouth = Math.abs(planWindowDirection - 180)
         const planParkingDistance = plan.parkingPath?.length ?? 50
         const planEffectiveSunlight = getSunlightWithWindowFactor(planAngleFromSouth)
+        const planLayoutInputs = computeLayoutInputs(
+          plan.reviewData,
+          plan.parkingZone,
+          plan.parkingPath,
+        )
 
         const planScores = calculateVariantScore({
           parkingDistance: planParkingDistance,
           sunlightHours: planEffectiveSunlight,
           angleFromSouth: planAngleFromSouth,
+          ...planLayoutInputs,
           preferences,
         })
 
@@ -868,7 +931,7 @@ export default function ResultPage() {
       })
 
     return [currentVariant, ...otherVariants]
-  }, [placementPlans, activePlanId, aiScore, parkingPath, sunlightAnalysisState, scoringInputData, preferences, calculateWindowDirection])
+  }, [placementPlans, activePlanId, aiScore, parkingPath, parkingZone, reviewData, sunlightAnalysisState, scoringInputData, preferences, calculateWindowDirection])
 
   // 점수 순으로 정렬된 배치안
   const sortedVariants = useMemo(() => {
@@ -1025,8 +1088,10 @@ export default function ResultPage() {
                         sitePlan: null,
                         aerialView: null,
                         capturedAt: null,
+                        captureSignature: null,
                         renderedSitePlan: null,
                         renderedAerialView: null,
+                        renderedBasedOn: null,
                       })
                       setRenderError(null)
                     }}
