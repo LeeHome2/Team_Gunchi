@@ -38,10 +38,13 @@ _SEED_USERS = [
 ]
 
 _SEED_ADMINS = [
-    {"email": "root@geonchi.ai", "name": "Root Admin", "role": "superadmin"},
-    {"email": "ops@geonchi.ai", "name": "Ops User", "role": "ops"},
-    {"email": "viewer@geonchi.ai", "name": "Viewer User", "role": "viewer"},
+    {"email": "root@gunchi", "name": "Root Admin", "role": "superadmin"},
+    {"email": "ops@gunchi", "name": "Ops User", "role": "ops"},
+    {"email": "viewer@gunchi", "name": "Viewer User", "role": "viewer"},
+    {"email": "admin", "name": "admin", "role": "superadmin"},
 ]
+# 초기 비밀번호 (sha256 해시, plain 'admin'). users 테이블과 동일 패턴.
+_SEED_ADMIN_PASSWORD_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
 
 _SEED_BASE_RULES = [
     {
@@ -206,14 +209,25 @@ def seed_defaults(db: Session) -> None:
             )
             logger.info(f"Seeded user: {payload['email']}")
 
-    # Admin accounts
-    existing_admin_emails = {a.email for a in crud.list_admin_accounts(db)}
+    # Admin accounts (없으면 신규 생성, 비밀번호 미설정 계정은 시드 비번 부여)
+    existing_admins = {a.email: a for a in crud.list_admin_accounts(db)}
     for payload in _SEED_ADMINS:
-        if payload["email"] not in existing_admin_emails:
+        if payload["email"] not in existing_admins:
             crud.create_admin_account(
-                db, email=payload["email"], name=payload["name"], role=payload["role"]
+                db,
+                email=payload["email"],
+                name=payload["name"],
+                role=payload["role"],
+                password_hash=_SEED_ADMIN_PASSWORD_HASH,
             )
             logger.info(f"Seeded admin: {payload['email']}")
+        else:
+            # 시드 계정이 이미 있지만 비번이 비어있으면 기본 비번 채워주기
+            a = existing_admins[payload["email"]]
+            if not a.password_hash:
+                a.password_hash = _SEED_ADMIN_PASSWORD_HASH
+                db.commit()
+                logger.info(f"Seeded admin password: {payload['email']}")
 
     # Base regulation rules
     for payload in _SEED_BASE_RULES:
