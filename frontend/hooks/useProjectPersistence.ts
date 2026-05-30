@@ -400,11 +400,23 @@ export function useProjectPersistence(
       }
     }
 
-    // 13. 결과 리포트 스냅샷 복원
+    // 13. 결과 리포트 스냅샷 복원 — 단, in-memory 에 이미 캡처/렌더 데이터가
+    //     있으면 DB 옛 스냅샷으로 덮어쓰지 않는다. 에디터/결과 페이지 라우팅
+    //     시 CesiumViewer 가 재마운트되면서 자동 loadFromDb 가 다시 호출되어
+    //     사용자가 만든 AI 렌더가 stale DB 데이터로 사라지던 버그 차단.
     if (projectFile.resultSnapshot) {
-      console.log('결과 리포트 스냅샷 복원 중...')
-      const { setResultSnapshot } = useProjectStore.getState()
-      setResultSnapshot(projectFile.resultSnapshot)
+      const { setResultSnapshot, resultSnapshot: current } = useProjectStore.getState()
+      const hasInMemory =
+        !!current.sitePlan ||
+        !!current.aerialView ||
+        !!current.renderedSitePlan ||
+        !!current.renderedAerialView
+      if (!hasInMemory) {
+        console.log('결과 리포트 스냅샷 복원 중...')
+        setResultSnapshot(projectFile.resultSnapshot)
+      } else {
+        console.log('결과 리포트 스냅샷 보존 (in-memory 우선)')
+      }
     }
 
     viewer.scene.requestRender()

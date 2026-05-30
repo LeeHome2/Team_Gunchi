@@ -437,11 +437,14 @@ export default function ResultPage() {
 
   // ─── 배치안 분석 결과 계산 ─────────────────────────────
   const scoringInputData = useMemo(() => {
-    // 1. 일조량 분석 결과
+    // 1. 일조량 분석 결과 — sunlightAnalysis 는 averageSunlightHours 등을
+    //    '2h 간격 7스텝 중 일조 받은 스텝 수'(0~7) 로 저장한다. UI 에는 실제
+    //    시간 단위(×2) 로 환산해 보여준다. 점수 산출은 별도로 같은 환산을 함.
+    const SUNLIGHT_HOUR_STEP_UI = 2
     const sunlight = sunlightAnalysisState?.result ? {
-      avgHours: sunlightAnalysisState.result.averageSunlightHours,
-      minHours: sunlightAnalysisState.result.minSunlightHours,
-      maxHours: sunlightAnalysisState.result.maxSunlightHours,
+      avgHours: sunlightAnalysisState.result.averageSunlightHours * SUNLIGHT_HOUR_STEP_UI,
+      minHours: sunlightAnalysisState.result.minSunlightHours * SUNLIGHT_HOUR_STEP_UI,
+      maxHours: sunlightAnalysisState.result.maxSunlightHours * SUNLIGHT_HOUR_STEP_UI,
       totalPoints: sunlightAnalysisState.result.totalPoints,
       hasData: true,
     } : { avgHours: 0, minHours: 0, maxHours: 0, totalPoints: 0, hasData: false }
