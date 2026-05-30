@@ -372,6 +372,11 @@ function EditorContent() {
         sitePlan,
         aerialView,         // 임시 Cesium 캡처. AI 렌더 후엔 렌더링 결과로 덮어씀.
         capturedAt: new Date().toISOString(),
+        // 새로 캡처할 때마다 이전 AI 렌더 결과 무효화 — 결과 페이지의 표시
+        // 우선순위(renderedSitePlan ?? sitePlan) 때문에 클리어 안 하면 이전
+        // 렌더가 새 캡처를 가려 사용자가 변경을 못 알아챈다.
+        renderedSitePlan: null,
+        renderedAerialView: null,
       })
       console.log('[Editor] ===== 결과 확인 캡처 완료, 결과 페이지로 이동 =====')
       router.push('/editor/result')
