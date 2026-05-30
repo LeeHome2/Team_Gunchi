@@ -79,6 +79,9 @@ export interface ResultSnapshot {
   // 대신 표시). 사용자가 명시적으로 초기화 누르지 않는 한 store 에는 그대로
   // 유지되어, 같은 캡처로 다시 들어오면 렌더가 그대로 보임.
   renderedBasedOn?: string | null
+  // 매스 변경 감지용 시그니처 (modelTransform + 매스 URL). 같으면 '결과 확인'
+  // 시 재캡처 스킵하고 라우팅만.
+  captureSignature?: string | null
 }
 
 // ── 배치안 (Placement Plan) ──
