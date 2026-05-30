@@ -851,7 +851,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       resultSnapshot: { ...state.resultSnapshot, ...snapshot },
     })),
   clearResultSnapshot: () =>
-    set({ resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null, renderedSitePlan: null, renderedAerialView: null } }),
+    set({ resultSnapshot: { sitePlan: null, aerialView: null, capturedAt: null, renderedSitePlan: null, renderedAerialView: null, renderedBasedOn: null, captureSignature: null } }),
 
   setSaveProjectFn: (fn) => set({ saveProjectFn: fn }),
   setLoadProjectFn: (fn) => set({ loadProjectFn: fn }),

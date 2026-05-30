@@ -242,7 +242,7 @@ function SummaryCard({
 // ─── 메인 페이지 ─────────────────────────────────────────
 export default function ResultPage() {
   const router = useRouter()
-  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId, placementPlans, saveActivePlan, theme } =
+  const { workArea, site, building, validation, reviewData, resultSnapshot, modelTransform, parkingZone, parkingConfig, sunlightAnalysisState, aiScore, setAIScore, setResultSnapshot, clearResultSnapshot, projectId, setValidation, generatedMasses, parkingPath, loadedMassGlbUrl, activePlanId, placementPlans, saveActivePlan, theme } =
     useProjectStore()
 
   // 선호도 체크박스 상태
@@ -1084,15 +1084,9 @@ export default function ResultPage() {
                   {/* 뷰포트 초기화 버튼 */}
                   <button
                     onClick={() => {
-                      setResultSnapshot({
-                        sitePlan: null,
-                        aerialView: null,
-                        capturedAt: null,
-                        captureSignature: null,
-                        renderedSitePlan: null,
-                        renderedAerialView: null,
-                        renderedBasedOn: null,
-                      })
+                      // store 의 clearResultSnapshot 사용 — partial merge 대신
+                      // 전체 객체 set 으로 잔여 데이터 가능성을 원천 차단.
+                      clearResultSnapshot()
                       setRenderError(null)
                     }}
                     disabled={isRendering || (!resultSnapshot.sitePlan && !resultSnapshot.aerialView)}

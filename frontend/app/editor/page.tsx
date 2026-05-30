@@ -387,6 +387,11 @@ function EditorContent() {
         sitePlan,
         aerialView,         // 임시 Cesium 캡처. AI 렌더 후엔 렌더링 결과로 덮어씀.
         capturedAt: new Date().toISOString(),
+        // 캡처 분기까지 왔다는 건 초기화 직후라는 뜻 (위 skip 조건이 rendered*
+        // 가 있으면 캡처 자체를 안 함). 그래도 partial merge 의 잔여 위험을
+        // 없애기 위해 rendered* 도 명시적으로 null 로 동기화.
+        renderedSitePlan: null,
+        renderedAerialView: null,
       })
       console.log('[Editor] ===== 결과 확인 캡처 완료, 결과 페이지로 이동 =====')
       router.push('/editor/result')
