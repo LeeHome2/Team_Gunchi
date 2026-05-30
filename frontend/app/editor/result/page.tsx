@@ -383,6 +383,14 @@ export default function ResultPage() {
 
     // 순차 호출 — 무료 티어 분당 호출 한도(429) 회피.
     // 둘 중 하나가 실패해도 다른 하나는 시도하고, 사용자에게는 묶어서 안내.
+    // 메인 매스의 적정 높이를 명시적으로 보내, Gemini 가 매번 임의 높이로
+    // 렌더하는 randomness 를 차단. 캡처 이미지 안의 초록 footprint 라인을
+    // 식별 단서로 같이 활용.
+    const renderContext = {
+      zoneType: selectedZoneType !== '미지정' ? selectedZoneType : undefined,
+      floors: building?.floors ?? undefined,
+      heightM: building?.height ?? undefined,
+    }
     const renderOne = async (
       image: string,
       kind: 'sitePlan' | 'aerialView',
@@ -391,7 +399,7 @@ export default function ResultPage() {
         const r = await fetch('/api/ai-render-gemini', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image, kind }),
+          body: JSON.stringify({ image, kind, context: renderContext }),
         })
         const d = await r.json()
         if (!r.ok || !d.imageDataUrl) {

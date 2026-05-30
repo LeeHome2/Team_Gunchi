@@ -18,10 +18,37 @@ const STYLE_ANCHORS: Record<string, string> = {
   aerialView: process.env.ANCHOR_AERIAL_B64 || '',
 }
 
-// 고정 프롬프트 — 버전 6: 배치도는 초록 경계 유지, 조감도는 제거
+// 고정 프롬프트 — 버전 7
+// 조감도: 캡처에 이미 그려진 초록 footprint 라인을 메인 매스 식별 단서로 사용
+//        + floors/heightM 명시로 매번 다른 높이 렌더 randomness 차단
 const FIXED_SITEPLAN = `Architectural site plan rendering. Keep EXACT composition. Main building area with GREEN OUTLINE. Realistic buildings, roads, landscaping. NO text/labels.`
 
-const FIXED_AERIAL = `Architectural aerial rendering. Keep EXACT camera angle. Keep building SAME size and height as input. Realistic facades and roads. NO text/labels. Golden hour lighting.`
+const FIXED_AERIAL_TEMPLATE = ({
+  floors,
+  heightM,
+  zoneType,
+}: {
+  floors: number
+  heightM: number
+  zoneType: string
+}) => `Photorealistic architectural aerial rendering of an urban site.
+Preserve the EXACT camera angle, lighting direction, shadows, and surrounding urban context from the input image. Surrounding buildings (a mix of low- and high-rise) must remain unchanged in height, position, and style — do not redraw the city.
+
+== Main subject identification ==
+The site plot containing the main building is outlined with a BRIGHT GREEN footprint line drawn on the ground. Identify this green plot boundary and render ONLY the building inside it. The building inside is currently a simple flat-colored massing volume in the input.
+
+== Main building rendering ==
+The building inside the green plot boundary must be rendered as:
+- EXACTLY ${floors} stories tall (approximately ${heightM} meters)
+- DO NOT increase height beyond ${heightM} m
+- DO NOT add rooftop towers, antennas, mechanical structures, or extra floors
+- Footprint, position, and orientation must match the input precisely
+- Realistic facade, windows, and entrance suitable for a ${zoneType} ${floors}-story building
+
+== Surrounding context ==
+Leave ALL other buildings, roads, vegetation, terrain, and shadows unchanged.
+
+Photographic style, golden hour lighting. No text, labels, dimensions, drawings, or annotations.`
 
 
 interface RenderContext {
@@ -33,14 +60,29 @@ interface RenderContext {
 }
 
 function buildPrompt(kind: string, context?: RenderContext): string {
-  let p = kind === 'sitePlan' ? FIXED_SITEPLAN : FIXED_AERIAL
+  if (kind === 'aerialView') {
+    // 누락 시 합리적 디폴트 — 저층 주거형
+    const floors = context?.floors && context.floors > 0 ? context.floors : 3
+    const heightM = context?.heightM && context.heightM > 0
+      ? Math.round(context.heightM)
+      : floors * 3
+    const zoneType = context?.zoneType || 'mixed residential'
+    let p = FIXED_AERIAL_TEMPLATE({ floors, heightM, zoneType })
+    if (context?.sunlightHours !== undefined) {
+      const lighting = context.sunlightHours > 5
+        ? 'bright sunny daylight'
+        : context.sunlightHours > 3
+          ? 'soft afternoon light'
+          : 'overcast diffuse light'
+      p += `\n\nLighting: ${lighting}.`
+    }
+    return p
+  }
 
-  if (context?.zoneType) {
-    p += `\n\nContext: ${context.zoneType} zone building.`
-  }
-  if (context?.floors) {
-    p += ` ${context.floors} floors.`
-  }
+  // sitePlan — 기존 유지 + 컨텍스트 부가
+  let p = FIXED_SITEPLAN
+  if (context?.zoneType) p += `\n\nContext: ${context.zoneType} zone building.`
+  if (context?.floors) p += ` ${context.floors} floors.`
   if (context?.sunlightHours !== undefined) {
     const lighting = context.sunlightHours > 5
       ? 'bright sunny daylight'
@@ -49,7 +91,6 @@ function buildPrompt(kind: string, context?: RenderContext): string {
         : 'overcast diffuse light'
     p += ` Render with ${lighting}.`
   }
-
   return p
 }
 
