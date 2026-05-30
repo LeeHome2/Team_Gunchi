@@ -824,40 +824,30 @@ export default function ResultPage() {
       preferences,
     })
 
-    // 현재 배치안 데이터
+    // 현재 배치안 데이터 — 점수는 항상 scoringEngine 결과로 표시.
+    // store.aiScore.result 는 활성 plan 이 바뀔 때 복원돼서, 그대로 사용하면
+    // 다른 배치안과 동일한 점수가 표시되는 케이스가 있다 (createPlacementPlan
+    // 이 직전 plan 의 점수를 복사해두면 발생).
     const currentPlan = placementPlans.find(p => p.id === activePlanId)
     const currentVariant = {
       id: activePlanId || 'current',
       name: currentPlan?.name || '현재',
       isCurrent: true,
-      score: aiScore.result?.categories ? aiScore.result.overallScore : currentScores.overall,
-      categories: aiScore.result?.categories || currentScores.categories,
+      score: currentScores.overall,
+      categories: currentScores.categories,
       angleFromSouth: currentAngleFromSouth,
     }
 
-    // 다른 배치안들의 점수 (저장된 aiScore 또는 재계산)
+    // 다른 배치안들의 점수 — 진입할 때마다 항상 저장된 데이터(주차/방향/일조)
+    // 로 재계산. plan.aiScore 가 잔존하더라도 무시. createPlacementPlan 이
+    // 직전 plan 의 점수를 복사해두는 케이스 + 동일 store.aiScore 가 여러 plan
+    // 사이에서 공유되는 케이스 모두 결과 페이지에선 항상 최신 데이터로 표시.
     const otherVariants = placementPlans
       .filter(p => p.id !== activePlanId)
       .map((plan) => {
-        // 배치안별 창문 방향 계산 (저장된 rotation 사용)
         const planWindowDirection = calculateWindowDirection(plan.activeMassId, plan.modelTransform.rotation)
         const planAngleFromSouth = Math.abs(planWindowDirection - 180)
-
-        // 저장된 점수가 있으면 사용, 없으면 저장된 데이터로 계산
-        if (plan.aiScore?.categories) {
-          return {
-            id: plan.id,
-            name: plan.name,
-            isCurrent: false,
-            score: plan.aiScore.overallScore,
-            categories: plan.aiScore.categories,
-            angleFromSouth: planAngleFromSouth,
-          }
-        }
-
-        // 저장된 데이터로 점수 계산
         const planParkingDistance = plan.parkingPath?.length ?? 50
-        // 창문 방향 보정된 일조량 (기본 일조량 × 방향 계수)
         const planEffectiveSunlight = getSunlightWithWindowFactor(planAngleFromSouth)
 
         const planScores = calculateVariantScore({

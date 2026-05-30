@@ -925,15 +925,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
         heightCheck: state.reviewData.heightCheck ? { ...state.reviewData.heightCheck } : null,
         isModelInBounds: state.reviewData.isModelInBounds,
       },
-      aiScore: state.aiScore.result
-        ? {
-            overallScore: state.aiScore.result.overallScore,
-            categoryGrades: state.aiScore.result.categoryGrades,
-            summary: state.aiScore.result.summary,
-            suggestions: state.aiScore.result.suggestions,
-            categories: state.aiScore.result.categories,
-          }
-        : undefined,
+      // 새 배치안은 빈 점수로 시작. 직전 활성 plan 의 store.aiScore.result 가
+      // 그대로 복사되면 두 배치안이 동일 점수로 보이는 버그 (해당 plan 의
+      // 실제 배치/일조/주차로 계산된 게 아니라 직전 plan 의 잔여 점수).
+      // 결과 페이지에서 매번 재계산되므로 빈 상태로 두는 게 안전.
+      aiScore: undefined,
       createdAt: now,
       updatedAt: now,
     }
