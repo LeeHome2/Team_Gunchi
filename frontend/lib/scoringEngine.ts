@@ -53,9 +53,12 @@ export const calculateVariantScore = (input: ScoringInput): ScoringOutput => {
     parkingScore = 30; // 100m 이상도 최소 30점
   }
 
+  // 토글 즉시 반영되도록 sunlight/layout 가중치와 동일한 점수 기준으로 통일.
+  // 기존엔 거리 임계값(20, 50m) 양극단만 가중치를 받아, 20~50m 구간이나
+  // 경로 미설정(디폴트 50m) 케이스에서 토글 효과가 0이었다.
   if (preferences.parkingFitness) {
-    if (parkingDistance <= 20) parkingScore = Math.min(100, parkingScore * 1.1);
-    else if (parkingDistance > 50) parkingScore = Math.max(30, parkingScore * 0.9);
+    if (parkingScore >= 80) parkingScore = Math.min(100, parkingScore + 10);
+    else parkingScore = Math.max(0, parkingScore - 10);
   }
 
   // 2. 일조 점수 산출 (10시간 이상 100점, 1시간당 10점 감점, 3시간 이하 30점)
