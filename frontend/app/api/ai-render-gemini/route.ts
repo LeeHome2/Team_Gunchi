@@ -32,13 +32,22 @@ const FIXED_AERIAL_TEMPLATE = ({
   heightM: number
   zoneType: string
 }) => `Photorealistic architectural aerial rendering of an urban site.
-Transform the ENTIRE scene into a photorealistic architectural visualization — every building (both the main subject and ALL surrounding buildings) must be rendered with realistic facades, windows, materials, and rooftops. The input is a simplified massing scene; turn the whole frame into a believable city view.
+Transform the ENTIRE scene — buildings AND the ground plane — into a photorealistic architectural visualization. The input is a simplified massing scene placed on top of a 2D map texture (Google/OSM map imagery with place labels, street names, colored road outlines). The whole frame must be replaced with a believable city aerial photograph.
 
 Preserve from the input precisely:
 - Camera angle, framing, lighting direction, shadow direction
 - Each building's footprint, position, orientation
 - Each building's relative height (some low-rise, some high-rise — keep the urban mix exactly as shown)
-- Road network, intersections, ground layout
+- The road network layout (which streets exist and where they intersect)
+
+== Ground plane — REPLACE the 2D map texture ==
+The input ground contains flat map imagery with street names, place labels, and 2D-colored road graphics. You MUST replace this with photorealistic ground:
+- Roads as realistic asphalt with subtle lane markings and crosswalks where appropriate
+- Sidewalks (concrete/brick), curbs
+- Natural vegetation (street trees, small green patches)
+- Realistic surface textures matching the camera angle
+- REMOVE all map labels, place names, business markers, and 2D road colorings from the input
+- Maintain the same road network geometry, just rendered photorealistically
 
 == Main subject — strict height constraint ==
 The main plot is outlined with a BRIGHT GREEN footprint line on the ground. The building inside this green boundary is the design subject and must be rendered with:
@@ -50,7 +59,7 @@ The main plot is outlined with a BRIGHT GREEN footprint line on the ground. The 
 == Surrounding buildings ==
 Render every other building photorealistically with detailed facades, windows, and materials, BUT keep their original heights, footprints, and positions intact. Do not flatten, raise, or relocate any of them. Mix of low-rise and high-rise should remain as in the input.
 
-Photographic style, golden hour lighting, soft shadows. No text, labels, dimensions, drawings, or annotations.`
+Photographic style, golden hour lighting, soft shadows. No text, labels, dimensions, drawings, or annotations anywhere in the image.`
 
 
 interface RenderContext {
