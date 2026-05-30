@@ -32,23 +32,25 @@ const FIXED_AERIAL_TEMPLATE = ({
   heightM: number
   zoneType: string
 }) => `Photorealistic architectural aerial rendering of an urban site.
-Preserve the EXACT camera angle, lighting direction, shadows, and surrounding urban context from the input image. Surrounding buildings (a mix of low- and high-rise) must remain unchanged in height, position, and style — do not redraw the city.
+Transform the ENTIRE scene into a photorealistic architectural visualization — every building (both the main subject and ALL surrounding buildings) must be rendered with realistic facades, windows, materials, and rooftops. The input is a simplified massing scene; turn the whole frame into a believable city view.
 
-== Main subject identification ==
-The site plot containing the main building is outlined with a BRIGHT GREEN footprint line drawn on the ground. Identify this green plot boundary and render ONLY the building inside it. The building inside is currently a simple flat-colored massing volume in the input.
+Preserve from the input precisely:
+- Camera angle, framing, lighting direction, shadow direction
+- Each building's footprint, position, orientation
+- Each building's relative height (some low-rise, some high-rise — keep the urban mix exactly as shown)
+- Road network, intersections, ground layout
 
-== Main building rendering ==
-The building inside the green plot boundary must be rendered as:
+== Main subject — strict height constraint ==
+The main plot is outlined with a BRIGHT GREEN footprint line on the ground. The building inside this green boundary is the design subject and must be rendered with:
 - EXACTLY ${floors} stories tall (approximately ${heightM} meters)
-- DO NOT increase height beyond ${heightM} m
-- DO NOT add rooftop towers, antennas, mechanical structures, or extra floors
-- Footprint, position, and orientation must match the input precisely
-- Realistic facade, windows, and entrance suitable for a ${zoneType} ${floors}-story building
+- DO NOT exceed ${heightM} m, DO NOT add rooftop towers, antennas, mechanical structures, or extra floors
+- Footprint and orientation match input exactly
+- Realistic facade, windows, entrance suitable for a ${zoneType} ${floors}-story building
 
-== Surrounding context ==
-Leave ALL other buildings, roads, vegetation, terrain, and shadows unchanged.
+== Surrounding buildings ==
+Render every other building photorealistically with detailed facades, windows, and materials, BUT keep their original heights, footprints, and positions intact. Do not flatten, raise, or relocate any of them. Mix of low-rise and high-rise should remain as in the input.
 
-Photographic style, golden hour lighting. No text, labels, dimensions, drawings, or annotations.`
+Photographic style, golden hour lighting, soft shadows. No text, labels, dimensions, drawings, or annotations.`
 
 
 interface RenderContext {
