@@ -48,8 +48,14 @@ const SERVICE_API_KEYS: ServiceApiKey[] = [
   {
     key: 'openai_api_key',
     label: 'OpenAI API Key',
-    description: 'OpenAI GPT API 키 (AI 기능용)',
+    description: 'OpenAI GPT / gpt-image-1 API 키',
     placeholder: 'sk-...',
+  },
+  {
+    key: 'gemini_api_key',
+    label: 'Gemini API Key (Nano Banana)',
+    description: 'Google Gemini 2.5 Flash Image (나노바나나) API 키',
+    placeholder: 'AIza...',
   },
   {
     key: 'llm_api_key',

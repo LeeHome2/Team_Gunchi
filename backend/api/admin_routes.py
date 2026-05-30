@@ -12,6 +12,7 @@ import asyncio
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -1321,6 +1322,47 @@ _PROBE_ENDPOINTS = [
 ]
 
 
+def _env_fallback_for_api_keys() -> Dict[str, str]:
+    """어드민의 '서비스 연동 API 키' 카드가 보여주는 키들에 대해 env 폴백.
+
+    DB(service_settings)에 없으면 환경변수에서 채워서 보여준다. 키 종류별로
+    backend/.env 와 frontend/.env.local 둘 다 가능성이 있으므로 frontend
+    파일도 한 번 읽어 dict 로 만들어 둔다.
+    """
+    fe_env: Dict[str, str] = {}
+    fe_path = _BACKEND_DIR.parent / "frontend" / ".env.local" if "_BACKEND_DIR" in globals() else None
+    if fe_path is None:
+        # admin_routes 모듈은 _BACKEND_DIR 정의를 안 가질 수 있으니 직접 계산
+        fe_path = Path(__file__).resolve().parent.parent.parent / "frontend" / ".env.local"
+    try:
+        if fe_path.exists():
+            for line in fe_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                fe_env[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception:
+        # 읽기 실패는 무시 (보안/권한 이슈 가능)
+        pass
+
+    def _pick(*names: str) -> str:
+        for n in names:
+            v = os.getenv(n) or fe_env.get(n)
+            if v:
+                return v
+        return ""
+
+    return {
+        "cesium_token": _pick("CESIUM_ION_TOKEN", "NEXT_PUBLIC_CESIUM_TOKEN", "CESIUM_TOKEN"),
+        "vworld_api_key": _pick("VWORLD_API_KEY"),
+        "openai_api_key": _pick("OPENAI_API_KEY"),
+        "llm_api_key": _pick("LLM_API_KEY"),
+        "llm_base_url": _pick("LLM_BASE_URL"),
+        "gemini_api_key": _pick("GEMINI_API_KEY", "GOOGLE_AI_API_KEY"),
+    }
+
+
 @router.get("/service/settings")
 def get_service_settings(db: Session = Depends(get_db)):
     cached = _cache.get("service:settings", ttl=10.0)
@@ -1339,7 +1381,10 @@ def get_service_settings(db: Session = Depends(get_db)):
         "error_mode": "notify",
         "maintenance": "false",
     }
-    merged = {**defaults, **stored}
+    # 외부 API 키들은 env 에서 폴백 — DB 값이 빈문자열이어도 env 값을 우선 노출
+    api_key_env = _env_fallback_for_api_keys()
+    api_key_merged = {k: (stored.get(k) or api_key_env[k]) for k in api_key_env}
+    merged = {**defaults, **stored, **api_key_merged}
     payload = {"settings": merged}
     _cache.set("service:settings", payload)
     return payload
