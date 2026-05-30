@@ -50,15 +50,15 @@ export default function AdminLoginPage() {
         <div className="tag-warn">Restricted</div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-white/80">관리자 이메일</label>
+          <label className="mb-1.5 block text-sm font-medium text-white/80">관리자 ID</label>
           <input
-            type="email"
+            type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="root@gunchi.ai"
+            placeholder="admin 또는 root@gunchi.ai"
             className="input-field"
             required
-            autoComplete="email"
+            autoComplete="username"
           />
         </div>
         <div>
