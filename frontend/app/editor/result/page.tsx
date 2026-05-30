@@ -683,6 +683,8 @@ export default function ResultPage() {
     min_distance_m: reviewData.setback.minDistance,
     required_m: reviewData.setback.required,
     status: reviewData.setback.status === 'OK' ? 'OK' : 'fail',
+    // 변별 결과(도로변/인접대지 따로) — 결과 카드의 status 판정에 사용
+    details: (reviewData.setback as any).details ?? [],
   } : null)
 
   // validation에 height 정보가 없으면 reviewData.heightCheck 사용, 그것도 없으면 building.height로 추정
@@ -1094,11 +1096,24 @@ export default function ResultPage() {
                 <SummaryCard
                   label="이격거리"
                   value={fmt(setback?.min_distance_m, ' m')}
-                  limit={`${fmt(selectedZoneLimits.setback_road, ' m')} 이상`}
+                  limit={
+                    selectedZoneLimits.setback_road !== selectedZoneLimits.setback_adjacent
+                      ? `도로 ${fmt(selectedZoneLimits.setback_road, 'm')} · 인접 ${fmt(selectedZoneLimits.setback_adjacent, 'm')}`
+                      : `${fmt(selectedZoneLimits.setback_road, ' m')} 이상`
+                  }
                   status={
-                    setback?.min_distance_m != null && selectedZoneLimits.setback_road != null
-                      ? setback.min_distance_m >= selectedZoneLimits.setback_road ? 'pass' : 'fail'
-                      : statusFromRaw(setback?.status)
+                    // 변별 검토 결과(details)가 있으면 변별로 판정 — 도로/인접 각자 기준
+                    Array.isArray((setback as any)?.details) && (setback as any).details.length > 0
+                      ? (setback as any).details.every((d: any) => d.status === 'OK') ? 'pass' : 'fail'
+                      // 다음 우선: 검토 단계에서 이미 산출한 setback.status
+                      : setback?.status === 'OK'
+                        ? 'pass'
+                        : setback?.status === 'fail' || setback?.status === 'VIOLATION'
+                          ? 'fail'
+                          // 마지막 폴백: 단일 도로변 기준으로 비교 (변별 정보가 전혀 없을 때만)
+                          : setback?.min_distance_m != null && selectedZoneLimits.setback_road != null
+                            ? setback.min_distance_m >= selectedZoneLimits.setback_road ? 'pass' : 'fail'
+                            : statusFromRaw(setback?.status)
                   }
                   isDark={isDark}
                 />
