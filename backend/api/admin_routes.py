@@ -105,12 +105,19 @@ class AdminAccountCreate(BaseModel):
     email: str
     name: str
     role: str = "viewer"
+    password: Optional[str] = None  # 비번 없이도 생성 가능, 로그인은 비번 있는 계정만
 
 
 class AdminAccountUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    password: Optional[str] = None  # 별도 전달 시 비번 변경
+
+
+class AdminLoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 class ApiKeyOut(BaseModel):
@@ -1211,10 +1218,21 @@ def list_admins(db: Session = Depends(get_db)):
     return payload
 
 
+def _hash_admin_password(pw: str) -> str:
+    """users 테이블과 동일한 sha256 해싱 (main.py:hash_password 와 일치)."""
+    import hashlib
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+
 @router.post("/auth/accounts")
 def create_admin(payload: AdminAccountCreate, db: Session = Depends(get_db)):
+    pw_hash = _hash_admin_password(payload.password) if payload.password else None
     a = crud.create_admin_account(
-        db, email=payload.email, name=payload.name, role=payload.role
+        db,
+        email=payload.email,
+        name=payload.name,
+        role=payload.role,
+        password_hash=pw_hash,
     )
     _cache.invalidate("auth:accounts")
     return _serialize_admin(a)
@@ -1233,8 +1251,36 @@ def update_admin(
     )
     if not a:
         raise HTTPException(status_code=404, detail="admin not found")
+    if payload.password is not None:
+        # 빈 문자열로 보내면 비번 제거(잠금 효과)
+        a.password_hash = _hash_admin_password(payload.password) if payload.password else None
+        db.commit()
     _cache.invalidate("auth:accounts")
     return _serialize_admin(a)
+
+
+@router.post("/auth/login")
+def admin_login(payload: AdminLoginRequest, db: Session = Depends(get_db)):
+    """관리자 로그인. email + password 검증. last_login_at 갱신.
+
+    users 테이블과 동일한 sha256 해시 비교.
+    """
+    a = crud.get_admin_by_email(db, payload.email.strip().lower())
+    if not a or not a.is_active:
+        raise HTTPException(status_code=401, detail="계정이 존재하지 않거나 비활성 상태입니다")
+    if not a.password_hash:
+        raise HTTPException(status_code=401, detail="비밀번호가 설정되지 않은 계정입니다")
+    if a.password_hash != _hash_admin_password(payload.password):
+        raise HTTPException(status_code=401, detail="비밀번호가 일치하지 않습니다")
+    crud.update_admin_last_login(db, a.id)
+    _cache.invalidate("auth:accounts")
+    return {
+        "success": True,
+        "admin_id": str(a.id),
+        "email": a.email,
+        "name": a.name,
+        "role": a.role,
+    }
 
 
 @router.delete("/auth/accounts/{admin_id}")

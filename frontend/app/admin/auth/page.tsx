@@ -151,11 +151,28 @@ export default function AdminAuthPage() {
     if (!email) return
     const name = prompt('이름') || email
     const role = prompt('권한 (superadmin | ops | viewer)') || 'viewer'
+    const password = prompt('비밀번호 (로그인용, 빈 값이면 잠금 상태로 생성)') || ''
     try {
-      await adminApi.createAdminAccount({ email, name, role })
+      await adminApi.createAdminAccount({
+        email: email.trim().toLowerCase(),
+        name,
+        role,
+        password: password || undefined,
+      })
       await load()
     } catch (e: any) {
       alert(e.message || '추가 실패')
+    }
+  }
+
+  const handleResetAdminPassword = async (a: AccountRow) => {
+    const password = prompt(`${a.email} 의 새 비밀번호 (빈 값이면 비번 잠금)`)
+    if (password === null) return
+    try {
+      await adminApi.updateAdminAccount(a.id, { password })
+      alert('비밀번호가 변경되었습니다.')
+    } catch (e: any) {
+      alert(e.message || '비밀번호 변경 실패')
     }
   }
 
@@ -317,6 +334,9 @@ export default function AdminAuthPage() {
                     <div className="flex gap-1.5">
                       <SmallBtn onClick={() => handleToggleAdmin(a)}>
                         {a.is_active ? '비활성화' : '활성화'}
+                      </SmallBtn>
+                      <SmallBtn onClick={() => handleResetAdminPassword(a)}>
+                        비번 변경
                       </SmallBtn>
                       <SmallBtn
                         variant="danger"

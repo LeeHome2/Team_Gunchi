@@ -305,6 +305,8 @@ class AdminAccount(Base):
     # "superadmin" | "ops" | "viewer"
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # sha256(password) — users 테이블과 동일 패턴
+    password_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

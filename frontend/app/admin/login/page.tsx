@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AuthShell from '@/components/AuthShell'
+import { adminApi } from '@/lib/api'
 
 export default function AdminLoginPage() {
   const router = useRouter()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -17,15 +18,19 @@ export default function AdminLoginPage() {
     setError(null)
     setLoading(true)
     try {
-      await new Promise((r) => setTimeout(r, 400))
-      if (username !== 'admin' || password !== 'admin') {
-        setError('관리자 계정을 확인해 주세요. (데모: admin / admin)')
-        return
-      }
+      const res = await adminApi.adminLogin({
+        email: email.trim().toLowerCase(),
+        password,
+      })
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('geonchi_admin', '1')
+        sessionStorage.setItem('geonchi_admin_id', res.admin_id)
+        sessionStorage.setItem('geonchi_admin_email', res.email)
+        sessionStorage.setItem('geonchi_admin_role', res.role)
       }
       router.push('/admin/dashboard')
+    } catch (err: any) {
+      setError(err?.message || '로그인 실패')
     } finally {
       setLoading(false)
     }
@@ -45,14 +50,15 @@ export default function AdminLoginPage() {
         <div className="tag-warn">Restricted</div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-white/80">관리자 ID</label>
+          <label className="mb-1.5 block text-sm font-medium text-white/80">관리자 이메일</label>
           <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="admin"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="root@gunchi.ai"
             className="input-field"
             required
+            autoComplete="email"
           />
         </div>
         <div>
@@ -64,6 +70,7 @@ export default function AdminLoginPage() {
             placeholder="••••••••"
             className="input-field"
             required
+            autoComplete="current-password"
           />
         </div>
 

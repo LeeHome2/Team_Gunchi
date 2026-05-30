@@ -798,14 +798,20 @@ export const adminApi = {
     email: string
     name: string
     role?: string
+    password?: string
   }) =>
     adminFetch<AdminAccount>('/auth/accounts', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  adminLogin: (payload: { email: string; password: string }) =>
+    adminFetch<{ success: boolean; admin_id: string; email: string; name: string; role: string }>(
+      '/auth/login',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
   updateAdminAccount: (
     id: string,
-    payload: { name?: string; role?: string; is_active?: boolean }
+    payload: { name?: string; role?: string; is_active?: boolean; password?: string }
   ) =>
     adminFetch<AdminAccount>(`/auth/accounts/${id}`, {
       method: 'PATCH',

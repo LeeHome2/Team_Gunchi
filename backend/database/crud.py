@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from uuid import UUID
 from typing import List, Optional, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from .models import (
     Project, DxfFile, ClassificationResult, GeneratedModel,
@@ -635,13 +635,34 @@ def get_admin_account(db: Session, admin_id: UUID) -> Optional[AdminAccount]:
 
 
 def create_admin_account(
-    db: Session, email: str, name: str, role: str = "viewer"
+    db: Session,
+    email: str,
+    name: str,
+    role: str = "viewer",
+    password_hash: Optional[str] = None,
 ) -> AdminAccount:
-    admin = AdminAccount(email=email, name=name, role=role, is_active=True)
+    admin = AdminAccount(
+        email=email,
+        name=name,
+        role=role,
+        is_active=True,
+        password_hash=password_hash,
+    )
     db.add(admin)
     db.commit()
     db.refresh(admin)
     return admin
+
+
+def get_admin_by_email(db: Session, email: str) -> Optional[AdminAccount]:
+    return db.query(AdminAccount).filter(AdminAccount.email == email).first()
+
+
+def update_admin_last_login(db: Session, admin_id: UUID) -> None:
+    admin = get_admin_account(db, admin_id)
+    if admin:
+        admin.last_login_at = datetime.now(timezone.utc)
+        db.commit()
 
 
 def update_admin_account(
