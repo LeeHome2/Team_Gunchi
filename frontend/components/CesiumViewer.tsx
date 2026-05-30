@@ -2468,6 +2468,15 @@ export default function CesiumViewer() {
       showHeatmap: sunlightAnalysis.showHeatmap,
       heatmapMode: sunlightAnalysis.heatmapMode,
     })
+    // 일조 분석 결과가 새로 생기면 활성 plan 에 즉시 저장 — saveActivePlan
+    // 호출 시점이 명확치 않아 결과 페이지로 가기 전 일조가 plan 에 영속되지
+    // 못하던 문제 fix. 다시 분석하기 전까지 plan.sunlightResult 유지.
+    if (sunlightAnalysis.analysisResult) {
+      const store = useProjectStore.getState()
+      if (store.activePlanId) {
+        store.saveActivePlan()
+      }
+    }
   }, [sunlightAnalysis.isAnalyzing, sunlightAnalysis.analysisProgress, sunlightAnalysis.analysisResult, sunlightAnalysis.showHeatmap, sunlightAnalysis.heatmapMode, setSunlightAnalysisState])
 
   // === 뷰포트 새로고침 ===

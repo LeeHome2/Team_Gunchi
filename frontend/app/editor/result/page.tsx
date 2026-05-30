@@ -817,20 +817,27 @@ export default function ResultPage() {
 
   // 배치안별 점수 계산 (실제 placementPlans 데이터 사용)
   const variantsData = useMemo(() => {
-    // 일조량은 대지에 대한 분석이므로 모든 배치안이 동일한 기본값 사용
-    // 우선순위: 현재 분석 결과 > 저장된 배치안 중 하나의 결과
+    // 일조량은 plan 별로 따로 가져감 — 활성 plan 은 store 의 현재 분석 결과
+    // 우선, 그 다음 활성 plan 의 저장된 sunlightResult. 다른 plan 은 각자
+    // 저장된 sunlightResult 우선, 없으면 활성 plan 의 일조로 폴백.
     // averageSunlightHours 는 스텝 수(0~7) 라 ×2 로 실제 시간 환산.
     const SUNLIGHT_HOUR_STEP = 2
-    const baseSunlightHours = ((sunlightAnalysisState?.result?.averageSunlightHours
-      ?? placementPlans.find(p => p.sunlightResult?.averageSunlightHours)?.sunlightResult?.averageSunlightHours
-      ?? 0)) * SUNLIGHT_HOUR_STEP
+    const activePlanObj = placementPlans.find(p => p.id === activePlanId)
+    const activeSunlightSteps =
+      sunlightAnalysisState?.result?.averageSunlightHours
+        ?? activePlanObj?.sunlightResult?.averageSunlightHours
+        ?? placementPlans.find(p => p.sunlightResult?.averageSunlightHours)?.sunlightResult?.averageSunlightHours
+        ?? 0
+    const getPlanBaseSunlight = (plan?: { sunlightResult?: { averageSunlightHours?: number } | null }) => {
+      const steps = plan?.sunlightResult?.averageSunlightHours ?? activeSunlightSteps
+      return steps * SUNLIGHT_HOUR_STEP
+    }
+    const activeBaseSunlight = activeSunlightSteps * SUNLIGHT_HOUR_STEP
 
-    // 창문 방향에 따른 채광 보정 계수 계산
-    // 남향(0°): 100%, 동/서향(90°): 75%, 북향(180°): 50%
-    // 변별력 강화: 주변 건물 없어도 배치 방향에 따라 큰 점수 차이 발생
-    const getSunlightWithWindowFactor = (angleFromSouth: number) => {
+    // 창문 방향에 따른 채광 보정 계수 계산 (plan 별 base 곱해서 사용)
+    const applyWindowFactor = (base: number, angleFromSouth: number) => {
       const factor = 1 - (angleFromSouth / 180) * 0.5  // 0° → 1.0, 180° → 0.5
-      return baseSunlightHours * factor
+      return base * factor
     }
 
     // 배치 규정 점수 입력 계산 (위반 카운트 + 영역 이탈 + 유효면적 비율)
@@ -864,8 +871,8 @@ export default function ResultPage() {
     const currentParkingDistance = parkingPath?.length ?? 50
     // 실제 각도 차이 사용 (정남향 180°에서 얼마나 벗어났는지)
     const currentAngleFromSouth = Math.abs(scoringInputData.mainWindowDirection - 180)
-    // 창문 방향 보정된 일조량
-    const currentEffectiveSunlight = getSunlightWithWindowFactor(currentAngleFromSouth)
+    // 창문 방향 보정된 일조량 (활성 plan base)
+    const currentEffectiveSunlight = applyWindowFactor(activeBaseSunlight, currentAngleFromSouth)
 
     const currentLayoutInputs = computeLayoutInputs(
       reviewData,
@@ -905,7 +912,7 @@ export default function ResultPage() {
         const planWindowDirection = calculateWindowDirection(plan.activeMassId, plan.modelTransform.rotation)
         const planAngleFromSouth = Math.abs(planWindowDirection - 180)
         const planParkingDistance = plan.parkingPath?.length ?? 50
-        const planEffectiveSunlight = getSunlightWithWindowFactor(planAngleFromSouth)
+        const planEffectiveSunlight = applyWindowFactor(getPlanBaseSunlight(plan), planAngleFromSouth)
         const planLayoutInputs = computeLayoutInputs(
           plan.reviewData,
           plan.parkingZone,
