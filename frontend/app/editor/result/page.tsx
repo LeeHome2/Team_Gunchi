@@ -593,10 +593,14 @@ export default function ResultPage() {
       } : null
 
       // 일조 데이터 조립
+      // sunlightAnalysis 가 저장하는 averageSunlightHours 는 변수명과 달리
+      // "2시간 간격 7스텝 중 일조 받은 스텝 수"(0~7) 이다. LLM/스코어링은
+      // 실제 시간(0~14h) 단위로 받아야 임계값(10h 이상 우수 등)이 의미 있음.
+      const SUNLIGHT_HOUR_STEP = 2
       const sunlightData = sunlightAnalysisState?.result ? {
-        avg_sunlight_hours: sunlightAnalysisState.result.averageSunlightHours,
-        min_sunlight_hours: sunlightAnalysisState.result.minSunlightHours,
-        max_sunlight_hours: sunlightAnalysisState.result.maxSunlightHours,
+        avg_sunlight_hours: sunlightAnalysisState.result.averageSunlightHours * SUNLIGHT_HOUR_STEP,
+        min_sunlight_hours: sunlightAnalysisState.result.minSunlightHours * SUNLIGHT_HOUR_STEP,
+        max_sunlight_hours: sunlightAnalysisState.result.maxSunlightHours * SUNLIGHT_HOUR_STEP,
         total_points: sunlightAnalysisState.result.totalPoints,
       } : null
 
@@ -629,9 +633,10 @@ export default function ResultPage() {
         zone_type: validation?.zone_type ?? reviewData?.selectedZoneType,
       }
 
-      // scoringEngine으로 점수 계산
+      // scoringEngine으로 점수 계산 — averageSunlightHours 는 스텝 수 (0~7)
+      // 라 ×2 환산. scoringEngine 의 임계값(10h 우수 / 3h 미달) 은 실시간 단위.
       const parkingDistance = parkingPath?.length ?? 50
-      const baseSunlightHours = sunlightAnalysisState?.result?.averageSunlightHours ?? 0
+      const baseSunlightHours = (sunlightAnalysisState?.result?.averageSunlightHours ?? 0) * SUNLIGHT_HOUR_STEP
       // 실제 각도 차이 사용 (정남향 180°에서 얼마나 벗어났는지)
       const angleFromSouth = Math.abs(scoringInputData.mainWindowDirection - 180)
       // 창문 방향에 따른 채광 보정 (남향 100%, 북향 50%)
@@ -791,9 +796,11 @@ export default function ResultPage() {
   const variantsData = useMemo(() => {
     // 일조량은 대지에 대한 분석이므로 모든 배치안이 동일한 기본값 사용
     // 우선순위: 현재 분석 결과 > 저장된 배치안 중 하나의 결과
-    const baseSunlightHours = sunlightAnalysisState?.result?.averageSunlightHours
+    // averageSunlightHours 는 스텝 수(0~7) 라 ×2 로 실제 시간 환산.
+    const SUNLIGHT_HOUR_STEP = 2
+    const baseSunlightHours = ((sunlightAnalysisState?.result?.averageSunlightHours
       ?? placementPlans.find(p => p.sunlightResult?.averageSunlightHours)?.sunlightResult?.averageSunlightHours
-      ?? 0
+      ?? 0)) * SUNLIGHT_HOUR_STEP
 
     // 창문 방향에 따른 채광 보정 계수 계산
     // 남향(0°): 100%, 동/서향(90°): 75%, 북향(180°): 50%
