@@ -20,7 +20,6 @@ Cesium 지도 위에서 건폐율·이격거리·일조 등 건축 규정을 실
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
 ![vLLM](https://img.shields.io/badge/vLLM_Qwen3.5-FF6F61?style=flat)
 
-<!-- 있는 것만 남기고 나머지는 삭제하세요 -->
 **[📹 시연 영상](https://drive.google.com/file/d/1L-Ky5bv9eBtDsjnJ7s5Lfp9DRIdoHqM8/view?usp=sharing) · [📄 발표자료](https://docs.google.com/presentation/d/1W4OJJbZgQ3uSP-9manOzE4UpRVfWSO1x/edit?usp=sharing&ouid=112476154675221057929&rtpof=true&sd=true) · [📘 빠른 시작](docs/QUICKSTART.md)**
 
 </div>
@@ -93,7 +92,7 @@ Cesium 지도 위에서 건폐율·이격거리·일조 등 건축 규정을 실
 | **시스템 설정** | API URL, AI 서버 URL, 로그 레벨 등 |
 | **재학습 스케줄러** | 주기별/신뢰도 기반 자동 재학습 설정 |
 
-<!-- ▼ 핵심 기능 스크린샷 2~4장 (기능이 실제로 도는 모습이 최고의 증거) -->
+<!-- ▼ 핵심 기능 스크린샷  -->
 <p align="center">
   <img src="docs/images/feature-mass.png"     alt="DXF → 3D 매스 자동 생성" width="45%">
   <img src="docs/images/feature-review.png"   alt="건폐율·이격거리 실시간 규정 검토" width="45%">
