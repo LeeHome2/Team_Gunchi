@@ -21,7 +21,7 @@ Cesium 지도 위에서 건폐율·이격거리·일조 등 건축 규정을 실
 ![vLLM](https://img.shields.io/badge/vLLM_Qwen3.5-FF6F61?style=flat)
 
 <!-- 있는 것만 남기고 나머지는 삭제하세요 -->
-**[📹 시연 영상](https://drive.google.com/file/d/1L-Ky5bv9eBtDsjnJ7s5Lfp9DRIdoHqM8/view?usp=sharing ) · [📄 발표자료]( ) · [📘 빠른 시작](docs/QUICKSTART.md)**
+**[📹 시연 영상](https://drive.google.com/file/d/1L-Ky5bv9eBtDsjnJ7s5Lfp9DRIdoHqM8/view?usp=sharing) · [📄 발표자료](https://docs.google.com/presentation/d/1W4OJJbZgQ3uSP-9manOzE4UpRVfWSO1x/edit?usp=sharing&ouid=112476154675221057929&rtpof=true&sd=true) · [📘 빠른 시작](docs/QUICKSTART.md)**
 
 </div>
 
