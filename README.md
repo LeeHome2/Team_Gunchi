@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏗️ Building Cesium
+# 🏗️ Team Gunchi Project
 
 **CAD 도면(DXF) 기반 3D 건축 매스 자동 생성 및 규정 검토 시스템**
 
