@@ -8,6 +8,8 @@
 Cesium 지도 위에서 건폐율·이격거리·일조 등 건축 규정을 실시간 검토합니다.
 
 <img width="2362" height="1244" alt="화면 캡처 2026-04-11 142727" src="https://github.com/user-attachments/assets/d9dc85cc-92fc-4afb-a1df-85ab9e5b5b92" />
+<img width="2000" height="1075" alt="image" src="https://github.com/user-attachments/assets/105db270-3a44-45c4-ae4c-d1ed907025aa" />
+<img width="2000" height="1075" alt="image" src="https://github.com/user-attachments/assets/4d181f9f-3e93-4904-832b-7393b2a5d3eb" />
 
 <img width="1024" height="585" alt="render2" src="https://github.com/user-attachments/assets/6dce1cdc-423f-472b-9266-2b1992aaf063" />
 
