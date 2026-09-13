@@ -1,10 +1,45 @@
-# Building Cesium
+<div align="center">
 
-> **CAD 기반 3D 건축 매스 생성 및 규정 검토 시스템**
-> 2026 종합설계프로젝트 (Team 건치 / Gachon CS)
+# 🏗️ Building Cesium
 
-개인 건축주가 CAD 도면(DXF)을 업로드하면 **3D 건물 매스를 자동 생성**하고,
-Cesium 지도 위에서 **건폐율/이격거리/일조** 등 건축 규정을 실시간 검토하는 시스템입니다.
+**CAD 도면(DXF) 기반 3D 건축 매스 자동 생성 및 규정 검토 시스템**
+
+개인 건축주가 CAD 도면을 업로드하면 3D 건물 매스를 자동 생성하고,
+Cesium 지도 위에서 건폐율·이격거리·일조 등 건축 규정을 실시간 검토합니다.
+
+<img width="2362" height="1244" alt="화면 캡처 2026-04-11 142727" src="https://github.com/user-attachments/assets/d9dc85cc-92fc-4afb-a1df-85ab9e5b5b92" />
+
+<img width="1024" height="585" alt="render2" src="https://github.com/user-attachments/assets/6dce1cdc-423f-472b-9266-2b1992aaf063" />
+
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat&logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)
+![CesiumJS](https://img.shields.io/badge/CesiumJS-1.114-6CADDF?style=flat&logo=cesium&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
+![vLLM](https://img.shields.io/badge/vLLM_Qwen3.5-FF6F61?style=flat)
+
+<!-- 있는 것만 남기고 나머지는 삭제하세요 -->
+**[📹 시연 영상]( ) · [📄 발표자료]( ) · [📘 빠른 시작](docs/QUICKSTART.md)**
+
+</div>
+
+<!-- ▼ 히어로 이미지: 3D 에디터 전체 화면 1장 (가장 임팩트 큰 화면) -->
+<p align="center">
+  <img src="docs/images/hero-editor.png" alt="Building Cesium 3D 에디터" width="90%">
+  <br><em>DXF 업로드 → 3D 매스 자동 생성 → 규정 검토까지 한 화면에서</em>
+</p>
+
+---
+
+## 프로젝트 개요
+
+|  |  |
+|---|---|
+| **프로젝트** | 2026 종합설계프로젝트 (Team 건치 / 가천대학교 컴퓨터공학과) |
+| **기간** | [ 2026.02 ~ 06 ] |
+| **팀 구성** | 4인 · 지도교수 이병문 |
+| **내 역할** | **프로젝트 개발 총괄** — AI 모듈 구현, 서비스 아키텍처 구성, API/DB 설계, 프론트–백엔드–AI 서버 연동 |
+| **핵심 기술** | Next.js 14 · CesiumJS · FastAPI · PostgreSQL · 학과 vLLM(Qwen3.5-35B) |
 
 ---
 
@@ -56,6 +91,16 @@ Cesium 지도 위에서 **건폐율/이격거리/일조** 등 건축 규정을 �
 | **시스템 설정** | API URL, AI 서버 URL, 로그 레벨 등 |
 | **재학습 스케줄러** | 주기별/신뢰도 기반 자동 재학습 설정 |
 
+<!-- ▼ 핵심 기능 스크린샷 2~4장 (기능이 실제로 도는 모습이 최고의 증거) -->
+<p align="center">
+  <img src="docs/images/feature-mass.png"     alt="DXF → 3D 매스 자동 생성" width="45%">
+  <img src="docs/images/feature-review.png"   alt="건폐율·이격거리 실시간 규정 검토" width="45%">
+</p>
+<p align="center">
+  <img src="docs/images/feature-parking.png"  alt="주차구역 자동 배치 + A* 경로 탐색" width="45%">
+  <img src="docs/images/feature-sunlight.png" alt="일조 분석 히트맵" width="45%">
+</p>
+
 ---
 
 ## 시스템 아키텍처
@@ -106,6 +151,12 @@ Cesium 지도 위에서 **건폐율/이격거리/일조** 등 건축 규정을 �
               │  Qwen3.5-35B (text/vision)               │
               └──────────────────────────────────────────┘
 ```
+
+<!-- (선택) 위 ASCII 대신/함께 실제 구성도 이미지를 쓰려면 아래 주석을 푸세요
+<p align="center">
+  <img src="docs/images/architecture.png" alt="시스템 아키텍처" width="85%">
+</p>
+-->
 
 ---
 
@@ -408,6 +459,11 @@ http://localhost:3000
 | 시스템 설정 | `/admin/settings` | 서비스 설정 |
 | DB 관리 | `/admin/database` | RDS/SQLite 전환 |
 
+<!-- ▼ 관리자 콘솔 캡처 (대시보드/AI 모델 관리 화면) -->
+<p align="center">
+  <img src="docs/images/admin-dashboard.png" alt="관리자 콘솔 대시보드" width="80%">
+</p>
+
 ---
 
 ## 데이터 형식
@@ -581,9 +637,3 @@ interface PlacementPlan {
 
 - [Team_Gunchi (메인)](https://github.com/LeeHome2/Team_Gunchi) — building_cesium
 - [Team_Gunchi_classifier](https://github.com/LeeHome2/Team_Gunchi_classifier) — AI 레이어 분류 모듈
-
----
-
-## 라이선스
-
-MIT License
